@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Room 01 · 비워내는 방 | The Core Room</title>
+<style>
+  :root {
+    --accent: #8c1515;
+    --accent2: #c8695a;
+    --gold: #d2c295;
+    --bg: #0a0303;
+    --surface: #140808;
+    --border: rgba(140,21,21,0.25);
+    --text: #f0ebe0;
+    --dim: #a89080;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI","Apple SD Gothic Neo","Pretendard",sans-serif; line-height: 1.6; }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(10,3,3,0.88); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .inner { max-width: 960px; margin: 0 auto; padding: 0 24px; height: 58px; display: flex; align-items: center; justify-content: space-between; }
+  .nav-logo { font-weight: 700; font-size: 0.9rem; color: var(--gold); letter-spacing: 1px; text-decoration: none; }
+  .nav-back { font-size: 0.82rem; color: var(--dim); text-decoration: none; display: flex; align-items: center; gap: 6px; transition: color 0.2s; }
+  .nav-back:hover { color: var(--text); }
+  .nav-badge { background: var(--accent); color: #fff; font-size: 0.72rem; font-weight: 700; letter-spacing: 1px; padding: 3px 12px; border-radius: 20px; }
+
+  /* HERO */
+  .hero {
+    min-height: 55vh; display: flex; align-items: flex-end; justify-content: center;
+    position: relative; overflow: hidden; padding-bottom: 60px; margin-top: 58px;
+  }
+  .hero-art { position: absolute; inset: 0; }
+  .hero-art svg { width: 100%; height: 100%; display: block; }
+  .hero::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(10,3,3,1) 0%, rgba(10,3,3,0.5) 50%, rgba(10,3,3,0.1) 100%);
+  }
+  .hero-text { position: relative; z-index: 1; text-align: center; max-width: 640px; padding: 0 24px; }
+  .hero-text .room-no { font-size: 0.72rem; letter-spacing: 3px; color: var(--gold); opacity: 0.8; margin-bottom: 14px; display: block; }
+  .hero-text h1 { font-size: 2.4rem; font-weight: 900; line-height: 1.2; margin-bottom: 14px; }
+  .hero-text h1 .sub { display: block; font-size: 1rem; font-weight: 400; color: var(--dim); margin-top: 8px; }
+  .hero-text .hook { font-size: 0.95rem; color: var(--dim); max-width: 480px; margin: 0 auto; }
+
+  /* SCENES */
+  .scenes { max-width: 960px; margin: 0 auto; padding: 80px 24px; }
+  .scenes-title { text-align: center; font-size: 0.75rem; letter-spacing: 3px; color: var(--gold); margin-bottom: 56px; opacity: 0.7; }
+
+  .scene { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; margin-bottom: 96px; }
+  .scene.reverse { direction: rtl; }
+  .scene.reverse > * { direction: ltr; }
+
+  .scene-art { border-radius: 16px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); aspect-ratio: 4/3; position: relative; }
+  .scene-art svg { width: 100%; height: 100%; display: block; }
+
+  .scene-info { padding: 8px 0; }
+  .scene-num { font-size: 0.68rem; letter-spacing: 3px; color: var(--accent2); font-weight: 700; margin-bottom: 12px; display: block; }
+  .scene-info h2 { font-size: 1.5rem; font-weight: 800; margin-bottom: 14px; line-height: 1.3; }
+  .scene-info p { font-size: 0.93rem; color: var(--dim); line-height: 1.8; margin-bottom: 14px; }
+  .scene-twist {
+    background: rgba(140,21,21,0.1); border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0; padding: 12px 16px;
+    font-size: 0.85rem; color: var(--accent2); font-style: italic; line-height: 1.6;
+  }
+
+  /* CTA */
+  .cta-band { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 60px 24px; text-align: center; }
+  .cta-band h2 { font-size: 1.6rem; margin-bottom: 10px; }
+  .cta-band p { color: var(--dim); margin-bottom: 28px; font-size: 0.92rem; }
+  .btn-group { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 13px 30px; border-radius: 24px; font-weight: 700; font-size: 0.9rem; text-decoration: none; transition: all 0.2s; }
+  .btn-primary { background: linear-gradient(135deg, var(--accent), #b83232); color: #fff; }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(140,21,21,0.4); }
+  .btn-ghost { border: 1px solid var(--border); color: var(--dim); }
+  .btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* NEXT ROOM NAV */
+  .room-nav { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; display: flex; justify-content: space-between; align-items: center; }
+  .room-nav a { text-decoration: none; display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 0.85rem; transition: color 0.2s; }
+  .room-nav a:hover { color: var(--gold); }
+  .room-nav .arrow { font-size: 1.2rem; }
+
+  footer { text-align: center; padding: 28px; color: var(--dim); font-size: 0.78rem; border-top: 1px solid var(--border); }
+
+  @media (max-width: 720px) {
+    .scene, .scene.reverse { grid-template-columns: 1fr; direction: ltr; }
+    .hero-text h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <a class="nav-logo" href="index.html">The Core Room</a>
+    <span class="nav-badge">ROOM 01</span>
+    <a class="nav-back" href="index.html">← 메인으로</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-art">
+    <svg viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="hbg" cx="50%" cy="40%" r="60%">
+          <stop offset="0%" stop-color="#2a1010"/>
+          <stop offset="100%" stop-color="#060202"/>
+        </radialGradient>
+        <filter id="pg"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <rect width="1200" height="600" fill="url(#hbg)"/>
+      <!-- Wall texture -->
+      <rect x="100" y="60" width="1000" height="480" rx="6" fill="#150a0a" stroke="#2a1010" stroke-width="2" opacity="0.7"/>
+      <!-- Post-its scattered -->
+      <rect x="130" y="90" width="70" height="54" rx="3" fill="#f5e642" transform="rotate(-4 130 90)"/>
+      <text x="165" y="108" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">세미나 참석</text>
+      <text x="165" y="122" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Mon 9AM</text>
+      <rect x="218" y="80" width="70" height="54" rx="3" fill="#f9a825" transform="rotate(2 218 80)"/>
+      <text x="253" y="98" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">인턴 지원서</text>
+      <text x="253" y="112" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Due Friday</text>
+      <rect x="306" y="88" width="70" height="54" rx="3" fill="#81d4fa" transform="rotate(-2 306 88)"/>
+      <text x="341" y="106" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">네트워킹</text>
+      <text x="341" y="120" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Wed 7PM</text>
+      <rect x="392" y="76" width="70" height="54" rx="3" fill="#ce93d8" transform="rotate(3 392 76)"/>
+      <text x="427" y="98" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">운동</text>
+      <text x="427" y="112" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Daily 6AM</text>
+      <rect x="480" y="84" width="70" height="54" rx="3" fill="#a5d6a7" transform="rotate(-1 480 84)"/>
+      <text x="515" y="102" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">리서치 미팅</text>
+      <text x="515" y="116" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Thu 2PM</text>
+      <rect x="568" y="78" width="70" height="54" rx="3" fill="#f48fb1" transform="rotate(2 568 78)"/>
+      <text x="603" y="100" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">클럽 MT</text>
+      <text x="603" y="114" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Sat All day</text>
+      <rect x="658" y="86" width="70" height="54" rx="3" fill="#fff176" transform="rotate(-3 658 86)"/>
+      <text x="693" y="108" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">독서 모임</text>
+      <text x="693" y="122" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Sun 4PM</text>
+      <rect x="748" y="80" width="70" height="54" rx="3" fill="#ffcc80" transform="rotate(1 748 80)"/>
+      <text x="783" y="102" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">카운슬링</text>
+      <text x="783" y="116" text-anchor="middle" font-size="8.5" fill="#666" font-family="sans-serif">Tue 3PM</text>
+      <!-- Second row -->
+      <rect x="145" y="162" width="70" height="54" rx="3" fill="#b2ebf2" transform="rotate(2 145 162)"/>
+      <text x="180" y="183" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">스터디그룹</text>
+      <rect x="235" y="155" width="70" height="54" rx="3" fill="#dcedc8" transform="rotate(-3 235 155)"/>
+      <text x="270" y="178" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif">포트폴리오</text>
+      <!-- Removed post-its (faded) -->
+      <rect x="330" y="158" width="70" height="54" rx="3" fill="#f5e642" opacity="0.15" transform="rotate(2 330 158)"/>
+      <line x1="330" y1="158" x2="400" y2="212" stroke="#8c1515" stroke-width="2" opacity="0.6"/>
+      <line x1="400" y1="158" x2="330" y2="212" stroke="#8c1515" stroke-width="2" opacity="0.6"/>
+      <rect x="418" y="150" width="70" height="54" rx="3" fill="#f9a825" opacity="0.15" transform="rotate(-2 418 150)"/>
+      <line x1="418" y1="150" x2="488" y2="204" stroke="#8c1515" stroke-width="2" opacity="0.6"/>
+      <line x1="488" y1="150" x2="418" y2="204" stroke="#8c1515" stroke-width="2" opacity="0.6"/>
+      <!-- Lock big center -->
+      <rect x="530" y="360" width="140" height="110" rx="14" fill="#0f0505" stroke="#8c1515" stroke-width="2.5"/>
+      <rect x="548" y="378" width="104" height="74" rx="8" fill="#1a0808"/>
+      <text x="600" y="428" text-anchor="middle" font-size="32" fill="#c8695a" font-family="monospace" font-weight="bold" filter="url(#pg)">• • •</text>
+      <path d="M556,360 Q556,326 600,326 Q644,326 644,360" fill="none" stroke="#8c1515" stroke-width="5" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <div class="hero-text">
+    <span class="room-no">ROOM 01 · 비워내는 방</span>
+    <h1>모든 걸 붙잡으면<br>아무것도 열리지 않는다
+      <span class="sub">The Emptying Room</span>
+    </h1>
+    <p class="hook">빼곡한 포스트잇 벽 앞에서, 당신은 무엇을 남기고 무엇을 떼어낼 건가요?</p>
+  </div>
+</section>
+
+<div class="scenes">
+  <p class="scenes-title">— KEY SCENES —</p>
+
+  <!-- SCENE 1 -->
+  <div class="scene">
+    <div class="scene-art">
+      <svg viewBox="0 0 480 360" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="s1bg" cx="50%" cy="40%" r="65%">
+            <stop offset="0%" stop-color="#1e0c0c"/>
+            <stop offset="100%" stop-color="#080202"/>
+          </radialGradient>
+        </defs>
+        <rect width="480" height="360" fill="url(#s1bg)"/>
+        <!-- Wall -->
+        <rect x="20" y="20" width="440" height="320" rx="6" fill="#120707"/>
+        <!-- Post-its grid -->
+        <rect x="38" y="38" width="72" height="55" rx="3" fill="#f5e642"/>
+        <text x="74" y="56" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">세미나</text>
+        <text x="74" y="68" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Mon 9AM</text>
+        <text x="74" y="80" text-anchor="middle" font-size="7" fill="#888" font-family="sans-serif">★ 필수</text>
+
+        <rect x="120" y="32" width="72" height="55" rx="3" fill="#f9a825"/>
+        <text x="156" y="50" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">인턴 지원</text>
+        <text x="156" y="62" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Deadline</text>
+        <text x="156" y="74" text-anchor="middle" font-size="7" fill="#888" font-family="sans-serif">⚡ 급함</text>
+
+        <rect x="202" y="36" width="72" height="55" rx="3" fill="#81d4fa"/>
+        <text x="238" y="54" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">네트워킹</text>
+        <text x="238" y="66" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Wed 7PM</text>
+
+        <rect x="284" y="30" width="72" height="55" rx="3" fill="#ce93d8"/>
+        <text x="320" y="52" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">운동</text>
+        <text x="320" y="64" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Daily 6AM</text>
+
+        <rect x="366" y="38" width="72" height="55" rx="3" fill="#a5d6a7"/>
+        <text x="402" y="56" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">리서치</text>
+        <text x="402" y="68" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Thu 2PM</text>
+
+        <rect x="38" y="108" width="72" height="55" rx="3" fill="#f48fb1"/>
+        <text x="74" y="130" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">클럽 MT</text>
+        <text x="74" y="142" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Sat All</text>
+
+        <rect x="120" y="102" width="72" height="55" rx="3" fill="#fff176"/>
+        <text x="156" y="124" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">독서 모임</text>
+        <text x="156" y="136" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Sun 4PM</text>
+
+        <rect x="202" y="106" width="72" height="55" rx="3" fill="#ffcc80"/>
+        <text x="238" y="128" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">카운슬링</text>
+        <text x="238" y="140" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Tue 3PM</text>
+
+        <rect x="284" y="100" width="72" height="55" rx="3" fill="#b2ebf2"/>
+        <text x="320" y="122" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">스터디</text>
+        <text x="320" y="134" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">Fri 5PM</text>
+
+        <rect x="366" y="108" width="72" height="55" rx="3" fill="#dcedc8"/>
+        <text x="402" y="130" text-anchor="middle" font-size="9" fill="#333" font-family="sans-serif" font-weight="700">포트폴리오</text>
+        <text x="402" y="142" text-anchor="middle" font-size="8" fill="#555" font-family="sans-serif">월말까지</text>
+
+        <!-- Overwhelmed figure silhouette -->
+        <ellipse cx="240" cy="258" rx="18" ry="20" fill="#1a0a0a" stroke="#3a1515" stroke-width="1.5"/>
+        <rect x="226" y="276" width="28" height="45" rx="5" fill="#1a0a0a" stroke="#3a1515" stroke-width="1.5"/>
+        <!-- Question marks floating -->
+        <text x="195" y="250" font-size="18" fill="#8c1515" opacity="0.5">?</text>
+        <text x="270" y="260" font-size="14" fill="#8c1515" opacity="0.4">?</text>
+        <text x="215" y="235" font-size="11" fill="#8c1515" opacity="0.3">?</text>
+        <!-- Lock bottom center -->
+        <rect x="192" y="308" width="96" height="40" rx="8" fill="#0a0303" stroke="#8c1515" stroke-width="1.5"/>
+        <text x="240" y="333" text-anchor="middle" font-size="13" fill="#c8695a" font-family="monospace">? ? ?</text>
+      </svg>
+    </div>
+    <div class="scene-info">
+      <span class="scene-num">SCENE 01</span>
+      <h2>압도되는 순간<br>— 벽을 처음 마주할 때</h2>
+      <p>방 안에 들어서자마자 눈앞에 펼쳐지는 것은 수십 장의 포스트잇으로 가득 찬 벽입니다. 세미나, 인턴 지원, 네트워킹, 운동, 리서치 미팅, 클럽 행사까지 — 한 학기에 해야 할 모든 일정이 색깔별로 빼곡히 붙어 있습니다.</p>
+      <p>벽 한쪽 구석에는 숫자 자물쇠가 달린 문이 있고, 어딘가에 코드가 숨어 있다는 것만 알고 있습니다. 당신은 어디서부터 시작할 건가요?</p>
+      <div class="scene-twist">💡 포스트잇을 모두 읽으려고 하면 시간이 다 갑니다. 어떤 것이 진짜 중요한지 먼저 물어야 합니다.</div>
+    </div>
+  </div>
+
+  <!-- SCENE 2 -->
+  <div class="scene reverse">
+    <div class="scene-art">
+      <svg viewBox="0 0 480 360" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="s2bg" cx="50%" cy="50%" r="65%">
+            <stop offset="0%" stop-color="#1e0c0c"/>
+            <stop offset="100%" stop-color="#080202"/>
+          </radialGradient>
+          <filter id="rg"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <rect width="480" height="360" fill="url(#s2bg)"/>
+        <!-- Wall background -->
+        <rect x="20" y="20" width="440" height="220" rx="6" fill="#120707"/>
+        <!-- Remaining post-its (bright) -->
+        <rect x="60" y="42" width="80" height="60" rx="4" fill="#f5e642"/>
+        <text x="100" y="62" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif" font-weight="700">세미나</text>
+        <text x="100" y="76" text-anchor="middle" font-size="8.5" fill="#555" font-family="sans-serif">Mon 9AM</text>
+        <text x="100" y="88" text-anchor="middle" font-size="8" fill="#8c1515" font-family="sans-serif">★ KEEP</text>
+        <rect x="190" y="36" width="80" height="60" rx="4" fill="#f9a825"/>
+        <text x="230" y="56" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif" font-weight="700">인턴 지원</text>
+        <text x="230" y="70" text-anchor="middle" font-size="8.5" fill="#555" font-family="sans-serif">Deadline</text>
+        <text x="230" y="82" text-anchor="middle" font-size="8" fill="#8c1515" font-family="sans-serif">★ KEEP</text>
+        <rect x="320" y="42" width="80" height="60" rx="4" fill="#a5d6a7"/>
+        <text x="360" y="62" text-anchor="middle" font-size="10" fill="#333" font-family="sans-serif" font-weight="700">리서치</text>
+        <text x="360" y="76" text-anchor="middle" font-size="8.5" fill="#555" font-family="sans-serif">Thu 2PM</text>
+        <text x="360" y="88" text-anchor="middle" font-size="8" fill="#8c1515" font-family="sans-serif">★ KEEP</text>
+
+        <!-- Removed / torn post-its (faded + X) -->
+        <rect x="60" y="122" width="80" height="60" rx="4" fill="#ce93d8" opacity="0.18"/>
+        <line x1="60" y1="122" x2="140" y2="182" stroke="#8c1515" stroke-width="2.5" opacity="0.7"/>
+        <line x1="140" y1="122" x2="60" y2="182" stroke="#8c1515" stroke-width="2.5" opacity="0.7"/>
+        <text x="100" y="157" text-anchor="middle" font-size="9" fill="#8c1515" opacity="0.5" font-family="sans-serif">운동</text>
+
+        <rect x="190" y="116" width="80" height="60" rx="4" fill="#f48fb1" opacity="0.18"/>
+        <line x1="190" y1="116" x2="270" y2="176" stroke="#8c1515" stroke-width="2.5" opacity="0.7"/>
+        <line x1="270" y1="116" x2="190" y2="176" stroke="#8c1515" stroke-width="2.5" opacity="0.7"/>
+        <text x="230" y="151" text-anchor="middle" font-size="9" fill="#8c1515" opacity="0.5" font-family="sans-serif">클럽 MT</text>
+
+        <rect x="320" y="122" width="80" height="60" rx="4" fill="#fff176" opacity="0.18"/>
+        <line x1="320" y1="122" x2="400" y2="182" stroke="#8c1515" stroke-width="2.5" opacity="0.7"/>
+        <line x1="400" y1="122" x2="320" y2="182" stroke="#8c1515" stroke-width="2.5" opacity="0.7"/>
+        <text x="360" y="157" text-anchor="middle" font-size="9" fill="#8c1515" opacity="0.5" font-family="sans-serif">독서 모임</text>
+
+        <!-- Arrow pointing to lock -->
+        <line x1="100" y1="102" x2="170" y2="280" stroke="rgba(210,194,149,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <line x1="230" y1="96" x2="230" y2="280" stroke="rgba(210,194,149,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <line x1="360" y1="102" x2="290" y2="280" stroke="rgba(210,194,149,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+        <!-- Lock unlocking -->
+        <rect x="152" y="265" width="176" height="76" rx="10" fill="#0a0303" stroke="#d2c295" stroke-width="2"/>
+        <rect x="166" y="279" width="148" height="48" rx="6" fill="#140808"/>
+        <text x="240" y="311" text-anchor="middle" font-size="22" fill="#d2c295" font-family="monospace" font-weight="bold" filter="url(#rg)">3 · 1 · 5</text>
+        <path d="M182,265 Q182,243 240,243 Q298,243 298,265" fill="none" stroke="#d2c295" stroke-width="4" stroke-linecap="round" opacity="0.4"/>
+      </svg>
+    </div>
+    <div class="scene-info">
+      <span class="scene-num">SCENE 02</span>
+      <h2>비워내는 결단<br>— 포스트잇을 떼어낼 때</h2>
+      <p>코드를 찾기 위해 벽을 탐색하다 보면 깨닫게 됩니다. 포스트잇이 너무 많을수록 숫자들이 서로 가리고 겹쳐 보이지 않는다는 것을요.</p>
+      <p>용기 있게 운동, 클럽 MT, 독서 모임 포스트잇을 떼어내는 순간 — 남은 3장의 포스트잇 귀퉁이 숫자들이 드디어 하나의 코드로 이어집니다.</p>
+      <div class="scene-twist">🔑 반전: 비워낸다는 것은 포기가 아니라, 선명하게 보기 위한 선택입니다. 코드는 처음부터 거기 있었습니다.</div>
+    </div>
+  </div>
+
+  <!-- SCENE 3 -->
+  <div class="scene">
+    <div class="scene-art">
+      <svg viewBox="0 0 480 360" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="s3bg" cx="50%" cy="60%" r="65%">
+            <stop offset="0%" stop-color="#1e0c0c"/>
+            <stop offset="100%" stop-color="#080202"/>
+          </radialGradient>
+          <radialGradient id="doorGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#d2c295" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="transparent"/>
+          </radialGradient>
+          <filter id="dg"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <rect width="480" height="360" fill="url(#s3bg)"/>
+        <!-- Door frame glow -->
+        <ellipse cx="240" cy="200" rx="80" ry="120" fill="url(#doorGlow)" filter="url(#dg)"/>
+        <!-- Door -->
+        <rect x="168" y="80" width="144" height="240" rx="8" fill="#0f0505" stroke="#d2c295" stroke-width="2.5"/>
+        <rect x="180" y="92" width="120" height="216" rx="4" fill="#0a0303"/>
+        <!-- Door crack light -->
+        <line x1="240" y1="92" x2="240" y2="308" stroke="#d2c295" stroke-width="1.5" opacity="0.35" filter="url(#dg)"/>
+        <!-- Handle -->
+        <circle cx="300" cy="200" r="12" fill="none" stroke="#d2c295" stroke-width="2.5" filter="url(#dg)"/>
+        <circle cx="300" cy="200" r="5" fill="#d2c295"/>
+        <!-- Keypad -->
+        <rect x="145" y="182" width="36" height="36" rx="5" fill="#140808" stroke="rgba(140,21,21,0.5)" stroke-width="1.5"/>
+        <text x="163" y="205" text-anchor="middle" font-size="13" fill="#c8695a" font-family="monospace">3·1·5</text>
+        <!-- Check mark -->
+        <circle cx="163" cy="170" r="10" fill="rgba(140,21,21,0.3)" stroke="#8c1515" stroke-width="1.5"/>
+        <path d="M157,170 L161,174 L170,165" fill="none" stroke="#c8695a" stroke-width="2" stroke-linecap="round"/>
+        <!-- Light rays from door -->
+        <line x1="240" y1="92" x2="120" y2="20" stroke="#d2c295" stroke-width="1" opacity="0.1"/>
+        <line x1="240" y1="92" x2="360" y2="20" stroke="#d2c295" stroke-width="1" opacity="0.1"/>
+        <!-- Floor -->
+        <ellipse cx="240" cy="320" rx="100" ry="20" fill="rgba(210,194,149,0.06)" filter="url(#dg)"/>
+        <!-- Key item floating -->
+        <rect x="60" y="160" width="72" height="52" rx="5" fill="#1e0c0c" stroke="#d2c295" stroke-width="1.5"/>
+        <text x="96" y="182" text-anchor="middle" font-size="8.5" fill="#d2c295" font-family="sans-serif" font-weight="700">KEY ITEM</text>
+        <text x="96" y="196" text-anchor="middle" font-size="8" fill="#a89050" font-family="sans-serif">비움의 코드</text>
+        <text x="96" y="207" text-anchor="middle" font-size="10" fill="#d2c295" font-family="monospace">3-1-5</text>
+        <line x1="132" y1="186" x2="145" y2="192" stroke="rgba(210,194,149,0.5)" stroke-width="1.5" stroke-dasharray="3,2"/>
+      </svg>
+    </div>
+    <div class="scene-info">
+      <span class="scene-num">SCENE 03</span>
+      <h2>탈출의 문<br>— 코어를 찾고 문이 열릴 때</h2>
+      <p>코드를 입력하는 순간, 자물쇠에서 딸깍 소리가 납니다. 키패드에 초록 불이 들어오고, 문이 천천히 열리기 시작합니다. 문 틈 사이로 새어 나오는 빛 — 당신이 포기하지 않은 3가지가 바로 그 빛이었습니다.</p>
+      <p>비워낸 자리에서 발견한 코드는 단순한 숫자가 아닙니다. 이번 학기 당신이 진짜 집중할 수 있는 것들의 순번이었습니다.</p>
+      <div class="scene-twist">🚪 이 방의 가르침: 모든 것을 붙잡으려 했을 때 문은 끝까지 열리지 않았습니다. 비워낸 후에야 길이 보였습니다.</div>
+    </div>
+  </div>
+</div>
+
+<div class="cta-band">
+  <h2>비워낼 준비가 됐나요?</h2>
+  <p>50~60분, 비밀의 방에서 당신의 진짜 Core를 찾아보세요.</p>
+  <div class="btn-group">
+    <a class="btn btn-primary" href="index.html#scheduler">🔑 지금 신청하기</a>
+    <a class="btn btn-ghost" href="room2.html">다음 방 보기 →</a>
+  </div>
+</div>
+
+<div class="room-nav">
+  <a href="index.html"><span class="arrow">←</span> 메인으로 돌아가기</a>
+  <a href="room2.html">거울의 방 <span class="arrow">→</span></a>
+</div>
+
+<footer>© The Core Room · Stanford Student Wellness Project</footer>
+
+</body>
+</html>
