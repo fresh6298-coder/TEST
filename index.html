@@ -437,6 +437,33 @@
     .delay-1 { animation-delay: 0.1s; }
     .delay-2 { animation-delay: 0.22s; }
     .delay-3 { animation-delay: 0.34s; }
+
+    /* ── LANG TOGGLE ── */
+    .lang-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      border: 2px solid var(--cardinal);
+      border-radius: 50px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .lang-toggle button {
+      padding: 6px 13px;
+      border: none;
+      background: transparent;
+      color: var(--cardinal);
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.18s, color 0.18s;
+      border-radius: 0;
+    }
+    .lang-toggle button.active-lang {
+      background: var(--cardinal);
+      color: var(--white);
+    }
+    .lang-toggle button:hover:not(.active-lang) { background: var(--sand-light); }
   </style>
 </head>
 <body>
@@ -446,30 +473,36 @@
   <div class="nav-inner">
     <div class="nav-logo">Core<span>Quest</span></div>
     <div class="nav-links">
-      <a href="#problem">Why</a>
-      <a href="#quiz">Quiz</a>
-      <a href="#booking">Book</a>
-      <a href="#majors">Majors</a>
-      <a href="#result">Result</a>
+      <a href="#problem" data-i18n="nav.why">Why</a>
+      <a href="#quiz" data-i18n="nav.quiz">Quiz</a>
+      <a href="#booking" data-i18n="nav.book">Book</a>
+      <a href="#majors" data-i18n="nav.majors">Majors</a>
+      <a href="#result" data-i18n="nav.result">Result</a>
     </div>
-    <a href="#booking" class="btn btn-primary nav-cta">Reserve Now</a>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="lang-toggle">
+        <button id="btnEn" class="active-lang" onclick="setLang('en')">EN</button>
+        <button id="btnKo" onclick="setLang('ko')">한국어</button>
+      </div>
+      <a href="#booking" class="btn btn-primary nav-cta" data-i18n="nav.cta">Reserve Now</a>
+    </div>
   </div>
 </nav>
 
 <!-- HERO -->
 <section id="hero">
   <div class="hero-content">
-    <div class="hero-badge">🎓 Exclusively for Stanford Frosh &amp; Sophs</div>
-    <h1 class="fade-up">Stop Chasing <em>Everything.</em><br>Start Owning <em>Your Core.</em></h1>
-    <p class="fade-up delay-1">FOMO hits hardest when you don't know who you are yet. CoreQuest is an escape-room experience designed to help Stanford students discover their unique strengths — one puzzle at a time.</p>
+    <div class="hero-badge" data-i18n="hero.badge">🎓 Exclusively for Stanford Frosh &amp; Sophs</div>
+    <h1 class="fade-up" data-i18n="hero.h1">Stop Chasing <em>Everything.</em><br>Start Owning <em>Your Core.</em></h1>
+    <p class="fade-up delay-1" data-i18n="hero.p">FOMO hits hardest when you don't know who you are yet. CoreQuest is an escape-room experience designed to help Stanford students discover their unique strengths — one puzzle at a time.</p>
     <div class="hero-btns fade-up delay-2">
-      <a href="#quiz" class="btn btn-sand">Take the Quiz ↓</a>
-      <a href="#booking" class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.5)">Book a Room</a>
+      <a href="#quiz" class="btn btn-sand" data-i18n="hero.btnQuiz">Take the Quiz ↓</a>
+      <a href="#booking" class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.5)" data-i18n="hero.btnBook">Book a Room</a>
     </div>
     <div class="hero-stats fade-up delay-3">
-      <div class="hero-stat"><strong>1,200+</strong><span>Stanford students</span></div>
-      <div class="hero-stat"><strong>6</strong><span>Escape rooms</span></div>
-      <div class="hero-stat"><strong>94%</strong><span>felt clarity after</span></div>
+      <div class="hero-stat"><strong>1,200+</strong><span data-i18n="hero.stat1">Stanford students</span></div>
+      <div class="hero-stat"><strong>6</strong><span data-i18n="hero.stat2">Escape rooms</span></div>
+      <div class="hero-stat"><strong>94%</strong><span data-i18n="hero.stat3">felt clarity after</span></div>
     </div>
   </div>
 </section>
@@ -477,29 +510,29 @@
 <!-- PROBLEM -->
 <section id="problem" class="section">
   <div class="container text-center">
-    <div class="tag">The Problem</div>
-    <h2 class="section-title">You're at Stanford. You Feel Like You're Falling Behind.</h2>
-    <p class="section-sub">Here's what every freshman is secretly thinking — and none of it is true.</p>
+    <div class="tag" data-i18n="problem.tag">The Problem</div>
+    <h2 class="section-title" data-i18n="problem.title">You're at Stanford. You Feel Like You're Falling Behind.</h2>
+    <p class="section-sub" data-i18n="problem.sub">Here's what every freshman is secretly thinking — and none of it is true.</p>
     <div class="problem-grid">
       <div class="problem-card">
         <div class="icon">😰</div>
-        <h3>"Everyone else has their major figured out."</h3>
-        <p>They don't. 70% of Stanford students change their major at least once in the first two years.</p>
+        <h3 data-i18n="problem.c1h">"Everyone else has their major figured out."</h3>
+        <p data-i18n="problem.c1p">They don't. 70% of Stanford students change their major at least once in the first two years.</p>
       </div>
       <div class="problem-card">
         <div class="icon">📅</div>
-        <h3>"I need 3 internships, research, and a startup."</h3>
-        <p>Spreading thin leads to burnout. Depth in one area beats shallow breadth every time on a résumé.</p>
+        <h3 data-i18n="problem.c2h">"I need 3 internships, research, and a startup."</h3>
+        <p data-i18n="problem.c2p">Spreading thin leads to burnout. Depth in one area beats shallow breadth every time on a résumé.</p>
       </div>
       <div class="problem-card">
         <div class="icon">🔕</div>
-        <h3>"I don't know what I'm actually good at."</h3>
-        <p>That's normal — and fixable. Self-knowledge is a skill, and CoreQuest is designed to build it fast.</p>
+        <h3 data-i18n="problem.c3h">"I don't know what I'm actually good at."</h3>
+        <p data-i18n="problem.c3p">That's normal — and fixable. Self-knowledge is a skill, and CoreQuest is designed to build it fast.</p>
       </div>
       <div class="problem-card">
         <div class="icon">📱</div>
-        <h3>"My LinkedIn feed makes me feel inadequate."</h3>
-        <p>Social media shows highlight reels. The antidote is knowing your own reel — not envying someone else's.</p>
+        <h3 data-i18n="problem.c4h">"My LinkedIn feed makes me feel inadequate."</h3>
+        <p data-i18n="problem.c4p">Social media shows highlight reels. The antidote is knowing your own reel — not envying someone else's.</p>
       </div>
     </div>
   </div>
@@ -509,37 +542,37 @@
 <section class="section" style="background:var(--white)">
   <div class="container">
     <div class="text-center">
-      <div class="tag">How It Works</div>
-      <h2 class="section-title">Four Steps to Your Core</h2>
-      <p class="section-sub">From self-reflection to real-world clarity in under two hours.</p>
+      <div class="tag" data-i18n="how.tag">How It Works</div>
+      <h2 class="section-title" data-i18n="how.title">Four Steps to Your Core</h2>
+      <p class="section-sub" data-i18n="how.sub">From self-reflection to real-world clarity in under two hours.</p>
     </div>
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
-          <h3>Take the Aptitude Quiz <span class="step-emoji">🧠</span></h3>
-          <p>A 8-question personality + aptitude test maps your cognitive style, values, and natural strengths to academic and career clusters. Takes 4 minutes.</p>
+          <h3 data-i18n="how.s1h">Take the Aptitude Quiz <span class="step-emoji">🧠</span></h3>
+          <p data-i18n="how.s1p">A 8-question personality + aptitude test maps your cognitive style, values, and natural strengths to academic and career clusters. Takes 4 minutes.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <h3>Choose Your Escape Room <span class="step-emoji">🗝️</span></h3>
-          <p>Pick from six themed rooms — each one mirrors a real academic discipline. The puzzles are designed by faculty and career coaches at Stanford.</p>
+          <h3 data-i18n="how.s2h">Choose Your Escape Room <span class="step-emoji">🗝️</span></h3>
+          <p data-i18n="how.s2p">Pick from six themed rooms — each one mirrors a real academic discipline. The puzzles are designed by faculty and career coaches at Stanford.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <h3>Play &amp; Discover <span class="step-emoji">🔍</span></h3>
-          <p>Spend 60–75 min solving puzzles with 2–5 teammates. Our facilitators observe how you think, lead, and collaborate under pressure.</p>
+          <h3 data-i18n="how.s3h">Play &amp; Discover <span class="step-emoji">🔍</span></h3>
+          <p data-i18n="how.s3p">Spend 60–75 min solving puzzles with 2–5 teammates. Our facilitators observe how you think, lead, and collaborate under pressure.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <h3>Get Your Core Profile <span class="step-emoji">📊</span></h3>
-          <p>Receive a personalized report: your archetype, top major paths, matching career roles, and a "one thing to focus on this quarter" action card.</p>
+          <h3 data-i18n="how.s4h">Get Your Core Profile <span class="step-emoji">📊</span></h3>
+          <p data-i18n="how.s4p">Receive a personalized report: your archetype, top major paths, matching career roles, and a "one thing to focus on this quarter" action card.</p>
         </div>
       </div>
     </div>
@@ -549,9 +582,9 @@
 <!-- QUIZ -->
 <section id="quiz" class="section">
   <div class="container text-center">
-    <div class="tag">Step 1 — Aptitude Quiz</div>
-    <h2 class="section-title">What's Your Core?</h2>
-    <p class="section-sub">Answer honestly. There are no right or wrong answers — only your answers.</p>
+    <div class="tag" data-i18n="quiz.tag">Step 1 — Aptitude Quiz</div>
+    <h2 class="section-title" data-i18n="quiz.title">What's Your Core?</h2>
+    <p class="section-sub" data-i18n="quiz.sub">Answer honestly. There are no right or wrong answers — only your answers.</p>
 
     <div class="quiz-box">
       <div class="quiz-progress-bar">
@@ -560,129 +593,129 @@
       <div class="quiz-body">
 
         <div class="quiz-step active" data-q="1">
-          <div class="quiz-q-num">Question 1 of 8</div>
-          <div class="quiz-question">When you're given a totally open-ended project, your first instinct is to…</div>
+          <div class="quiz-q-num" data-i18n="q1.num">Question 1 of 8</div>
+          <div class="quiz-question" data-i18n="q1.q">When you're given a totally open-ended project, your first instinct is to…</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q1')">Sketch ideas, brainstorm wildly, make something new</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q1')">Research the topic deeply before touching anything</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q1')">Jump in and build a prototype right away</button>
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q1')">Talk to people who've done it before</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q1')" data-i18n="q1.a1">Sketch ideas, brainstorm wildly, make something new</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q1')" data-i18n="q1.a2">Research the topic deeply before touching anything</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q1')" data-i18n="q1.a3">Jump in and build a prototype right away</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q1')" data-i18n="q1.a4">Talk to people who've done it before</button>
           </div>
           <div class="quiz-nav">
-            <span class="quiz-counter">1 / 8</span>
-            <button class="btn btn-primary" onclick="nextQ(2)">Next →</button>
+            <span class="quiz-counter" data-i18n="q1.counter">1 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(2)" data-i18n="quiz.next">Next →</button>
           </div>
         </div>
 
         <div class="quiz-step" data-q="2">
-          <div class="quiz-q-num">Question 2 of 8</div>
-          <div class="quiz-question">Which Stanford class would you secretly enjoy most?</div>
+          <div class="quiz-q-num" data-i18n="q2.num">Question 2 of 8</div>
+          <div class="quiz-question" data-i18n="q2.q">Which Stanford class would you secretly enjoy most?</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q2')">Product Design — building things people love</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q2')">Stats 200 — finding patterns in data</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q2')">CS 106A — making software from scratch</button>
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q2')">Sociology of Silicon Valley — understanding people &amp; systems</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q2')" data-i18n="q2.a1">Product Design — building things people love</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q2')" data-i18n="q2.a2">Stats 200 — finding patterns in data</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q2')" data-i18n="q2.a3">CS 106A — making software from scratch</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q2')" data-i18n="q2.a4">Sociology of Silicon Valley — understanding people &amp; systems</button>
           </div>
           <div class="quiz-nav">
-            <button class="btn btn-outline" onclick="prevQ(1)">← Back</button>
-            <span class="quiz-counter">2 / 8</span>
-            <button class="btn btn-primary" onclick="nextQ(3)">Next →</button>
+            <button class="btn btn-outline" onclick="prevQ(1)" data-i18n="quiz.back">← Back</button>
+            <span class="quiz-counter" data-i18n="q2.counter">2 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(3)" data-i18n="quiz.next">Next →</button>
           </div>
         </div>
 
         <div class="quiz-step" data-q="3">
-          <div class="quiz-q-num">Question 3 of 8</div>
-          <div class="quiz-question">A friend is struggling with a decision. You naturally…</div>
+          <div class="quiz-q-num" data-i18n="q3.num">Question 3 of 8</div>
+          <div class="quiz-question" data-i18n="q3.q">A friend is struggling with a decision. You naturally…</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q3')">Listen first, then help them see their own answer</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q3')">Break it down into pros / cons with data</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q3')">Suggest a quick experiment to test both paths</button>
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q3')">Reframe the question entirely — maybe there's a third option</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q3')" data-i18n="q3.a1">Listen first, then help them see their own answer</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q3')" data-i18n="q3.a2">Break it down into pros / cons with data</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q3')" data-i18n="q3.a3">Suggest a quick experiment to test both paths</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q3')" data-i18n="q3.a4">Reframe the question entirely — maybe there's a third option</button>
           </div>
           <div class="quiz-nav">
-            <button class="btn btn-outline" onclick="prevQ(2)">← Back</button>
-            <span class="quiz-counter">3 / 8</span>
-            <button class="btn btn-primary" onclick="nextQ(4)">Next →</button>
+            <button class="btn btn-outline" onclick="prevQ(2)" data-i18n="quiz.back">← Back</button>
+            <span class="quiz-counter" data-i18n="q3.counter">3 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(4)" data-i18n="quiz.next">Next →</button>
           </div>
         </div>
 
         <div class="quiz-step" data-q="4">
-          <div class="quiz-q-num">Question 4 of 8</div>
-          <div class="quiz-question">What kind of impact do you most want to have?</div>
+          <div class="quiz-q-num" data-i18n="q4.num">Question 4 of 8</div>
+          <div class="quiz-question" data-i18n="q4.q">What kind of impact do you most want to have?</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q4')">Create something that changes how people experience the world</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q4')">Solve a complex, long-standing problem with rigorous research</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q4')">Build a product or company that scales globally</button>
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q4')">Lift communities and shape better policy or systems</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q4')" data-i18n="q4.a1">Create something that changes how people experience the world</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q4')" data-i18n="q4.a2">Solve a complex, long-standing problem with rigorous research</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q4')" data-i18n="q4.a3">Build a product or company that scales globally</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q4')" data-i18n="q4.a4">Lift communities and shape better policy or systems</button>
           </div>
           <div class="quiz-nav">
-            <button class="btn btn-outline" onclick="prevQ(3)">← Back</button>
-            <span class="quiz-counter">4 / 8</span>
-            <button class="btn btn-primary" onclick="nextQ(5)">Next →</button>
+            <button class="btn btn-outline" onclick="prevQ(3)" data-i18n="quiz.back">← Back</button>
+            <span class="quiz-counter" data-i18n="q4.counter">4 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(5)" data-i18n="quiz.next">Next →</button>
           </div>
         </div>
 
         <div class="quiz-step" data-q="5">
-          <div class="quiz-q-num">Question 5 of 8</div>
-          <div class="quiz-question">When you're in flow — totally absorbed — you're usually…</div>
+          <div class="quiz-q-num" data-i18n="q5.num">Question 5 of 8</div>
+          <div class="quiz-question" data-i18n="q5.q">When you're in flow — totally absorbed — you're usually…</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q5')">Writing, designing, or making something aesthetic</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q5')">Reading deeply or solving a puzzle / proof</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q5')">Coding, building, or tinkering with a system</button>
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q5')">Talking, organizing, or leading a team toward a goal</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q5')" data-i18n="q5.a1">Writing, designing, or making something aesthetic</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q5')" data-i18n="q5.a2">Reading deeply or solving a puzzle / proof</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q5')" data-i18n="q5.a3">Coding, building, or tinkering with a system</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q5')" data-i18n="q5.a4">Talking, organizing, or leading a team toward a goal</button>
           </div>
           <div class="quiz-nav">
-            <button class="btn btn-outline" onclick="prevQ(4)">← Back</button>
-            <span class="quiz-counter">5 / 8</span>
-            <button class="btn btn-primary" onclick="nextQ(6)">Next →</button>
+            <button class="btn btn-outline" onclick="prevQ(4)" data-i18n="quiz.back">← Back</button>
+            <span class="quiz-counter" data-i18n="q5.counter">5 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(6)" data-i18n="quiz.next">Next →</button>
           </div>
         </div>
 
         <div class="quiz-step" data-q="6">
-          <div class="quiz-q-num">Question 6 of 8</div>
-          <div class="quiz-question">Your ideal senior thesis / capstone project is…</div>
+          <div class="quiz-q-num" data-i18n="q6.num">Question 6 of 8</div>
+          <div class="quiz-question" data-i18n="q6.q">Your ideal senior thesis / capstone project is…</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q6')">An original creative work with a written conceptual framework</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q6')">A research paper with original data and strong methodology</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q6')">A working product or startup that users actually use</button>
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q6')">A policy proposal or community initiative with real stakeholders</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q6')" data-i18n="q6.a1">An original creative work with a written conceptual framework</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q6')" data-i18n="q6.a2">A research paper with original data and strong methodology</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q6')" data-i18n="q6.a3">A working product or startup that users actually use</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q6')" data-i18n="q6.a4">A policy proposal or community initiative with real stakeholders</button>
           </div>
           <div class="quiz-nav">
-            <button class="btn btn-outline" onclick="prevQ(5)">← Back</button>
-            <span class="quiz-counter">6 / 8</span>
-            <button class="btn btn-primary" onclick="nextQ(7)">Next →</button>
+            <button class="btn btn-outline" onclick="prevQ(5)" data-i18n="quiz.back">← Back</button>
+            <span class="quiz-counter" data-i18n="q6.counter">6 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(7)" data-i18n="quiz.next">Next →</button>
           </div>
         </div>
 
         <div class="quiz-step" data-q="7">
-          <div class="quiz-q-num">Question 7 of 8</div>
-          <div class="quiz-question">What frustrates you most in group projects?</div>
+          <div class="quiz-q-num" data-i18n="q7.num">Question 7 of 8</div>
+          <div class="quiz-question" data-i18n="q7.q">What frustrates you most in group projects?</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q7')">No creative ownership — everything is generic and safe</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q7')">Decisions made without evidence or careful thinking</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q7')">Too much talk, not enough shipping</button>
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q7')">Poor communication and people feeling unheard</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q7')" data-i18n="q7.a1">No creative ownership — everything is generic and safe</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q7')" data-i18n="q7.a2">Decisions made without evidence or careful thinking</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q7')" data-i18n="q7.a3">Too much talk, not enough shipping</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q7')" data-i18n="q7.a4">Poor communication and people feeling unheard</button>
           </div>
           <div class="quiz-nav">
-            <button class="btn btn-outline" onclick="prevQ(6)">← Back</button>
-            <span class="quiz-counter">7 / 8</span>
-            <button class="btn btn-primary" onclick="nextQ(8)">Next →</button>
+            <button class="btn btn-outline" onclick="prevQ(6)" data-i18n="quiz.back">← Back</button>
+            <span class="quiz-counter" data-i18n="q7.counter">7 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(8)" data-i18n="quiz.next">Next →</button>
           </div>
         </div>
 
         <div class="quiz-step" data-q="8">
-          <div class="quiz-q-num">Question 8 of 8</div>
-          <div class="quiz-question">In 10 years, which sentence do you hope someone says about you?</div>
+          <div class="quiz-q-num" data-i18n="q8.num">Question 8 of 8</div>
+          <div class="quiz-question" data-i18n="q8.q">In 10 years, which sentence do you hope someone says about you?</div>
           <div class="quiz-options">
-            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q8')">"They made something beautiful that no one had imagined before."</button>
-            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q8')">"Their work changed how we understand this field."</button>
-            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q8')">"They built something millions of people rely on every day."</button>
-            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q8')">"They made people feel seen and helped communities thrive."</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q8')" data-i18n="q8.a1">"They made something beautiful that no one had imagined before."</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q8')" data-i18n="q8.a2">"Their work changed how we understand this field."</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q8')" data-i18n="q8.a3">"They built something millions of people rely on every day."</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q8')" data-i18n="q8.a4">"They made people feel seen and helped communities thrive."</button>
           </div>
           <div class="quiz-nav">
-            <button class="btn btn-outline" onclick="prevQ(7)">← Back</button>
-            <span class="quiz-counter">8 / 8</span>
-            <button class="btn btn-primary" onclick="submitQuiz()">See My Core →</button>
+            <button class="btn btn-outline" onclick="prevQ(7)" data-i18n="quiz.back">← Back</button>
+            <span class="quiz-counter" data-i18n="q8.counter">8 / 8</span>
+            <button class="btn btn-primary" onclick="submitQuiz()" data-i18n="quiz.submit">See My Core →</button>
           </div>
         </div>
 
@@ -694,79 +727,79 @@
 <!-- BOOKING -->
 <section id="booking" class="section">
   <div class="container text-center">
-    <div class="tag" style="background:rgba(210,194,149,0.15);color:var(--sand)">Step 2 — Book a Room</div>
-    <h2 class="section-title">Choose Your Escape Room</h2>
-    <p class="section-sub">Six rooms, each designed around a real intellectual domain. Pick the one that scares you in the best way.</p>
+    <div class="tag" style="background:rgba(210,194,149,0.15);color:var(--sand)" data-i18n="book.tag">Step 2 — Book a Room</div>
+    <h2 class="section-title" data-i18n="book.title">Choose Your Escape Room</h2>
+    <p class="section-sub" data-i18n="book.sub">Six rooms, each designed around a real intellectual domain. Pick the one that scares you in the best way.</p>
 
     <div class="rooms-grid">
       <div class="room-card" onclick="selectRoom(this,'The Lab')">
         <div class="room-emoji">🔬</div>
-        <h3>The Lab</h3>
-        <p>A biotech facility with a missing compound. Think like a scientist — hypothesize, test, iterate.</p>
-        <span class="room-tag">Science &amp; Research</span>
+        <h3 data-i18n="room1.name">The Lab</h3>
+        <p data-i18n="room1.desc">A biotech facility with a missing compound. Think like a scientist — hypothesize, test, iterate.</p>
+        <span class="room-tag" data-i18n="room1.tag">Science &amp; Research</span>
       </div>
       <div class="room-card" onclick="selectRoom(this,'The Startup')">
         <div class="room-emoji">🚀</div>
-        <h3>The Startup</h3>
-        <p>Your founding team has 60 minutes before investor demo day. Ship the MVP or lose everything.</p>
-        <span class="room-tag">CS &amp; Engineering</span>
+        <h3 data-i18n="room2.name">The Startup</h3>
+        <p data-i18n="room2.desc">Your founding team has 60 minutes before investor demo day. Ship the MVP or lose everything.</p>
+        <span class="room-tag" data-i18n="room2.tag">CS &amp; Engineering</span>
       </div>
       <div class="room-card" onclick="selectRoom(this,'The Forum')">
         <div class="room-emoji">🏛️</div>
-        <h3>The Forum</h3>
-        <p>A political crisis, hidden documents, and a vote that changes history. Navigate power and persuasion.</p>
-        <span class="room-tag">Policy &amp; Social Science</span>
+        <h3 data-i18n="room3.name">The Forum</h3>
+        <p data-i18n="room3.desc">A political crisis, hidden documents, and a vote that changes history. Navigate power and persuasion.</p>
+        <span class="room-tag" data-i18n="room3.tag">Policy &amp; Social Science</span>
       </div>
       <div class="room-card" onclick="selectRoom(this,'The Gallery')">
         <div class="room-emoji">🎨</div>
-        <h3>The Gallery</h3>
-        <p>A stolen masterpiece, cryptic artistic clues, and a collector with secrets. See the world differently.</p>
-        <span class="room-tag">Humanities &amp; Arts</span>
+        <h3 data-i18n="room4.name">The Gallery</h3>
+        <p data-i18n="room4.desc">A stolen masterpiece, cryptic artistic clues, and a collector with secrets. See the world differently.</p>
+        <span class="room-tag" data-i18n="room4.tag">Humanities &amp; Arts</span>
       </div>
       <div class="room-card" onclick="selectRoom(this,'The Trading Floor')">
         <div class="room-emoji">📈</div>
-        <h3>The Trading Floor</h3>
-        <p>Market crash imminent. Decode financial signals and make calls under real pressure.</p>
-        <span class="room-tag">Economics &amp; Finance</span>
+        <h3 data-i18n="room5.name">The Trading Floor</h3>
+        <p data-i18n="room5.desc">Market crash imminent. Decode financial signals and make calls under real pressure.</p>
+        <span class="room-tag" data-i18n="room5.tag">Economics &amp; Finance</span>
       </div>
       <div class="room-card" onclick="selectRoom(this,'The Clinic')">
         <div class="room-emoji">🏥</div>
-        <h3>The Clinic</h3>
-        <p>A mystery diagnosis, limited resources, and patient lives on the line. Empathy meets precision.</p>
-        <span class="room-tag">Medicine &amp; Biodesign</span>
+        <h3 data-i18n="room6.name">The Clinic</h3>
+        <p data-i18n="room6.desc">A mystery diagnosis, limited resources, and patient lives on the line. Empathy meets precision.</p>
+        <span class="room-tag" data-i18n="room6.tag">Medicine &amp; Biodesign</span>
       </div>
     </div>
 
     <div class="booking-form">
-      <h3 style="color:var(--sand);margin-bottom:24px;font-size:1.2rem">Reserve Your Spot</h3>
+      <h3 style="color:var(--sand);margin-bottom:24px;font-size:1.2rem" data-i18n="book.formTitle">Reserve Your Spot</h3>
       <div class="form-row">
         <div class="form-group">
-          <label>First Name</label>
+          <label data-i18n="book.firstName">First Name</label>
           <input type="text" id="bFirstName" placeholder="Jane" />
         </div>
         <div class="form-group">
-          <label>Last Name</label>
+          <label data-i18n="book.lastName">Last Name</label>
           <input type="text" id="bLastName" placeholder="Smith" />
         </div>
       </div>
       <div class="form-group">
-        <label>Stanford Email</label>
+        <label data-i18n="book.email">Stanford Email</label>
         <input type="email" id="bEmail" placeholder="jsmith@stanford.edu" />
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Year</label>
+          <label data-i18n="book.year">Year</label>
           <select id="bYear">
-            <option value="">Select</option>
-            <option>Freshman</option>
-            <option>Sophomore</option>
+            <option value="" data-i18n="book.select">Select</option>
+            <option data-i18n="book.freshman">Freshman</option>
+            <option data-i18n="book.sophomore">Sophomore</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Group Size</label>
+          <label data-i18n="book.groupSize">Group Size</label>
           <select id="bGroup">
-            <option value="">Select</option>
-            <option>Solo (paired with others)</option>
+            <option value="" data-i18n="book.select">Select</option>
+            <option data-i18n="book.solo">Solo (paired with others)</option>
             <option>2 people</option>
             <option>3 people</option>
             <option>4 people</option>
@@ -776,13 +809,13 @@
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Preferred Date</label>
+          <label data-i18n="book.date">Preferred Date</label>
           <input type="date" id="bDate" />
         </div>
         <div class="form-group">
-          <label>Time Slot</label>
+          <label data-i18n="book.time">Time Slot</label>
           <select id="bTime">
-            <option value="">Select</option>
+            <option value="" data-i18n="book.select">Select</option>
             <option>10:00 AM</option>
             <option>12:00 PM</option>
             <option>2:00 PM</option>
@@ -791,7 +824,7 @@
           </select>
         </div>
       </div>
-      <button class="btn btn-sand" style="width:100%;display:block;text-align:center" onclick="submitBooking()">Confirm Reservation →</button>
+      <button class="btn btn-sand" style="width:100%;display:block;text-align:center" onclick="submitBooking()" data-i18n="book.confirm">Confirm Reservation →</button>
     </div>
   </div>
 </section>
@@ -799,17 +832,17 @@
 <!-- MAJORS -->
 <section id="majors" class="section">
   <div class="container text-center">
-    <div class="tag">Step 3 — Explore</div>
-    <h2 class="section-title">Find Your Major &amp; Career Path</h2>
-    <p class="section-sub">Browse Stanford's core disciplines and the doors each one opens.</p>
+    <div class="tag" data-i18n="majors.tag">Step 3 — Explore</div>
+    <h2 class="section-title" data-i18n="majors.title">Find Your Major &amp; Career Path</h2>
+    <p class="section-sub" data-i18n="majors.sub">Browse Stanford's core disciplines and the doors each one opens.</p>
 
     <div class="majors-filter">
-      <button class="filter-btn active-filter" onclick="filterMajors('all', this)">All</button>
+      <button class="filter-btn active-filter" onclick="filterMajors('all', this)" data-i18n="majors.all">All</button>
       <button class="filter-btn" onclick="filterMajors('stem', this)">STEM</button>
-      <button class="filter-btn" onclick="filterMajors('social', this)">Social Science</button>
-      <button class="filter-btn" onclick="filterMajors('humanities', this)">Humanities</button>
-      <button class="filter-btn" onclick="filterMajors('business', this)">Business</button>
-      <button class="filter-btn" onclick="filterMajors('design', this)">Design</button>
+      <button class="filter-btn" onclick="filterMajors('social', this)" data-i18n="majors.social">Social Science</button>
+      <button class="filter-btn" onclick="filterMajors('humanities', this)" data-i18n="majors.humanities">Humanities</button>
+      <button class="filter-btn" onclick="filterMajors('business', this)" data-i18n="majors.business">Business</button>
+      <button class="filter-btn" onclick="filterMajors('design', this)" data-i18n="majors.design">Design</button>
     </div>
 
     <div class="majors-grid" id="majorsGrid">
@@ -917,30 +950,30 @@
 <section id="result" class="section">
   <div class="container">
     <div class="text-center">
-      <div class="tag">Step 4 — Your Core Profile</div>
-      <h2 class="section-title">Your Core Result</h2>
-      <p class="section-sub">Complete the quiz above to unlock your personalized profile.</p>
+      <div class="tag" data-i18n="result.tag">Step 4 — Your Core Profile</div>
+      <h2 class="section-title" data-i18n="result.title">Your Core Result</h2>
+      <p class="section-sub" data-i18n="result.sub">Complete the quiz above to unlock your personalized profile.</p>
     </div>
 
     <div class="result-placeholder" id="resultPlaceholder">
-      <p>Your profile will appear here after you finish the quiz. ☝️</p>
-      <a href="#quiz" class="btn btn-primary">Take the Quiz Now</a>
+      <p data-i18n="result.placeholder">Your profile will appear here after you finish the quiz. ☝️</p>
+      <a href="#quiz" class="btn btn-primary" data-i18n="result.takeQuiz">Take the Quiz Now</a>
     </div>
 
     <div class="result-box" id="resultBox">
       <div class="result-avatar" id="resultAvatar"></div>
-      <div class="result-type">Your Core Archetype</div>
+      <div class="result-type" data-i18n="result.archetype">Your Core Archetype</div>
       <div class="result-name" id="resultName"></div>
       <div class="result-desc" id="resultDesc"></div>
       <div class="result-majors" id="resultMajors"></div>
       <div class="result-traits" id="resultTraits"></div>
       <div style="margin-bottom:24px">
-        <strong style="display:block;margin-bottom:8px;color:var(--cardinal-dark)">🎯 Your Focus This Quarter:</strong>
+        <strong id="resultFocusLabel" style="display:block;margin-bottom:8px;color:var(--cardinal-dark)" data-i18n="result.focusLabel">🎯 Your Focus This Quarter:</strong>
         <p id="resultFocus" style="color:var(--gray);font-size:0.95rem;background:var(--gray-light);padding:16px;border-radius:10px;"></p>
       </div>
       <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-        <a href="#booking" class="btn btn-primary">Book Your Room →</a>
-        <button class="btn btn-outline" onclick="resetQuiz()">Retake Quiz</button>
+        <a href="#booking" class="btn btn-primary" data-i18n="result.bookBtn">Book Your Room →</a>
+        <button class="btn btn-outline" onclick="resetQuiz()" data-i18n="result.retake">Retake Quiz</button>
       </div>
     </div>
   </div>
@@ -948,14 +981,240 @@
 
 <!-- FOOTER -->
 <footer>
-  <p><strong>CoreQuest</strong> — A Stanford Student Wellbeing Initiative</p>
-  <p style="margin-top:8px">🏛️ Designed for frosh &amp; sophs navigating FOMO, major decisions, and the Stanford Duck Syndrome.</p>
-  <p style="margin-top:8px;font-size:0.78rem">Not affiliated with Stanford University. For educational purposes.</p>
+  <p><strong>CoreQuest</strong> — <span data-i18n="footer.tagline">A Stanford Student Wellbeing Initiative</span></p>
+  <p style="margin-top:8px" data-i18n="footer.desc">🏛️ Designed for frosh &amp; sophs navigating FOMO, major decisions, and the Stanford Duck Syndrome.</p>
+  <p style="margin-top:8px;font-size:0.78rem" data-i18n="footer.disclaimer">Not affiliated with Stanford University. For educational purposes.</p>
 </footer>
 
 <div id="toast"></div>
 
 <script>
+  /* ── i18n ── */
+  const i18n = {
+    en: {
+      'nav.why': 'Why', 'nav.quiz': 'Quiz', 'nav.book': 'Book',
+      'nav.majors': 'Majors', 'nav.result': 'Result', 'nav.cta': 'Reserve Now',
+      'hero.badge': '🎓 Exclusively for Stanford Frosh & Sophs',
+      'hero.h1': 'Stop Chasing <em>Everything.</em><br>Start Owning <em>Your Core.</em>',
+      'hero.p': "FOMO hits hardest when you don't know who you are yet. CoreQuest is an escape-room experience designed to help Stanford students discover their unique strengths — one puzzle at a time.",
+      'hero.btnQuiz': 'Take the Quiz ↓', 'hero.btnBook': 'Book a Room',
+      'hero.stat1': 'Stanford students', 'hero.stat2': 'Escape rooms', 'hero.stat3': 'felt clarity after',
+      'problem.tag': 'The Problem',
+      'problem.title': "You're at Stanford. You Feel Like You're Falling Behind.",
+      'problem.sub': "Here's what every freshman is secretly thinking — and none of it is true.",
+      'problem.c1h': '"Everyone else has their major figured out."',
+      'problem.c1p': "They don't. 70% of Stanford students change their major at least once in the first two years.",
+      'problem.c2h': '"I need 3 internships, research, and a startup."',
+      'problem.c2p': "Spreading thin leads to burnout. Depth in one area beats shallow breadth every time on a résumé.",
+      'problem.c3h': '"I don\'t know what I\'m actually good at."',
+      'problem.c3p': "That's normal — and fixable. Self-knowledge is a skill, and CoreQuest is designed to build it fast.",
+      'problem.c4h': '"My LinkedIn feed makes me feel inadequate."',
+      'problem.c4p': "Social media shows highlight reels. The antidote is knowing your own reel — not envying someone else's.",
+      'how.tag': 'How It Works', 'how.title': 'Four Steps to Your Core',
+      'how.sub': 'From self-reflection to real-world clarity in under two hours.',
+      'how.s1h': 'Take the Aptitude Quiz 🧠', 'how.s1p': 'A 8-question personality + aptitude test maps your cognitive style, values, and natural strengths to academic and career clusters. Takes 4 minutes.',
+      'how.s2h': 'Choose Your Escape Room 🗝️', 'how.s2p': 'Pick from six themed rooms — each one mirrors a real academic discipline. The puzzles are designed by faculty and career coaches at Stanford.',
+      'how.s3h': 'Play & Discover 🔍', 'how.s3p': 'Spend 60–75 min solving puzzles with 2–5 teammates. Our facilitators observe how you think, lead, and collaborate under pressure.',
+      'how.s4h': 'Get Your Core Profile 📊', 'how.s4p': 'Receive a personalized report: your archetype, top major paths, matching career roles, and a "one thing to focus on this quarter" action card.',
+      'quiz.tag': 'Step 1 — Aptitude Quiz', 'quiz.title': "What's Your Core?",
+      'quiz.sub': 'Answer honestly. There are no right or wrong answers — only your answers.',
+      'quiz.next': 'Next →', 'quiz.back': '← Back', 'quiz.submit': 'See My Core →',
+      'q1.num':'Question 1 of 8','q1.q':"When you're given a totally open-ended project, your first instinct is to…",'q1.counter':'1 / 8',
+      'q1.a1':'Sketch ideas, brainstorm wildly, make something new','q1.a2':'Research the topic deeply before touching anything','q1.a3':'Jump in and build a prototype right away','q1.a4':"Talk to people who've done it before",
+      'q2.num':'Question 2 of 8','q2.q':'Which Stanford class would you secretly enjoy most?','q2.counter':'2 / 8',
+      'q2.a1':'Product Design — building things people love','q2.a2':'Stats 200 — finding patterns in data','q2.a3':'CS 106A — making software from scratch','q2.a4':'Sociology of Silicon Valley — understanding people & systems',
+      'q3.num':'Question 3 of 8','q3.q':'A friend is struggling with a decision. You naturally…','q3.counter':'3 / 8',
+      'q3.a1':'Listen first, then help them see their own answer','q3.a2':'Break it down into pros / cons with data','q3.a3':'Suggest a quick experiment to test both paths','q3.a4':"Reframe the question entirely — maybe there's a third option",
+      'q4.num':'Question 4 of 8','q4.q':'What kind of impact do you most want to have?','q4.counter':'4 / 8',
+      'q4.a1':'Create something that changes how people experience the world','q4.a2':'Solve a complex, long-standing problem with rigorous research','q4.a3':'Build a product or company that scales globally','q4.a4':'Lift communities and shape better policy or systems',
+      'q5.num':'Question 5 of 8','q5.q':"When you're in flow — totally absorbed — you're usually…",'q5.counter':'5 / 8',
+      'q5.a1':'Writing, designing, or making something aesthetic','q5.a2':'Reading deeply or solving a puzzle / proof','q5.a3':'Coding, building, or tinkering with a system','q5.a4':'Talking, organizing, or leading a team toward a goal',
+      'q6.num':'Question 6 of 8','q6.q':'Your ideal senior thesis / capstone project is…','q6.counter':'6 / 8',
+      'q6.a1':'An original creative work with a written conceptual framework','q6.a2':'A research paper with original data and strong methodology','q6.a3':'A working product or startup that users actually use','q6.a4':'A policy proposal or community initiative with real stakeholders',
+      'q7.num':'Question 7 of 8','q7.q':'What frustrates you most in group projects?','q7.counter':'7 / 8',
+      'q7.a1':'No creative ownership — everything is generic and safe','q7.a2':'Decisions made without evidence or careful thinking','q7.a3':'Too much talk, not enough shipping','q7.a4':'Poor communication and people feeling unheard',
+      'q8.num':'Question 8 of 8','q8.q':'In 10 years, which sentence do you hope someone says about you?','q8.counter':'8 / 8',
+      'q8.a1':'"They made something beautiful that no one had imagined before."','q8.a2':'"Their work changed how we understand this field."','q8.a3':'"They built something millions of people rely on every day."','q8.a4':'"They made people feel seen and helped communities thrive."',
+      'book.tag': 'Step 2 — Book a Room', 'book.title': 'Choose Your Escape Room',
+      'book.sub': 'Six rooms, each designed around a real intellectual domain. Pick the one that scares you in the best way.',
+      'book.formTitle': 'Reserve Your Spot', 'book.firstName': 'First Name', 'book.lastName': 'Last Name',
+      'book.email': 'Stanford Email', 'book.year': 'Year', 'book.groupSize': 'Group Size',
+      'book.date': 'Preferred Date', 'book.time': 'Time Slot', 'book.confirm': 'Confirm Reservation →',
+      'book.select': 'Select', 'book.freshman': 'Freshman', 'book.sophomore': 'Sophomore',
+      'book.solo': 'Solo (paired with others)',
+      'room1.name':'The Lab','room1.desc':'A biotech facility with a missing compound. Think like a scientist — hypothesize, test, iterate.','room1.tag':'Science & Research',
+      'room2.name':'The Startup','room2.desc':'Your founding team has 60 minutes before investor demo day. Ship the MVP or lose everything.','room2.tag':'CS & Engineering',
+      'room3.name':'The Forum','room3.desc':'A political crisis, hidden documents, and a vote that changes history. Navigate power and persuasion.','room3.tag':'Policy & Social Science',
+      'room4.name':'The Gallery','room4.desc':'A stolen masterpiece, cryptic artistic clues, and a collector with secrets. See the world differently.','room4.tag':'Humanities & Arts',
+      'room5.name':'The Trading Floor','room5.desc':'Market crash imminent. Decode financial signals and make calls under real pressure.','room5.tag':'Economics & Finance',
+      'room6.name':'The Clinic','room6.desc':'A mystery diagnosis, limited resources, and patient lives on the line. Empathy meets precision.','room6.tag':'Medicine & Biodesign',
+      'majors.tag': 'Step 3 — Explore', 'majors.title': 'Find Your Major & Career Path',
+      'majors.sub': "Browse Stanford's core disciplines and the doors each one opens.",
+      'majors.all': 'All', 'majors.social': 'Social Science', 'majors.humanities': 'Humanities',
+      'majors.business': 'Business', 'majors.design': 'Design',
+      'result.tag': 'Step 4 — Your Core Profile', 'result.title': 'Your Core Result',
+      'result.sub': 'Complete the quiz above to unlock your personalized profile.',
+      'result.placeholder': 'Your profile will appear here after you finish the quiz. ☝️',
+      'result.takeQuiz': 'Take the Quiz Now', 'result.archetype': 'Your Core Archetype',
+      'result.focusLabel': '🎯 Your Focus This Quarter:', 'result.bookBtn': 'Book Your Room →', 'result.retake': 'Retake Quiz',
+      'footer.tagline': 'A Stanford Student Wellbeing Initiative',
+      'footer.desc': '🏛️ Designed for frosh & sophs navigating FOMO, major decisions, and the Stanford Duck Syndrome.',
+      'footer.disclaimer': 'Not affiliated with Stanford University. For educational purposes.',
+    },
+    ko: {
+      'nav.why': '왜?', 'nav.quiz': '테스트', 'nav.book': '예약', 'nav.majors': '전공', 'nav.result': '결과', 'nav.cta': '지금 예약',
+      'hero.badge': '🎓 스탠포드 1·2학년 전용 프로그램',
+      'hero.h1': '<em>모든 것</em>을 쫓는 걸 멈추고<br><em>나만의 Core</em>를 찾으세요.',
+      'hero.p': '내가 누구인지 모를 때 FOMO는 가장 강하게 찾아옵니다. CoreQuest는 방탈출 경험을 통해 스탠포드 학생들이 자신만의 강점을 발견하도록 설계된 프로그램입니다.',
+      'hero.btnQuiz': '성향 테스트 시작 ↓', 'hero.btnBook': '방 예약하기',
+      'hero.stat1': '스탠포드 참가자', 'hero.stat2': '방탈출 테마', 'hero.stat3': '명확해졌다고 응답',
+      'problem.tag': '문제 제기',
+      'problem.title': '스탠포드에 왔는데, 왜 자꾸 뒤처지는 것 같을까요?',
+      'problem.sub': '모든 신입생이 속으로 이렇게 생각합니다. 하지만 이건 다 사실이 아니에요.',
+      'problem.c1h': '"다들 전공은 이미 정했겠지."',
+      'problem.c1p': '사실이 아닙니다. 스탠포드 학생의 70%가 1~2학년 사이에 전공을 바꿉니다.',
+      'problem.c2h': '"인턴 3개에 연구에 창업까지 해야 해."',
+      'problem.c2p': '얕게 넓게 하다 보면 번아웃이 옵니다. 이력서에서도 한 분야의 깊이가 훨씬 강력합니다.',
+      'problem.c3h': '"나는 사실 뭘 잘하는지 모르겠어."',
+      'problem.c3p': '지극히 정상입니다. 자기 이해는 기술이고, CoreQuest는 그 기술을 빠르게 키우도록 설계됐습니다.',
+      'problem.c4h': '"링크드인 피드 볼 때마다 초라해져."',
+      'problem.c4p': 'SNS는 하이라이트 릴입니다. 해답은 남의 릴을 부러워하는 게 아니라 내 릴을 아는 것입니다.',
+      'how.tag': '진행 방식', 'how.title': '나의 Core를 찾는 4단계',
+      'how.sub': '자기 성찰에서 실제 명확성까지, 2시간 안에.',
+      'how.s1h': '적성 테스트 하기 🧠', 'how.s1p': '8가지 질문으로 당신의 인지 스타일, 가치관, 강점을 학문·커리어 클러스터에 매핑합니다. 약 4분 소요.',
+      'how.s2h': '방탈출 테마 선택 🗝️', 'how.s2p': '6개 테마 방 중 하나를 선택하세요. 각 방은 실제 학문 분야를 반영하며, 스탠포드 교수진과 커리어 코치가 설계했습니다.',
+      'how.s3h': '플레이 & 발견 🔍', 'how.s3p': '2~5인 팀으로 60~75분간 퍼즐을 풀어갑니다. 퍼실리테이터가 당신의 사고·리더십·협업 방식을 관찰합니다.',
+      'how.s4h': 'Core 프로필 받기 📊', 'how.s4p': '아키타입, 추천 전공 경로, 맞는 직무, 이번 분기 집중 액션 카드가 담긴 맞춤 리포트를 받게 됩니다.',
+      'quiz.tag': 'Step 1 — 적성 테스트', 'quiz.title': '당신의 Core는 무엇인가요?',
+      'quiz.sub': '솔직하게 답해주세요. 정답도, 오답도 없습니다 — 당신의 답만 있을 뿐입니다.',
+      'quiz.next': '다음 →', 'quiz.back': '← 이전', 'quiz.submit': '내 Core 확인하기 →',
+      'q1.num':'1번 / 8문항','q1.q':'완전히 자유로운 프로젝트가 주어졌을 때, 당신의 첫 번째 본능은?','q1.counter':'1 / 8',
+      'q1.a1':'아이디어를 스케치하고 마구 브레인스토밍해서 새로운 걸 만든다','q1.a2':'본격적으로 시작하기 전 주제를 깊이 리서치한다','q1.a3':'바로 뛰어들어 프로토타입을 만들어본다','q1.a4':'이미 해본 사람들에게 먼저 물어본다',
+      'q2.num':'2번 / 8문항','q2.q':'스탠포드 수업 중 사실 제일 재미있을 것 같은 수업은?','q2.counter':'2 / 8',
+      'q2.a1':'Product Design — 사람들이 사랑하는 것 만들기','q2.a2':'Stats 200 — 데이터에서 패턴 찾기','q2.a3':'CS 106A — 처음부터 소프트웨어 만들기','q2.a4':'Sociology of Silicon Valley — 사람과 시스템 이해하기',
+      'q3.num':'3번 / 8문항','q3.q':'친구가 결정을 못 내리고 힘들어할 때, 당신은 자연스럽게?','q3.counter':'3 / 8',
+      'q3.a1':'먼저 듣고, 친구 스스로 답을 찾도록 돕는다','q3.a2':'데이터로 장단점을 정리해준다','q3.a3':'두 가지 경로를 빠르게 실험해보자고 제안한다','q3.a4':'질문 자체를 다시 정의한다 — 세 번째 옵션이 있을 수도 있으니까',
+      'q4.num':'4번 / 8문항','q4.q':'당신이 가장 만들고 싶은 임팩트는?','q4.counter':'4 / 8',
+      'q4.a1':'사람들이 세상을 경험하는 방식을 바꾸는 무언가를 만든다','q4.a2':'엄밀한 연구로 복잡한 난제를 푼다','q4.a3':'글로벌하게 스케일되는 제품이나 회사를 만든다','q4.a4':'커뮤니티를 성장시키고 더 나은 정책과 시스템을 만든다',
+      'q5.num':'5번 / 8문항','q5.q':'완전히 몰입(Flow)해 있을 때, 당신은 주로?','q5.counter':'5 / 8',
+      'q5.a1':'글 쓰거나, 디자인하거나, 미적인 무언가를 만들고 있다','q5.a2':'깊이 읽거나 퍼즐·증명을 풀고 있다','q5.a3':'코딩하거나 시스템을 만지고 있다','q5.a4':'대화하거나 팀을 목표 방향으로 이끌고 있다',
+      'q6.num':'6번 / 8문항','q6.q':'나의 이상적인 졸업 논문·캡스톤 프로젝트는?','q6.counter':'6 / 8',
+      'q6.a1':'개념적 프레임워크가 있는 오리지널 창작물','q6.a2':'독자적 데이터와 탄탄한 방법론을 갖춘 연구 논문','q6.a3':'실제 유저가 쓰는 작동하는 제품 또는 스타트업','q6.a4':'실제 이해관계자와 함께하는 정책 제안 또는 커뮤니티 이니셔티브',
+      'q7.num':'7번 / 8문항','q7.q':'팀 프로젝트에서 가장 답답한 순간은?','q7.counter':'7 / 8',
+      'q7.a1':'창의적 주도권이 없고 모든 게 안전하고 뻔한 방향으로만 흐를 때','q7.a2':'근거나 충분한 고민 없이 결정이 내려질 때','q7.a3':'말만 많고 실제로 실행이 안 될 때','q7.a4':'소통이 안 되고 팀원이 소외감을 느낄 때',
+      'q8.num':'8번 / 8문항','q8.q':'10년 후, 누군가 나에 대해 이런 말을 해줬으면 좋겠다:','q8.counter':'8 / 8',
+      'q8.a1':'"그 사람이 만든 건 아무도 상상 못 했던 아름다운 무언가였어."','q8.a2':'"그 사람 연구 덕분에 우리가 이 분야를 보는 눈이 달라졌어."','q8.a3':'"수백만 명이 매일 쓰는 걸 그 사람이 만들었어."','q8.a4':'"그 사람은 사람들이 인정받는 느낌을 갖게 해주고 커뮤니티를 성장시켰어."',
+      'book.tag': 'Step 2 — 방 예약', 'book.title': '방탈출 테마 선택',
+      'book.sub': '6개 테마, 각각 실제 학문 분야를 반영합니다. 가장 두근거리는 방을 골라보세요.',
+      'book.formTitle': '자리 예약하기', 'book.firstName': '이름', 'book.lastName': '성',
+      'book.email': '스탠포드 이메일', 'book.year': '학년', 'book.groupSize': '그룹 인원',
+      'book.date': '희망 날짜', 'book.time': '시간대', 'book.confirm': '예약 확정 →',
+      'book.select': '선택', 'book.freshman': '1학년', 'book.sophomore': '2학년',
+      'book.solo': '솔로 (다른 참가자와 매칭)',
+      'room1.name':'더 랩','room1.desc':'사라진 화합물을 찾아라. 과학자처럼 생각하세요 — 가설, 실험, 반복.','room1.tag':'과학 & 연구',
+      'room2.name':'더 스타트업','room2.desc':'60분 후 투자자 데모데이. MVP를 완성하거나 전부 잃거나.','room2.tag':'CS & 엔지니어링',
+      'room3.name':'더 포럼','room3.desc':'정치 위기, 숨겨진 문서, 역사를 바꾸는 투표. 권력과 설득의 게임.','room3.tag':'정책 & 사회과학',
+      'room4.name':'더 갤러리','room4.desc':'도난당한 명작, 암호 같은 예술적 단서, 비밀을 품은 컬렉터.','room4.tag':'인문학 & 예술',
+      'room5.name':'더 트레이딩 플로어','room5.desc':'시장 붕괴 임박. 금융 신호를 해독하고 압박 속에서 결정을 내려라.','room5.tag':'경제 & 금융',
+      'room6.name':'더 클리닉','room6.desc':'미스터리 진단, 한정된 자원, 위기에 처한 환자들. 공감이 정밀함을 만난다.','room6.tag':'의학 & 바이오디자인',
+      'majors.tag': 'Step 3 — 탐색', 'majors.title': '전공 & 커리어 경로 찾기',
+      'majors.sub': '스탠포드 핵심 학문 분야와 각 분야가 열어주는 문들을 탐색해보세요.',
+      'majors.all': '전체', 'majors.social': '사회과학', 'majors.humanities': '인문학',
+      'majors.business': '비즈니스', 'majors.design': '디자인',
+      'result.tag': 'Step 4 — 나의 Core 프로필', 'result.title': '당신의 Core 결과',
+      'result.sub': '위 테스트를 완료하면 맞춤 프로필이 공개됩니다.',
+      'result.placeholder': '테스트를 완료하면 여기에 프로필이 나타납니다. ☝️',
+      'result.takeQuiz': '테스트 시작하기', 'result.archetype': '나의 Core 아키타입',
+      'result.focusLabel': '🎯 이번 분기 집중 과제:', 'result.bookBtn': '방 예약하기 →', 'result.retake': '테스트 다시 하기',
+      'footer.tagline': '스탠포드 학생 웰빙 이니셔티브',
+      'footer.desc': '🏛️ FOMO, 전공 결정, 스탠포드 오리 증후군을 겪는 1·2학년을 위해 설계되었습니다.',
+      'footer.disclaimer': '스탠포드 대학교와 공식 제휴 관계가 아닙니다. 교육 목적으로 제작되었습니다.',
+    }
+  };
+
+  let currentLang = 'en';
+
+  function setLang(lang) {
+    currentLang = lang;
+    document.getElementById('btnEn').classList.toggle('active-lang', lang === 'en');
+    document.getElementById('btnKo').classList.toggle('active-lang', lang === 'ko');
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      const text = i18n[lang][key];
+      if (text !== undefined) el.innerHTML = text;
+    });
+    document.documentElement.lang = lang === 'ko' ? 'ko' : 'en';
+    if (lastResultType) renderResult(lastResultType);
+  }
+
+  /* ── i18n-aware archetype data ── */
+  const archetypeData = {
+    creator: {
+      en: {
+        avatar:'🎨', name:'The Creator',
+        desc:"You think in possibilities and aesthetics. You're energized by making something new — whether that's a film, a product, a story, or an experience. You get frustrated when the world feels unimaginative.",
+        majors:['Product Design','English','Theater & Performance','Symbolic Systems'],
+        traits:[{label:'Imagination',val:'95%'},{label:'Craft',val:'88%'},{label:'Vision',val:'91%'}],
+        focus:"Pick ONE creative project this quarter and finish it. Ship something small: a blog post, a design portfolio piece, a 3-minute short film. Completion beats perfection."
+      },
+      ko: {
+        avatar:'🎨', name:'크리에이터',
+        desc:"당신은 가능성과 미감(美感)으로 생각합니다. 새로운 무언가를 만들 때 에너지가 솟구치죠 — 영화든, 제품이든, 이야기든, 경험이든. 세상이 상상력 없이 돌아갈 때 답답함을 느낍니다.",
+        majors:['프로덕트 디자인','영문학','연극 & 퍼포먼스','Symbolic Systems'],
+        traits:[{label:'상상력',val:'95%'},{label:'장인정신',val:'88%'},{label:'비전',val:'91%'}],
+        focus:"이번 분기에 창작 프로젝트 딱 하나를 골라 완성하세요. 블로그 포스트, 포트폴리오 작품, 3분짜리 단편 영상. 완성이 완벽보다 낫습니다."
+      }
+    },
+    analyst: {
+      en: {
+        avatar:'🔬', name:'The Analyst',
+        desc:"You live in depth. You crave rigorous understanding over superficial breadth. You're the person who actually reads the citations — and enjoys it. Your superpower is knowing when an argument is actually sound.",
+        majors:['Physics','Economics','Psychology','Computational Science'],
+        traits:[{label:'Rigor',val:'96%'},{label:'Depth',val:'92%'},{label:'Curiosity',val:'89%'}],
+        focus:"Find one research lab on campus and email the PI this week. Ask for a 20-minute coffee chat. You don't need credentials — you need genuine questions."
+      },
+      ko: {
+        avatar:'🔬', name:'분석가',
+        desc:"당신은 깊이 속에서 삽니다. 얕고 넓은 것보다 엄밀한 이해를 갈망하죠. 각주까지 실제로 읽고 그걸 즐기는 사람이에요. 당신의 초능력은 어떤 주장이 정말 탄탄한지 아는 것입니다.",
+        majors:['물리학','경제학','심리학','전산수학'],
+        traits:[{label:'엄밀함',val:'96%'},{label:'깊이',val:'92%'},{label:'호기심',val:'89%'}],
+        focus:"이번 주 안에 캠퍼스 연구실 하나를 골라 PI(지도교수)에게 이메일을 보내세요. 20분 커피챗을 요청하세요. 자격증이 필요한 게 아니라 진짜 질문이 필요합니다."
+      }
+    },
+    builder: {
+      en: {
+        avatar:'🚀', name:'The Builder',
+        desc:"You have a bias for action and a low tolerance for endless planning. You learn by doing, and you measure success by what's shipping. You're the person who already has a side project running.",
+        majors:['Computer Science','Electrical Engineering','Management Science','Bioengineering'],
+        traits:[{label:'Execution',val:'94%'},{label:'Resilience',val:'90%'},{label:'Speed',val:'87%'}],
+        focus:"Launch something this quarter, no matter how small. A landing page, a Chrome extension, a Discord bot. The habit of shipping is worth more than the idea."
+      },
+      ko: {
+        avatar:'🚀', name:'빌더',
+        desc:"당신은 행동 편향이 있고, 끝없는 계획에 대한 인내심이 낮습니다. 직접 해보면서 배우고, 무엇이 출시됐느냐로 성공을 측정하죠. 이미 사이드 프로젝트를 돌리고 있는 사람입니다.",
+        majors:['컴퓨터 과학','전기공학','경영과학','바이오엔지니어링'],
+        traits:[{label:'실행력',val:'94%'},{label:'회복탄력성',val:'90%'},{label:'속도',val:'87%'}],
+        focus:"이번 분기에 작든 크든 뭔가를 런칭하세요. 랜딩 페이지, 크롬 익스텐션, 디스코드 봇. 출시하는 습관이 아이디어보다 값집니다."
+      }
+    },
+    connector: {
+      en: {
+        avatar:'🤝', name:'The Connector',
+        desc:"People trust you. You move through social and institutional structures with natural ease. You care about real impact on real humans — not just metrics. You're a force multiplier for every team you join.",
+        majors:['Political Science','Sociology','International Relations','Psychology'],
+        traits:[{label:'Empathy',val:'97%'},{label:'Influence',val:'89%'},{label:'Systems Thinking',val:'85%'}],
+        focus:"Identify one campus organization working on something you care about. Attend one meeting. Say yes to one small responsibility. Connectors grow by doing, not watching."
+      },
+      ko: {
+        avatar:'🤝', name:'커넥터',
+        desc:"사람들이 당신을 신뢰합니다. 사회적·제도적 구조를 자연스럽게 헤쳐나가는 사람이에요. 단순한 지표가 아니라 실제 사람에게 실제 영향을 미치는 것을 소중히 여깁니다.",
+        majors:['정치학','사회학','국제관계학','심리학'],
+        traits:[{label:'공감 능력',val:'97%'},{label:'영향력',val:'89%'},{label:'시스템 사고',val:'85%'}],
+        focus:"관심 있는 분야를 다루는 캠퍼스 단체 하나를 찾아서 미팅에 한 번 참석하세요. 작은 역할 하나에 Yes라고 말해보세요. 커넥터는 보는 것이 아니라 하는 것으로 성장합니다."
+      }
+    }
+  };
+
   const answers = {};
 
   function selectOption(el, qKey) {
@@ -973,56 +1232,33 @@
   function nextQ(n) { showStep(n); }
   function prevQ(n) { showStep(n); }
 
-  const archetypes = {
-    creator: {
-      avatar: '🎨', name: 'The Creator',
-      desc: 'You think in possibilities and aesthetics. You\'re energized by making something new — whether that\'s a film, a product, a story, or an experience. You get frustrated when the world feels unimaginative.',
-      majors: ['Product Design', 'English', 'Theater & Performance', 'Symbolic Systems'],
-      traits: [{ label: 'Imagination', val: '95%' }, { label: 'Craft', val: '88%' }, { label: 'Vision', val: '91%' }],
-      focus: 'Pick ONE creative project this quarter and finish it. Ship something small: a blog post, a design portfolio piece, a 3-minute short film. Completion beats perfection.'
-    },
-    analyst: {
-      avatar: '🔬', name: 'The Analyst',
-      desc: 'You live in depth. You crave rigorous understanding over superficial breadth. You\'re the person who actually reads the citations — and enjoys it. Your superpower is knowing when an argument is actually sound.',
-      majors: ['Physics', 'Economics', 'Psychology', 'Computational Science'],
-      traits: [{ label: 'Rigor', val: '96%' }, { label: 'Depth', val: '92%' }, { label: 'Curiosity', val: '89%' }],
-      focus: 'Find one research lab on campus and email the PI this week. Ask for a 20-minute coffee chat. You don\'t need credentials — you need genuine questions.'
-    },
-    builder: {
-      avatar: '🚀', name: 'The Builder',
-      desc: 'You have a bias for action and a low tolerance for endless planning. You learn by doing, and you measure success by what\'s shipping. You\'re the person who already has a side project running.',
-      majors: ['Computer Science', 'Electrical Engineering', 'Management Science', 'Bioengineering'],
-      traits: [{ label: 'Execution', val: '94%' }, { label: 'Resilience', val: '90%' }, { label: 'Speed', val: '87%' }],
-      focus: 'Launch something this quarter, no matter how small. A landing page, a Chrome extension, a Discord bot. The habit of shipping is worth more than the idea.'
-    },
-    connector: {
-      avatar: '🤝', name: 'The Connector',
-      desc: 'People trust you. You move through social and institutional structures with natural ease. You care about real impact on real humans — not just metrics. You\'re a force multiplier for every team you join.',
-      majors: ['Political Science', 'Sociology', 'International Relations', 'Psychology'],
-      traits: [{ label: 'Empathy', val: '97%' }, { label: 'Influence', val: '89%' }, { label: 'Systems Thinking', val: '85%' }],
-      focus: 'Identify one campus organization working on something you care about. Attend one meeting. Say yes to one small responsibility. Connectors grow by doing, not watching.'
-    }
-  };
+  let lastResultType = null;
 
-  function submitQuiz() {
-    const counts = { creator: 0, analyst: 0, builder: 0, connector: 0 };
-    Object.values(answers).forEach(v => { if (v in counts) counts[v]++; });
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
-    const d = archetypes[top];
+  function renderResult(type) {
+    const d = archetypeData[type][currentLang];
     document.getElementById('resultAvatar').textContent = d.avatar;
     document.getElementById('resultName').textContent = d.name;
     document.getElementById('resultDesc').textContent = d.desc;
     document.getElementById('resultFocus').textContent = d.focus;
     document.getElementById('resultMajors').innerHTML = d.majors.map(m => '<span class="result-major-tag">' + m + '</span>').join('');
     document.getElementById('resultTraits').innerHTML = d.traits.map(t => '<div class="result-trait"><strong>' + t.val + '</strong>' + t.label + '</div>').join('');
+  }
+
+  function submitQuiz() {
+    const counts = { creator: 0, analyst: 0, builder: 0, connector: 0 };
+    Object.values(answers).forEach(v => { if (v in counts) counts[v]++; });
+    lastResultType = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    renderResult(lastResultType);
     document.getElementById('resultPlaceholder').style.display = 'none';
     document.getElementById('resultBox').classList.add('visible');
-    showToast('🎉 You\'re ' + d.name + '!');
+    const name = archetypeData[lastResultType][currentLang].name;
+    showToast(currentLang === 'ko' ? '🎉 당신은 ' + name + '입니다!' : '🎉 You\'re ' + name + '!');
     document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
   }
 
   function resetQuiz() {
     Object.keys(answers).forEach(k => delete answers[k]);
+    lastResultType = null;
     document.querySelectorAll('.quiz-option').forEach(b => b.classList.remove('selected'));
     showStep(1);
     document.getElementById('resultBox').classList.remove('visible');
@@ -1035,7 +1271,8 @@
     document.querySelectorAll('.room-card').forEach(c => c.classList.remove('selected-room'));
     el.classList.add('selected-room');
     selectedRoom = name;
-    showToast('✅ "' + name + '" selected');
+    const displayName = el.querySelector('h3').textContent;
+    showToast('✅ ' + (currentLang === 'ko' ? '"' + displayName + '" 선택됨' : '"' + displayName + '" selected'));
   }
 
   function submitBooking() {
@@ -1045,12 +1282,12 @@
     const date  = document.getElementById('bDate').value;
     const time  = document.getElementById('bTime').value;
     if (!first || !email || !year || !date || !time || !selectedRoom) {
-      showToast('⚠️ Please fill in all fields & select a room.'); return;
+      showToast(currentLang === 'ko' ? '⚠️ 모든 항목을 입력하고 방을 선택해주세요.' : '⚠️ Please fill in all fields & select a room.'); return;
     }
     if (!email.endsWith('@stanford.edu')) {
-      showToast('⚠️ Please use your @stanford.edu email.'); return;
+      showToast(currentLang === 'ko' ? '⚠️ @stanford.edu 이메일을 사용해주세요.' : '⚠️ Please use your @stanford.edu email.'); return;
     }
-    showToast('🗝️ Booked! "' + selectedRoom + '" on ' + date + ' at ' + time);
+    showToast(currentLang === 'ko' ? '🗝️ 예약 완료! ' + date + ' ' + time : '🗝️ Booked! "' + selectedRoom + '" on ' + date + ' at ' + time);
   }
 
   function filterMajors(cat, btn) {
