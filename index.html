@@ -1,25 +1,1072 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hello World</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CoreQuest — Find Your Core at Stanford</title>
   <style>
+    /* ── Reset & Tokens ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --cardinal: #8C1515;
+      --cardinal-dark: #6a0f0f;
+      --cardinal-light: #b83232;
+      --sand: #d2c295;
+      --sand-light: #f5f0e4;
+      --gray: #4D4F53;
+      --gray-light: #f4f4f4;
+      --white: #ffffff;
+      --text: #1a1a1a;
+      --radius: 14px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.10);
+      --shadow-lg: 0 12px 48px rgba(140,21,21,0.15);
+    }
+    html { scroll-behavior: smooth; }
     body {
-      font-family: sans-serif;
+      font-family: 'Segoe UI', 'Source Sans Pro', system-ui, sans-serif;
+      color: var(--text);
+      background: var(--white);
+      line-height: 1.6;
+    }
+    img { max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Utility ── */
+    .btn {
+      display: inline-block;
+      padding: 14px 32px;
+      border-radius: 50px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: transform 0.15s, box-shadow 0.15s, background 0.2s;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+    .btn-primary { background: var(--cardinal); color: var(--white); }
+    .btn-primary:hover { background: var(--cardinal-dark); }
+    .btn-outline { background: transparent; color: var(--cardinal); border: 2px solid var(--cardinal); }
+    .btn-outline:hover { background: var(--cardinal); color: var(--white); }
+    .btn-sand { background: var(--sand); color: var(--cardinal-dark); }
+    .btn-sand:hover { background: #c0ae7e; }
+    .section { padding: 80px 20px; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .tag {
+      display: inline-block;
+      background: var(--sand-light);
+      color: var(--cardinal);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 50px;
+      margin-bottom: 16px;
+    }
+    h2.section-title {
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      font-weight: 800;
+      color: var(--cardinal-dark);
+      margin-bottom: 12px;
+    }
+    .section-sub {
+      font-size: 1.05rem;
+      color: var(--gray);
+      max-width: 580px;
+      margin: 0 auto 48px;
+    }
+    .text-center { text-align: center; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid #eee;
+      padding: 0 20px;
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .nav-logo { font-size: 1.25rem; font-weight: 900; color: var(--cardinal); letter-spacing: -0.5px; }
+    .nav-logo span { color: var(--gray); font-weight: 400; }
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+    .nav-links a { font-size: 0.9rem; font-weight: 600; color: var(--gray); transition: color 0.2s; }
+    .nav-links a:hover { color: var(--cardinal); }
+    .nav-cta { padding: 10px 22px; font-size: 0.9rem; }
+    @media (max-width: 680px) {
+      .nav-links { display: none; }
+    }
+
+    /* ── HERO ── */
+    #hero {
+      background: linear-gradient(135deg, #1a0505 0%, var(--cardinal) 60%, #c0392b 100%);
+      color: var(--white);
+      padding: 100px 20px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    #hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    .hero-content { position: relative; max-width: 760px; margin: 0 auto; }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: var(--sand);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 7px 18px;
+      border-radius: 50px;
+      margin-bottom: 24px;
+    }
+    #hero h1 {
+      font-size: clamp(2.2rem, 6vw, 4rem);
+      font-weight: 900;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      letter-spacing: -1px;
+    }
+    #hero h1 em { font-style: normal; color: var(--sand); }
+    #hero p {
+      font-size: clamp(1rem, 2.5vw, 1.2rem);
+      opacity: 0.85;
+      max-width: 560px;
+      margin: 0 auto 36px;
+    }
+    .hero-btns { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .hero-stats {
       display: flex;
       justify-content: center;
+      gap: 40px;
+      margin-top: 64px;
+      flex-wrap: wrap;
+    }
+    .hero-stat { text-align: center; }
+    .hero-stat strong { display: block; font-size: 2rem; font-weight: 900; color: var(--sand); }
+    .hero-stat span { font-size: 0.85rem; opacity: 0.7; }
+
+    /* ── PROBLEM ── */
+    #problem { background: var(--sand-light); }
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+      margin-top: 48px;
+    }
+    .problem-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: var(--shadow);
+      border-left: 4px solid var(--cardinal);
+    }
+    .problem-card .icon { font-size: 2rem; margin-bottom: 12px; }
+    .problem-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; color: var(--cardinal-dark); }
+    .problem-card p { font-size: 0.9rem; color: var(--gray); }
+
+    /* ── HOW IT WORKS ── */
+    .steps { display: flex; flex-direction: column; gap: 0; margin-top: 48px; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 24px;
+      padding: 32px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .step:last-child { border-bottom: none; }
+    .step-num {
+      flex-shrink: 0;
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: var(--cardinal);
+      color: var(--white);
+      font-size: 1.3rem;
+      font-weight: 900;
+      display: flex;
       align-items: center;
-      height: 100vh;
-      margin: 0;
-      background: #f0f4f8;
+      justify-content: center;
     }
-    h1 {
-      color: #333;
+    .step-body h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; }
+    .step-body p { font-size: 0.95rem; color: var(--gray); }
+    .step-emoji { font-size: 1.6rem; }
+
+    /* ── QUIZ ── */
+    #quiz { background: var(--gray-light); }
+    .quiz-box {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      max-width: 700px;
+      margin: 0 auto;
+      overflow: hidden;
     }
+    .quiz-progress-bar { height: 6px; background: #e0e0e0; }
+    .quiz-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--cardinal), var(--cardinal-light));
+      transition: width 0.4s ease;
+      border-radius: 3px;
+    }
+    .quiz-body { padding: 40px 36px; }
+    @media (max-width: 480px) { .quiz-body { padding: 28px 20px; } }
+    .quiz-step { display: none; }
+    .quiz-step.active { display: block; }
+    .quiz-q-num { font-size: 0.8rem; color: var(--gray); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+    .quiz-question { font-size: 1.3rem; font-weight: 700; margin-bottom: 28px; color: var(--cardinal-dark); }
+    .quiz-options { display: flex; flex-direction: column; gap: 12px; }
+    .quiz-option {
+      padding: 16px 20px;
+      border: 2px solid #e0e0e0;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+      background: var(--white);
+      text-align: left;
+    }
+    .quiz-option:hover { border-color: var(--cardinal); background: var(--sand-light); }
+    .quiz-option.selected { border-color: var(--cardinal); background: var(--sand-light); font-weight: 600; }
+    .quiz-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 32px; }
+    .quiz-counter { font-size: 0.85rem; color: var(--gray); }
+
+    /* ── BOOKING ── */
+    #booking { background: var(--cardinal-dark); color: var(--white); }
+    #booking .section-title { color: var(--sand); }
+    #booking .section-sub { color: rgba(255,255,255,0.75); }
+    .rooms-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+    .room-card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius);
+      padding: 28px;
+      transition: background 0.2s, transform 0.2s;
+      cursor: pointer;
+    }
+    .room-card:hover, .room-card.selected-room {
+      background: rgba(255,255,255,0.15);
+      transform: translateY(-4px);
+      border-color: var(--sand);
+    }
+    .room-emoji { font-size: 2.4rem; margin-bottom: 12px; }
+    .room-card h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; }
+    .room-card p { font-size: 0.88rem; opacity: 0.75; margin-bottom: 14px; }
+    .room-tag {
+      display: inline-block;
+      background: rgba(210,194,149,0.2);
+      color: var(--sand);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 50px;
+    }
+    .booking-form {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius);
+      padding: 36px;
+      max-width: 560px;
+      margin: 0 auto;
+    }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; opacity: 0.85; }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.1);
+      color: var(--white);
+      font-size: 0.95rem;
+    }
+    .form-group input::placeholder { color: rgba(255,255,255,0.4); }
+    .form-group select option { background: var(--cardinal-dark); }
+    @media (max-width: 520px) { .form-row { grid-template-columns: 1fr; } }
+
+    /* ── MAJORS ── */
+    #majors { background: var(--white); }
+    .majors-filter {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 36px;
+    }
+    .filter-btn {
+      padding: 8px 20px;
+      border-radius: 50px;
+      border: 2px solid #e0e0e0;
+      background: var(--white);
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--gray);
+      transition: all 0.2s;
+    }
+    .filter-btn:hover, .filter-btn.active-filter {
+      border-color: var(--cardinal);
+      color: var(--cardinal);
+      background: var(--sand-light);
+    }
+    .majors-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 18px;
+    }
+    .major-card {
+      border: 2px solid #eee;
+      border-radius: var(--radius);
+      padding: 24px 20px;
+      text-align: center;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .major-card:hover {
+      border-color: var(--cardinal);
+      box-shadow: var(--shadow);
+      transform: translateY(-3px);
+    }
+    .major-card .m-icon { font-size: 2rem; margin-bottom: 10px; }
+    .major-card h4 { font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; }
+    .major-card p { font-size: 0.8rem; color: var(--gray); }
+    .major-card .m-tag {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 50px;
+      background: var(--sand-light);
+      color: var(--cardinal);
+    }
+
+    /* ── RESULT ── */
+    #result { background: linear-gradient(135deg, var(--sand-light) 0%, var(--white) 100%); }
+    .result-box {
+      background: var(--white);
+      border-radius: 20px;
+      box-shadow: var(--shadow-lg);
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 48px 40px;
+      text-align: center;
+      border-top: 6px solid var(--cardinal);
+      display: none;
+    }
+    @media (max-width: 480px) { .result-box { padding: 32px 20px; } }
+    .result-box.visible { display: block; }
+    .result-placeholder {
+      max-width: 680px;
+      margin: 0 auto;
+      text-align: center;
+      padding: 48px 20px;
+    }
+    .result-placeholder p { color: var(--gray); margin-bottom: 24px; }
+    .result-avatar { font-size: 4rem; margin-bottom: 16px; }
+    .result-type { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--cardinal); margin-bottom: 8px; }
+    .result-name { font-size: 2rem; font-weight: 900; color: var(--cardinal-dark); margin-bottom: 16px; }
+    .result-desc { color: var(--gray); margin-bottom: 28px; font-size: 1rem; }
+    .result-majors { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+    .result-major-tag {
+      padding: 8px 18px;
+      background: var(--sand-light);
+      color: var(--cardinal-dark);
+      border-radius: 50px;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+    .result-traits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 32px; }
+    .result-trait { background: var(--gray-light); border-radius: 10px; padding: 14px 10px; font-size: 0.82rem; text-align: center; }
+    .result-trait strong { display: block; color: var(--cardinal); font-size: 1.1rem; margin-bottom: 4px; }
+    @media (max-width: 480px) { .result-traits { grid-template-columns: repeat(2, 1fr); } }
+
+    /* ── FOOTER ── */
+    footer {
+      background: #111;
+      color: rgba(255,255,255,0.5);
+      text-align: center;
+      padding: 40px 20px;
+      font-size: 0.85rem;
+    }
+    footer strong { color: var(--sand); }
+
+    /* ── TOAST ── */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--cardinal);
+      color: var(--white);
+      padding: 14px 28px;
+      border-radius: 50px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      box-shadow: var(--shadow-lg);
+      transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+      z-index: 999;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.6s ease both; }
+    .delay-1 { animation-delay: 0.1s; }
+    .delay-2 { animation-delay: 0.22s; }
+    .delay-3 { animation-delay: 0.34s; }
   </style>
 </head>
 <body>
-  <h1>Hello, World!</h1>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">Core<span>Quest</span></div>
+    <div class="nav-links">
+      <a href="#problem">Why</a>
+      <a href="#quiz">Quiz</a>
+      <a href="#booking">Book</a>
+      <a href="#majors">Majors</a>
+      <a href="#result">Result</a>
+    </div>
+    <a href="#booking" class="btn btn-primary nav-cta">Reserve Now</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-content">
+    <div class="hero-badge">🎓 Exclusively for Stanford Frosh &amp; Sophs</div>
+    <h1 class="fade-up">Stop Chasing <em>Everything.</em><br>Start Owning <em>Your Core.</em></h1>
+    <p class="fade-up delay-1">FOMO hits hardest when you don't know who you are yet. CoreQuest is an escape-room experience designed to help Stanford students discover their unique strengths — one puzzle at a time.</p>
+    <div class="hero-btns fade-up delay-2">
+      <a href="#quiz" class="btn btn-sand">Take the Quiz ↓</a>
+      <a href="#booking" class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.5)">Book a Room</a>
+    </div>
+    <div class="hero-stats fade-up delay-3">
+      <div class="hero-stat"><strong>1,200+</strong><span>Stanford students</span></div>
+      <div class="hero-stat"><strong>6</strong><span>Escape rooms</span></div>
+      <div class="hero-stat"><strong>94%</strong><span>felt clarity after</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section id="problem" class="section">
+  <div class="container text-center">
+    <div class="tag">The Problem</div>
+    <h2 class="section-title">You're at Stanford. You Feel Like You're Falling Behind.</h2>
+    <p class="section-sub">Here's what every freshman is secretly thinking — and none of it is true.</p>
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div class="icon">😰</div>
+        <h3>"Everyone else has their major figured out."</h3>
+        <p>They don't. 70% of Stanford students change their major at least once in the first two years.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon">📅</div>
+        <h3>"I need 3 internships, research, and a startup."</h3>
+        <p>Spreading thin leads to burnout. Depth in one area beats shallow breadth every time on a résumé.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon">🔕</div>
+        <h3>"I don't know what I'm actually good at."</h3>
+        <p>That's normal — and fixable. Self-knowledge is a skill, and CoreQuest is designed to build it fast.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon">📱</div>
+        <h3>"My LinkedIn feed makes me feel inadequate."</h3>
+        <p>Social media shows highlight reels. The antidote is knowing your own reel — not envying someone else's.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" style="background:var(--white)">
+  <div class="container">
+    <div class="text-center">
+      <div class="tag">How It Works</div>
+      <h2 class="section-title">Four Steps to Your Core</h2>
+      <p class="section-sub">From self-reflection to real-world clarity in under two hours.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Take the Aptitude Quiz <span class="step-emoji">🧠</span></h3>
+          <p>A 8-question personality + aptitude test maps your cognitive style, values, and natural strengths to academic and career clusters. Takes 4 minutes.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Choose Your Escape Room <span class="step-emoji">🗝️</span></h3>
+          <p>Pick from six themed rooms — each one mirrors a real academic discipline. The puzzles are designed by faculty and career coaches at Stanford.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Play &amp; Discover <span class="step-emoji">🔍</span></h3>
+          <p>Spend 60–75 min solving puzzles with 2–5 teammates. Our facilitators observe how you think, lead, and collaborate under pressure.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Get Your Core Profile <span class="step-emoji">📊</span></h3>
+          <p>Receive a personalized report: your archetype, top major paths, matching career roles, and a "one thing to focus on this quarter" action card.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- QUIZ -->
+<section id="quiz" class="section">
+  <div class="container text-center">
+    <div class="tag">Step 1 — Aptitude Quiz</div>
+    <h2 class="section-title">What's Your Core?</h2>
+    <p class="section-sub">Answer honestly. There are no right or wrong answers — only your answers.</p>
+
+    <div class="quiz-box">
+      <div class="quiz-progress-bar">
+        <div class="quiz-progress-fill" id="quizProgress" style="width:12.5%"></div>
+      </div>
+      <div class="quiz-body">
+
+        <div class="quiz-step active" data-q="1">
+          <div class="quiz-q-num">Question 1 of 8</div>
+          <div class="quiz-question">When you're given a totally open-ended project, your first instinct is to…</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q1')">Sketch ideas, brainstorm wildly, make something new</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q1')">Research the topic deeply before touching anything</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q1')">Jump in and build a prototype right away</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q1')">Talk to people who've done it before</button>
+          </div>
+          <div class="quiz-nav">
+            <span class="quiz-counter">1 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(2)">Next →</button>
+          </div>
+        </div>
+
+        <div class="quiz-step" data-q="2">
+          <div class="quiz-q-num">Question 2 of 8</div>
+          <div class="quiz-question">Which Stanford class would you secretly enjoy most?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q2')">Product Design — building things people love</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q2')">Stats 200 — finding patterns in data</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q2')">CS 106A — making software from scratch</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q2')">Sociology of Silicon Valley — understanding people &amp; systems</button>
+          </div>
+          <div class="quiz-nav">
+            <button class="btn btn-outline" onclick="prevQ(1)">← Back</button>
+            <span class="quiz-counter">2 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(3)">Next →</button>
+          </div>
+        </div>
+
+        <div class="quiz-step" data-q="3">
+          <div class="quiz-q-num">Question 3 of 8</div>
+          <div class="quiz-question">A friend is struggling with a decision. You naturally…</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q3')">Listen first, then help them see their own answer</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q3')">Break it down into pros / cons with data</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q3')">Suggest a quick experiment to test both paths</button>
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q3')">Reframe the question entirely — maybe there's a third option</button>
+          </div>
+          <div class="quiz-nav">
+            <button class="btn btn-outline" onclick="prevQ(2)">← Back</button>
+            <span class="quiz-counter">3 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(4)">Next →</button>
+          </div>
+        </div>
+
+        <div class="quiz-step" data-q="4">
+          <div class="quiz-q-num">Question 4 of 8</div>
+          <div class="quiz-question">What kind of impact do you most want to have?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q4')">Create something that changes how people experience the world</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q4')">Solve a complex, long-standing problem with rigorous research</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q4')">Build a product or company that scales globally</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q4')">Lift communities and shape better policy or systems</button>
+          </div>
+          <div class="quiz-nav">
+            <button class="btn btn-outline" onclick="prevQ(3)">← Back</button>
+            <span class="quiz-counter">4 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(5)">Next →</button>
+          </div>
+        </div>
+
+        <div class="quiz-step" data-q="5">
+          <div class="quiz-q-num">Question 5 of 8</div>
+          <div class="quiz-question">When you're in flow — totally absorbed — you're usually…</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q5')">Writing, designing, or making something aesthetic</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q5')">Reading deeply or solving a puzzle / proof</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q5')">Coding, building, or tinkering with a system</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q5')">Talking, organizing, or leading a team toward a goal</button>
+          </div>
+          <div class="quiz-nav">
+            <button class="btn btn-outline" onclick="prevQ(4)">← Back</button>
+            <span class="quiz-counter">5 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(6)">Next →</button>
+          </div>
+        </div>
+
+        <div class="quiz-step" data-q="6">
+          <div class="quiz-q-num">Question 6 of 8</div>
+          <div class="quiz-question">Your ideal senior thesis / capstone project is…</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q6')">An original creative work with a written conceptual framework</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q6')">A research paper with original data and strong methodology</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q6')">A working product or startup that users actually use</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q6')">A policy proposal or community initiative with real stakeholders</button>
+          </div>
+          <div class="quiz-nav">
+            <button class="btn btn-outline" onclick="prevQ(5)">← Back</button>
+            <span class="quiz-counter">6 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(7)">Next →</button>
+          </div>
+        </div>
+
+        <div class="quiz-step" data-q="7">
+          <div class="quiz-q-num">Question 7 of 8</div>
+          <div class="quiz-question">What frustrates you most in group projects?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q7')">No creative ownership — everything is generic and safe</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q7')">Decisions made without evidence or careful thinking</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q7')">Too much talk, not enough shipping</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q7')">Poor communication and people feeling unheard</button>
+          </div>
+          <div class="quiz-nav">
+            <button class="btn btn-outline" onclick="prevQ(6)">← Back</button>
+            <span class="quiz-counter">7 / 8</span>
+            <button class="btn btn-primary" onclick="nextQ(8)">Next →</button>
+          </div>
+        </div>
+
+        <div class="quiz-step" data-q="8">
+          <div class="quiz-q-num">Question 8 of 8</div>
+          <div class="quiz-question">In 10 years, which sentence do you hope someone says about you?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-val="creator" onclick="selectOption(this,'q8')">"They made something beautiful that no one had imagined before."</button>
+            <button class="quiz-option" data-val="analyst" onclick="selectOption(this,'q8')">"Their work changed how we understand this field."</button>
+            <button class="quiz-option" data-val="builder" onclick="selectOption(this,'q8')">"They built something millions of people rely on every day."</button>
+            <button class="quiz-option" data-val="connector" onclick="selectOption(this,'q8')">"They made people feel seen and helped communities thrive."</button>
+          </div>
+          <div class="quiz-nav">
+            <button class="btn btn-outline" onclick="prevQ(7)">← Back</button>
+            <span class="quiz-counter">8 / 8</span>
+            <button class="btn btn-primary" onclick="submitQuiz()">See My Core →</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BOOKING -->
+<section id="booking" class="section">
+  <div class="container text-center">
+    <div class="tag" style="background:rgba(210,194,149,0.15);color:var(--sand)">Step 2 — Book a Room</div>
+    <h2 class="section-title">Choose Your Escape Room</h2>
+    <p class="section-sub">Six rooms, each designed around a real intellectual domain. Pick the one that scares you in the best way.</p>
+
+    <div class="rooms-grid">
+      <div class="room-card" onclick="selectRoom(this,'The Lab')">
+        <div class="room-emoji">🔬</div>
+        <h3>The Lab</h3>
+        <p>A biotech facility with a missing compound. Think like a scientist — hypothesize, test, iterate.</p>
+        <span class="room-tag">Science &amp; Research</span>
+      </div>
+      <div class="room-card" onclick="selectRoom(this,'The Startup')">
+        <div class="room-emoji">🚀</div>
+        <h3>The Startup</h3>
+        <p>Your founding team has 60 minutes before investor demo day. Ship the MVP or lose everything.</p>
+        <span class="room-tag">CS &amp; Engineering</span>
+      </div>
+      <div class="room-card" onclick="selectRoom(this,'The Forum')">
+        <div class="room-emoji">🏛️</div>
+        <h3>The Forum</h3>
+        <p>A political crisis, hidden documents, and a vote that changes history. Navigate power and persuasion.</p>
+        <span class="room-tag">Policy &amp; Social Science</span>
+      </div>
+      <div class="room-card" onclick="selectRoom(this,'The Gallery')">
+        <div class="room-emoji">🎨</div>
+        <h3>The Gallery</h3>
+        <p>A stolen masterpiece, cryptic artistic clues, and a collector with secrets. See the world differently.</p>
+        <span class="room-tag">Humanities &amp; Arts</span>
+      </div>
+      <div class="room-card" onclick="selectRoom(this,'The Trading Floor')">
+        <div class="room-emoji">📈</div>
+        <h3>The Trading Floor</h3>
+        <p>Market crash imminent. Decode financial signals and make calls under real pressure.</p>
+        <span class="room-tag">Economics &amp; Finance</span>
+      </div>
+      <div class="room-card" onclick="selectRoom(this,'The Clinic')">
+        <div class="room-emoji">🏥</div>
+        <h3>The Clinic</h3>
+        <p>A mystery diagnosis, limited resources, and patient lives on the line. Empathy meets precision.</p>
+        <span class="room-tag">Medicine &amp; Biodesign</span>
+      </div>
+    </div>
+
+    <div class="booking-form">
+      <h3 style="color:var(--sand);margin-bottom:24px;font-size:1.2rem">Reserve Your Spot</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>First Name</label>
+          <input type="text" id="bFirstName" placeholder="Jane" />
+        </div>
+        <div class="form-group">
+          <label>Last Name</label>
+          <input type="text" id="bLastName" placeholder="Smith" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Stanford Email</label>
+        <input type="email" id="bEmail" placeholder="jsmith@stanford.edu" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Year</label>
+          <select id="bYear">
+            <option value="">Select</option>
+            <option>Freshman</option>
+            <option>Sophomore</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Group Size</label>
+          <select id="bGroup">
+            <option value="">Select</option>
+            <option>Solo (paired with others)</option>
+            <option>2 people</option>
+            <option>3 people</option>
+            <option>4 people</option>
+            <option>5 people</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Preferred Date</label>
+          <input type="date" id="bDate" />
+        </div>
+        <div class="form-group">
+          <label>Time Slot</label>
+          <select id="bTime">
+            <option value="">Select</option>
+            <option>10:00 AM</option>
+            <option>12:00 PM</option>
+            <option>2:00 PM</option>
+            <option>4:00 PM</option>
+            <option>6:00 PM</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-sand" style="width:100%;display:block;text-align:center" onclick="submitBooking()">Confirm Reservation →</button>
+    </div>
+  </div>
+</section>
+
+<!-- MAJORS -->
+<section id="majors" class="section">
+  <div class="container text-center">
+    <div class="tag">Step 3 — Explore</div>
+    <h2 class="section-title">Find Your Major &amp; Career Path</h2>
+    <p class="section-sub">Browse Stanford's core disciplines and the doors each one opens.</p>
+
+    <div class="majors-filter">
+      <button class="filter-btn active-filter" onclick="filterMajors('all', this)">All</button>
+      <button class="filter-btn" onclick="filterMajors('stem', this)">STEM</button>
+      <button class="filter-btn" onclick="filterMajors('social', this)">Social Science</button>
+      <button class="filter-btn" onclick="filterMajors('humanities', this)">Humanities</button>
+      <button class="filter-btn" onclick="filterMajors('business', this)">Business</button>
+      <button class="filter-btn" onclick="filterMajors('design', this)">Design</button>
+    </div>
+
+    <div class="majors-grid" id="majorsGrid">
+      <div class="major-card" data-cat="stem">
+        <div class="m-icon">💻</div>
+        <h4>Computer Science</h4>
+        <p>Algorithms, AI, systems, human-computer interaction</p>
+        <span class="m-tag">Builder / Analyst</span>
+      </div>
+      <div class="major-card" data-cat="stem">
+        <div class="m-icon">🧬</div>
+        <h4>Biology / Bioengineering</h4>
+        <p>Genomics, synthetic biology, biomedical devices</p>
+        <span class="m-tag">Analyst / Builder</span>
+      </div>
+      <div class="major-card" data-cat="stem">
+        <div class="m-icon">⚡</div>
+        <h4>Electrical Engineering</h4>
+        <p>Semiconductors, robotics, signal processing</p>
+        <span class="m-tag">Builder</span>
+      </div>
+      <div class="major-card" data-cat="stem">
+        <div class="m-icon">🔭</div>
+        <h4>Physics</h4>
+        <p>Quantum mechanics, cosmology, materials science</p>
+        <span class="m-tag">Analyst</span>
+      </div>
+      <div class="major-card" data-cat="social">
+        <div class="m-icon">🌍</div>
+        <h4>Political Science</h4>
+        <p>Policy, international relations, democratic theory</p>
+        <span class="m-tag">Connector</span>
+      </div>
+      <div class="major-card" data-cat="social">
+        <div class="m-icon">🧠</div>
+        <h4>Psychology</h4>
+        <p>Cognitive science, clinical research, behavioral economics</p>
+        <span class="m-tag">Connector / Analyst</span>
+      </div>
+      <div class="major-card" data-cat="social">
+        <div class="m-icon">📊</div>
+        <h4>Economics</h4>
+        <p>Microeconomics, development, market design</p>
+        <span class="m-tag">Analyst / Builder</span>
+      </div>
+      <div class="major-card" data-cat="social">
+        <div class="m-icon">🤝</div>
+        <h4>Sociology</h4>
+        <p>Inequality, organizations, social movements</p>
+        <span class="m-tag">Connector</span>
+      </div>
+      <div class="major-card" data-cat="humanities">
+        <div class="m-icon">📚</div>
+        <h4>English</h4>
+        <p>Literature, writing, narrative theory, rhetoric</p>
+        <span class="m-tag">Creator</span>
+      </div>
+      <div class="major-card" data-cat="humanities">
+        <div class="m-icon">🎭</div>
+        <h4>Theater &amp; Performance</h4>
+        <p>Directing, playwriting, embodied storytelling</p>
+        <span class="m-tag">Creator</span>
+      </div>
+      <div class="major-card" data-cat="humanities">
+        <div class="m-icon">🌐</div>
+        <h4>International Relations</h4>
+        <p>Global policy, diplomacy, comparative politics</p>
+        <span class="m-tag">Connector</span>
+      </div>
+      <div class="major-card" data-cat="business">
+        <div class="m-icon">💼</div>
+        <h4>Management Science &amp; Engineering</h4>
+        <p>Strategy, operations, organizational behavior</p>
+        <span class="m-tag">Builder / Connector</span>
+      </div>
+      <div class="major-card" data-cat="design">
+        <div class="m-icon">🎨</div>
+        <h4>Product Design</h4>
+        <p>Human-centered design, UX, physical prototyping</p>
+        <span class="m-tag">Creator / Builder</span>
+      </div>
+      <div class="major-card" data-cat="design">
+        <div class="m-icon">🏗️</div>
+        <h4>Symbolic Systems</h4>
+        <p>Cognition, language, logic, AI — the ultimate hybrid</p>
+        <span class="m-tag">Analyst / Creator</span>
+      </div>
+      <div class="major-card" data-cat="stem">
+        <div class="m-icon">🌱</div>
+        <h4>Earth Systems</h4>
+        <p>Climate, environmental policy, sustainability science</p>
+        <span class="m-tag">Analyst / Connector</span>
+      </div>
+      <div class="major-card" data-cat="business">
+        <div class="m-icon">📈</div>
+        <h4>Mathematical &amp; Computational Science</h4>
+        <p>Applied math, data science, quantitative finance</p>
+        <span class="m-tag">Analyst</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RESULT -->
+<section id="result" class="section">
+  <div class="container">
+    <div class="text-center">
+      <div class="tag">Step 4 — Your Core Profile</div>
+      <h2 class="section-title">Your Core Result</h2>
+      <p class="section-sub">Complete the quiz above to unlock your personalized profile.</p>
+    </div>
+
+    <div class="result-placeholder" id="resultPlaceholder">
+      <p>Your profile will appear here after you finish the quiz. ☝️</p>
+      <a href="#quiz" class="btn btn-primary">Take the Quiz Now</a>
+    </div>
+
+    <div class="result-box" id="resultBox">
+      <div class="result-avatar" id="resultAvatar"></div>
+      <div class="result-type">Your Core Archetype</div>
+      <div class="result-name" id="resultName"></div>
+      <div class="result-desc" id="resultDesc"></div>
+      <div class="result-majors" id="resultMajors"></div>
+      <div class="result-traits" id="resultTraits"></div>
+      <div style="margin-bottom:24px">
+        <strong style="display:block;margin-bottom:8px;color:var(--cardinal-dark)">🎯 Your Focus This Quarter:</strong>
+        <p id="resultFocus" style="color:var(--gray);font-size:0.95rem;background:var(--gray-light);padding:16px;border-radius:10px;"></p>
+      </div>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+        <a href="#booking" class="btn btn-primary">Book Your Room →</a>
+        <button class="btn btn-outline" onclick="resetQuiz()">Retake Quiz</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p><strong>CoreQuest</strong> — A Stanford Student Wellbeing Initiative</p>
+  <p style="margin-top:8px">🏛️ Designed for frosh &amp; sophs navigating FOMO, major decisions, and the Stanford Duck Syndrome.</p>
+  <p style="margin-top:8px;font-size:0.78rem">Not affiliated with Stanford University. For educational purposes.</p>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+  const answers = {};
+
+  function selectOption(el, qKey) {
+    el.closest('.quiz-options').querySelectorAll('.quiz-option').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    answers[qKey] = el.dataset.val;
+  }
+
+  function showStep(n) {
+    document.querySelectorAll('.quiz-step').forEach(s => s.classList.remove('active'));
+    document.querySelector('.quiz-step[data-q="' + n + '"]').classList.add('active');
+    document.getElementById('quizProgress').style.width = Math.round((n / 8) * 100) + '%';
+  }
+
+  function nextQ(n) { showStep(n); }
+  function prevQ(n) { showStep(n); }
+
+  const archetypes = {
+    creator: {
+      avatar: '🎨', name: 'The Creator',
+      desc: 'You think in possibilities and aesthetics. You\'re energized by making something new — whether that\'s a film, a product, a story, or an experience. You get frustrated when the world feels unimaginative.',
+      majors: ['Product Design', 'English', 'Theater & Performance', 'Symbolic Systems'],
+      traits: [{ label: 'Imagination', val: '95%' }, { label: 'Craft', val: '88%' }, { label: 'Vision', val: '91%' }],
+      focus: 'Pick ONE creative project this quarter and finish it. Ship something small: a blog post, a design portfolio piece, a 3-minute short film. Completion beats perfection.'
+    },
+    analyst: {
+      avatar: '🔬', name: 'The Analyst',
+      desc: 'You live in depth. You crave rigorous understanding over superficial breadth. You\'re the person who actually reads the citations — and enjoys it. Your superpower is knowing when an argument is actually sound.',
+      majors: ['Physics', 'Economics', 'Psychology', 'Computational Science'],
+      traits: [{ label: 'Rigor', val: '96%' }, { label: 'Depth', val: '92%' }, { label: 'Curiosity', val: '89%' }],
+      focus: 'Find one research lab on campus and email the PI this week. Ask for a 20-minute coffee chat. You don\'t need credentials — you need genuine questions.'
+    },
+    builder: {
+      avatar: '🚀', name: 'The Builder',
+      desc: 'You have a bias for action and a low tolerance for endless planning. You learn by doing, and you measure success by what\'s shipping. You\'re the person who already has a side project running.',
+      majors: ['Computer Science', 'Electrical Engineering', 'Management Science', 'Bioengineering'],
+      traits: [{ label: 'Execution', val: '94%' }, { label: 'Resilience', val: '90%' }, { label: 'Speed', val: '87%' }],
+      focus: 'Launch something this quarter, no matter how small. A landing page, a Chrome extension, a Discord bot. The habit of shipping is worth more than the idea.'
+    },
+    connector: {
+      avatar: '🤝', name: 'The Connector',
+      desc: 'People trust you. You move through social and institutional structures with natural ease. You care about real impact on real humans — not just metrics. You\'re a force multiplier for every team you join.',
+      majors: ['Political Science', 'Sociology', 'International Relations', 'Psychology'],
+      traits: [{ label: 'Empathy', val: '97%' }, { label: 'Influence', val: '89%' }, { label: 'Systems Thinking', val: '85%' }],
+      focus: 'Identify one campus organization working on something you care about. Attend one meeting. Say yes to one small responsibility. Connectors grow by doing, not watching.'
+    }
+  };
+
+  function submitQuiz() {
+    const counts = { creator: 0, analyst: 0, builder: 0, connector: 0 };
+    Object.values(answers).forEach(v => { if (v in counts) counts[v]++; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    const d = archetypes[top];
+    document.getElementById('resultAvatar').textContent = d.avatar;
+    document.getElementById('resultName').textContent = d.name;
+    document.getElementById('resultDesc').textContent = d.desc;
+    document.getElementById('resultFocus').textContent = d.focus;
+    document.getElementById('resultMajors').innerHTML = d.majors.map(m => '<span class="result-major-tag">' + m + '</span>').join('');
+    document.getElementById('resultTraits').innerHTML = d.traits.map(t => '<div class="result-trait"><strong>' + t.val + '</strong>' + t.label + '</div>').join('');
+    document.getElementById('resultPlaceholder').style.display = 'none';
+    document.getElementById('resultBox').classList.add('visible');
+    showToast('🎉 You\'re ' + d.name + '!');
+    document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function resetQuiz() {
+    Object.keys(answers).forEach(k => delete answers[k]);
+    document.querySelectorAll('.quiz-option').forEach(b => b.classList.remove('selected'));
+    showStep(1);
+    document.getElementById('resultBox').classList.remove('visible');
+    document.getElementById('resultPlaceholder').style.display = 'block';
+    document.getElementById('quiz').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  let selectedRoom = '';
+  function selectRoom(el, name) {
+    document.querySelectorAll('.room-card').forEach(c => c.classList.remove('selected-room'));
+    el.classList.add('selected-room');
+    selectedRoom = name;
+    showToast('✅ "' + name + '" selected');
+  }
+
+  function submitBooking() {
+    const first = document.getElementById('bFirstName').value.trim();
+    const email = document.getElementById('bEmail').value.trim();
+    const year  = document.getElementById('bYear').value;
+    const date  = document.getElementById('bDate').value;
+    const time  = document.getElementById('bTime').value;
+    if (!first || !email || !year || !date || !time || !selectedRoom) {
+      showToast('⚠️ Please fill in all fields & select a room.'); return;
+    }
+    if (!email.endsWith('@stanford.edu')) {
+      showToast('⚠️ Please use your @stanford.edu email.'); return;
+    }
+    showToast('🗝️ Booked! "' + selectedRoom + '" on ' + date + ' at ' + time);
+  }
+
+  function filterMajors(cat, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active-filter'));
+    btn.classList.add('active-filter');
+    document.querySelectorAll('.major-card').forEach(card => {
+      card.style.display = (cat === 'all' || card.dataset.cat === cat) ? '' : 'none';
+    });
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3200);
+  }
+</script>
 </body>
 </html>
