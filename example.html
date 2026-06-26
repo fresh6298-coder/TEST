@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>안녕하세요</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #6b21a8, #a855f7, #7c3aed);
+      font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+    }
+
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 48px 56px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+      max-width: 420px;
+      width: 90%;
+    }
+
+    h1 {
+      font-size: 2.4rem;
+      color: #3b0764;
+      margin-bottom: 12px;
+    }
+
+    p {
+      font-size: 1.1rem;
+      color: #6b7280;
+      margin-bottom: 32px;
+    }
+
+    button {
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: white;
+      border: none;
+      padding: 14px 36px;
+      font-size: 1rem;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(124, 58, 237, 0.4);
+    }
+
+    #message {
+      display: none;
+      margin-top: 24px;
+      font-size: 1.2rem;
+      color: #7c3aed;
+      font-weight: 600;
+    }
+
+    footer {
+      margin-top: 32px;
+      font-size: 0.78rem;
+      color: rgba(255, 255, 255, 0.65);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>안녕하세요 👋</h1>
+    <p>제 첫 번째 웹 페이지예요</p>
+    <button onclick="showMessage()">눌러보기</button>
+    <div id="message">🎉 잘 작동해요!</div>
+  </div>
+
+  <footer>LG U+ Lifestyle Innovation Workshop</footer>
+
+  <script>
+    function showMessage() {
+      const msg = document.getElementById('message');
+      msg.style.display = 'block';
+    }
+  </script>
+
+</body>
+</html>
