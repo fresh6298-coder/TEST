@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Bitcoin ETF Flow</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:640px;
+    margin:0 auto;
+    padding:20px 20px 40px;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:22px;
+  }
+  .back-link{
+    color:var(--sub);
+    text-decoration:none;
+    font-size:20px;
+    padding:4px 8px;
+  }
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;
+    flex-shrink:0;
+  }
+  .topbar h1{
+    font-size:22px;margin:0;flex:1;font-weight:700;
+  }
+  .live-dot{
+    width:10px;height:10px;border-radius:50%;
+    background:var(--green);
+  }
+  .updated{
+    font-size:12px;color:var(--sub);margin-bottom:20px;
+  }
+
+  .stat-hero{
+    padding:18px 0;border-top:1px solid var(--track);border-bottom:1px solid var(--track);
+    margin-bottom:20px;
+  }
+  .stat-hero .label{font-size:13px;color:var(--sub);}
+  .stat-hero .value{font-size:34px;font-weight:700;margin-top:4px;}
+
+  .chart-section{margin-bottom:28px;}
+  #flowChart{width:100%;display:block;}
+  .chart-caption{font-size:12px;color:var(--sub);text-align:center;margin-top:6px;}
+
+  .table-wrap{
+    overflow-x:auto;
+    border:1px solid var(--track);
+    border-radius:8px;
+    margin-bottom:20px;
+  }
+  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap;}
+  th, td{padding:8px 10px;text-align:right;}
+  th:first-child, td:first-child{text-align:left;position:sticky;left:0;background:var(--bg);}
+  thead th{color:var(--sub);font-weight:600;border-bottom:1px solid var(--track);font-size:12px;}
+  tbody tr:not(:last-child) td{border-bottom:1px solid var(--track);}
+  .pos{color:var(--green);}
+  .neg{color:var(--red);}
+  .zero{color:var(--sub);}
+
+  .status-line{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
+  }
+  .source-note{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:24px;
+  }
+  .source-note a{color:inherit;}
+
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f0f0f;
+      --text:#f2f2f2;
+      --sub:#8f8f8f;
+      --track:#2a2a2a;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
+    <div class="coin-icon">₿</div>
+    <h1>ETF Flow</h1>
+    <span class="live-dot" title="자동 갱신"></span>
+  </header>
+  <div class="updated" id="updatedLine">불러오는 중...</div>
+
+  <section class="stat-hero">
+    <div class="label">최근 일자 순유입 (Total)</div>
+    <div class="value" id="latestTotal">-</div>
+  </section>
+
+  <section class="chart-section">
+    <canvas id="flowChart" height="180"></canvas>
+    <div class="chart-caption">일별 총 순유입/유출 (US$M), 최근 60거래일</div>
+  </section>
+
+  <div class="table-wrap">
+    <table id="flowTable">
+      <thead><tr><th>Date</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <p class="status-line" id="statusLine">&nbsp;</p>
+  <p class="source-note">Data: <a href="https://farside.co.uk/btc/" target="_blank" rel="noopener">farside.co.uk/btc</a></p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const els = {
+    updatedLine: document.getElementById("updatedLine"),
+    latestTotal: document.getElementById("latestTotal"),
+    statusLine: document.getElementById("statusLine"),
+    tableHead: document.querySelector("#flowTable thead tr"),
+    tableBody: document.querySelector("#flowTable tbody"),
+  };
+  const chartCanvas = document.getElementById("flowChart");
+
+  function setStatus(msg){ els.statusLine.textContent = msg || " "; }
+
+  function fmt(n){
+    if(n == null || Number.isNaN(n)) return "–";
+    const sign = n > 0 ? "+" : "";
+    return sign + n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+  function cls(n){
+    if(n == null || Number.isNaN(n) || n === 0) return "zero";
+    return n > 0 ? "pos" : "neg";
+  }
+
+  function renderTable(headers, rows){
+    els.tableHead.innerHTML = "<th>Date</th>" + headers.slice(1).map(h => `<th>${h}</th>`).join("");
+    const recent = rows.slice(-20).reverse();
+    els.tableBody.innerHTML = recent.map(r => {
+      const cells = headers.slice(1).map(h => {
+        const v = h === "Total" ? r.total : r.values[h];
+        return `<td class="${cls(v)}">${fmt(v)}</td>`;
+      }).join("");
+      return `<tr><td>${r.date}</td>${cells}</tr>`;
+    }).join("");
+  }
+
+  function drawChart(rows){
+    const points = rows.slice(-60).map(r => r.total).filter(v => v != null);
+    const w = chartCanvas.clientWidth, h = chartCanvas.clientHeight || 180;
+    const dpr = window.devicePixelRatio || 1;
+    chartCanvas.width = w * dpr; chartCanvas.height = h * dpr;
+    const ctx = chartCanvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    if(!points.length) return;
+
+    const max = Math.max(...points, 0);
+    const min = Math.min(...points, 0);
+    const range = (max - min) || 1;
+    const zeroY = h - ((0 - min) / range) * h;
+    const barW = w / points.length;
+
+    ctx.strokeStyle = "rgba(150,150,150,0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(w, zeroY); ctx.stroke();
+
+    points.forEach((v, i) => {
+      const barH = (Math.abs(v) / range) * h;
+      const x = i * barW + barW * 0.15;
+      const bw = Math.max(barW * 0.7, 1);
+      const y = v >= 0 ? zeroY - barH : zeroY;
+      ctx.fillStyle = v >= 0 ? "#16a34a" : "#ef4444";
+      ctx.fillRect(x, y, bw, Math.max(barH, 1));
+    });
+  }
+
+  let lastRows = null;
+
+  async function load(){
+    try{
+      setStatus("");
+      const res = await fetch("/api/etf-flow");
+      if(!res.ok) throw new Error("API " + res.status);
+      const data = await res.json();
+      if(!data.rows || !data.rows.length) throw new Error("데이터 없음");
+
+      const latest = data.rows[data.rows.length - 1];
+      els.latestTotal.textContent = fmt(latest.total) + "M";
+      els.latestTotal.style.color = latest.total > 0 ? "var(--green)" : latest.total < 0 ? "var(--red)" : "var(--text)";
+      els.updatedLine.textContent = "기준일: " + latest.date + " · 서버 갱신: " + new Date(data.fetchedAt).toLocaleString("ko-KR");
+
+      renderTable(data.headers, data.rows);
+      lastRows = data.rows;
+      drawChart(lastRows);
+    }catch(e){
+      setStatus("데이터 로드 실패: " + e.message);
+    }
+  }
+
+  window.addEventListener("resize", () => { if(lastRows) drawChart(lastRows); });
+  load();
+  setInterval(load, 30 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
