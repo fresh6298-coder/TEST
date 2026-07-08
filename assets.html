@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Global Assets by Market Cap</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:640px;
+    margin:0 auto;
+    padding:20px 20px 40px;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:22px;
+  }
+  .back-link{
+    color:var(--sub);
+    text-decoration:none;
+    font-size:20px;
+    padding:4px 8px;
+  }
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;
+    flex-shrink:0;
+  }
+  .topbar h1{
+    font-size:20px;margin:0;flex:1;font-weight:700;
+  }
+  .live-dot{
+    width:10px;height:10px;border-radius:50%;
+    background:var(--green);
+  }
+  .updated{
+    font-size:12px;color:var(--sub);margin-bottom:20px;
+  }
+
+  .stat-hero{
+    padding:18px 0;border-top:1px solid var(--track);border-bottom:1px solid var(--track);
+    margin-bottom:24px;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .stat-hero .label{font-size:13px;color:var(--sub);}
+  .stat-hero .value{font-size:26px;font-weight:700;margin-top:4px;}
+  .stat-hero .sub{font-size:13px;color:var(--sub);margin-top:2px;}
+
+  .bars-section{margin-bottom:28px;}
+  .bars-section h2{font-size:16px;margin:0 0 12px;color:var(--sub);font-weight:600;}
+  .bar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;}
+  .bar-rank{width:22px;color:var(--sub);text-align:right;flex-shrink:0;}
+  .bar-name{width:90px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
+  .bar-track{flex:1;background:var(--track);border-radius:3px;height:16px;position:relative;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:3px;background:#333;}
+  .bar-fill.btc{background:var(--orange);}
+  .bar-value{width:70px;flex-shrink:0;text-align:right;color:var(--sub);font-size:12px;}
+
+  .table-wrap{
+    overflow:auto;
+    max-height:480px;
+    border:1px solid var(--track);
+    border-radius:8px;
+    margin-bottom:20px;
+  }
+  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap;}
+  th, td{padding:8px 10px;text-align:right;}
+  th:nth-child(2), td:nth-child(2){text-align:left;position:sticky;left:0;background:var(--bg);}
+  thead th{position:sticky;top:0;background:var(--bg);color:var(--sub);font-weight:600;border-bottom:1px solid var(--track);font-size:12px;}
+  tbody tr:not(:last-child) td{border-bottom:1px solid var(--track);}
+  tr.btc-row td{color:var(--orange);font-weight:700;}
+  .pos{color:var(--green);}
+  .neg{color:var(--red);}
+
+  .status-line{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
+  }
+  .source-note{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:24px;
+  }
+  .source-note a{color:inherit;}
+
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f0f0f;
+      --text:#f2f2f2;
+      --sub:#8f8f8f;
+      --track:#2a2a2a;
+    }
+    .bar-fill{background:#ddd;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
+    <div class="coin-icon">🌐</div>
+    <h1>Global Assets by Market Cap</h1>
+    <span class="live-dot" title="자동 갱신"></span>
+  </header>
+  <div class="updated" id="updatedLine">불러오는 중...</div>
+
+  <section class="stat-hero">
+    <div>
+      <div class="label">Bitcoin Rank</div>
+      <div class="value" id="btcRank">-</div>
+      <div class="sub" id="btcCap">-</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="label">Bitcoin Price</div>
+      <div class="value" id="btcPrice">-</div>
+      <div class="sub" id="btcChange">-</div>
+    </div>
+  </section>
+
+  <section class="bars-section">
+    <h2>Top 20</h2>
+    <div id="barsList"></div>
+  </section>
+
+  <div class="table-wrap">
+    <table id="assetsTable">
+      <thead><tr><th>#</th><th>Name</th><th>Market Cap</th><th>Price</th><th>Today</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <p class="status-line" id="statusLine">&nbsp;</p>
+  <p class="source-note">Data: <a href="https://companiesmarketcap.com/assets-by-market-cap/" target="_blank" rel="noopener">companiesmarketcap.com</a></p>
+  <p class="source-note"><a href="index.html">← Bitcoin Dashboard</a> &nbsp;|&nbsp; <a href="etf.html">Bitcoin ETF Flow →</a></p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const els = {
+    updatedLine: document.getElementById("updatedLine"),
+    btcRank: document.getElementById("btcRank"),
+    btcCap: document.getElementById("btcCap"),
+    btcPrice: document.getElementById("btcPrice"),
+    btcChange: document.getElementById("btcChange"),
+    barsList: document.getElementById("barsList"),
+    statusLine: document.getElementById("statusLine"),
+    tbody: document.querySelector("#assetsTable tbody"),
+  };
+
+  function setStatus(msg){ els.statusLine.textContent = msg || " "; }
+
+  function fmtCap(n){
+    if(n == null) return "-";
+    if(n >= 1e12) return "$" + (n/1e12).toFixed(2) + "T";
+    if(n >= 1e9) return "$" + (n/1e9).toFixed(2) + "B";
+    if(n >= 1e6) return "$" + (n/1e6).toFixed(2) + "M";
+    return "$" + n.toLocaleString("en-US");
+  }
+  function fmtPrice(n){
+    if(n == null) return "-";
+    return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
+  function fmtChange(n){
+    if(n == null) return "-";
+    return (n > 0 ? "+" : "") + n.toFixed(2) + "%";
+  }
+  function changeClass(n){
+    if(n == null) return "";
+    return n > 0 ? "pos" : n < 0 ? "neg" : "";
+  }
+
+  function renderBars(rows){
+    const top = rows.slice(0, 20).filter(r => r.marketCap != null);
+    if(!top.length){ els.barsList.textContent = "표시할 데이터가 없습니다."; return; }
+    const maxLog = Math.log10(Math.max(...top.map(r => r.marketCap)));
+    els.barsList.innerHTML = top.map(r => {
+      const isBtc = /bitcoin/i.test(r.name);
+      const pct = Math.max(4, (Math.log10(r.marketCap) / maxLog) * 100);
+      return `<div class="bar-row">
+        <div class="bar-rank">${r.rank}</div>
+        <div class="bar-name" title="${r.name}">${r.name}</div>
+        <div class="bar-track"><div class="bar-fill${isBtc ? " btc" : ""}" style="width:${pct}%"></div></div>
+        <div class="bar-value">${fmtCap(r.marketCap)}</div>
+      </div>`;
+    }).join("");
+  }
+
+  function renderTable(rows){
+    els.tbody.innerHTML = rows.map(r => {
+      const isBtc = /bitcoin/i.test(r.name);
+      return `<tr class="${isBtc ? "btc-row" : ""}">
+        <td>${r.rank}</td>
+        <td>${r.name}</td>
+        <td>${fmtCap(r.marketCap)}</td>
+        <td>${fmtPrice(r.price)}</td>
+        <td class="${changeClass(r.changePct)}">${fmtChange(r.changePct)}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function load(){
+    try{
+      setStatus("");
+      const res = await fetch("/api/assets-market-cap");
+      if(!res.ok) throw new Error("API " + res.status);
+      const data = await res.json();
+      if(!data.rows || !data.rows.length) throw new Error("데이터 없음");
+
+      els.updatedLine.textContent = "서버 갱신: " + new Date(data.fetchedAt).toLocaleString("ko-KR");
+
+      const btc = data.rows.find(r => /bitcoin/i.test(r.name));
+      if(btc){
+        els.btcRank.textContent = "#" + btc.rank;
+        els.btcCap.textContent = fmtCap(btc.marketCap);
+        els.btcPrice.textContent = fmtPrice(btc.price);
+        els.btcChange.textContent = fmtChange(btc.changePct);
+        els.btcChange.className = "sub " + changeClass(btc.changePct);
+      }
+
+      renderBars(data.rows);
+      renderTable(data.rows);
+    }catch(e){
+      setStatus("데이터 로드 실패: " + e.message);
+    }
+  }
+
+  load();
+  setInterval(load, 30 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
