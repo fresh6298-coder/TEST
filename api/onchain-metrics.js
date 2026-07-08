@@ -1,9 +1,9 @@
 const BASE = "https://bitcoin-data.com/v1";
 
 const METRICS = {
-  mvrvZscore: { path: "mvrv-zscore" },
-  nupl: { path: "nupl" },
-  puellMultiple: { path: "puell-multiple" },
+  mvrvZscore: { path: "mvrv-zscore", hint: /mvrv/i },
+  nupl: { path: "nupl", hint: /nupl|unrealized/i },
+  puellMultiple: { path: "puell-multiple", hint: /puell/i },
 };
 
 const HEADERS = {
@@ -11,6 +11,10 @@ const HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Accept: "application/json",
 };
+
+// Fields that look numeric but are never "the metric" — timestamps,
+// ids, block heights, etc. Excluded from value-field guessing.
+const NON_VALUE_KEY = /^(d|date|id|unix.*|timestamp|ts|epoch|createdat|updatedat|blockheight|height)$/i;
 
 async function fetchJson(url) {
   const res = await fetch(url, { headers: HEADERS });
@@ -22,38 +26,42 @@ async function fetchJson(url) {
   return res.json();
 }
 
-// bitcoin-data.com's exact field names aren't hardcoded here: treat the
-// first date-like field as the date and the first other numeric-looking
-// field as the value, so small naming differences don't break parsing.
-function normalizeRecord(row) {
+function isNumeric(v) {
+  return typeof v === "number" || (typeof v === "string" && v !== "" && !Number.isNaN(parseFloat(v)));
+}
+
+// bitcoin-data.com's exact field names aren't hardcoded here: pick the
+// date-like field, then prefer a value field whose name matches the
+// metric (e.g. "mvrv"), falling back to the first remaining numeric
+// field that isn't a timestamp/id lookalike.
+function normalizeRecord(row, hint) {
   if (!row || typeof row !== "object") return null;
   const keys = Object.keys(row);
-  const dateKey = keys.find((k) => /^(d|date|time|timestamp)$/i.test(k)) || keys[0];
-  const valueKey = keys.find((k) => {
-    if (k === dateKey) return false;
-    const v = row[k];
-    return typeof v === "number" || (typeof v === "string" && v !== "" && !Number.isNaN(parseFloat(v)));
-  });
+  const dateKey = keys.find((k) => /^(d|date)$/i.test(k)) || keys.find((k) => /time|timestamp/i.test(k)) || keys[0];
+
+  const candidates = keys.filter((k) => k !== dateKey && !NON_VALUE_KEY.test(k) && isNumeric(row[k]));
+  const valueKey = (hint && candidates.find((k) => hint.test(k))) || candidates[0];
+
   if (!dateKey || !valueKey) return null;
   const value = parseFloat(row[valueKey]);
   if (Number.isNaN(value)) return null;
   return { date: row[dateKey], value };
 }
 
-function normalizeSeries(json) {
+function normalizeSeries(json, hint) {
   const rows = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
-  return rows.map(normalizeRecord).filter(Boolean);
+  return rows.map((row) => normalizeRecord(row, hint)).filter(Boolean);
 }
 
-async function loadMetric(path) {
-  const history = normalizeSeries(await fetchJson(`${BASE}/${path}`));
+async function loadMetric(path, hint) {
+  const history = normalizeSeries(await fetchJson(`${BASE}/${path}`), hint);
   if (!history.length) throw new Error(`${path}: no parseable records`);
   return { current: history[history.length - 1], history };
 }
 
 export default async function handler(req, res) {
   const entries = Object.entries(METRICS);
-  const results = await Promise.allSettled(entries.map(([, cfg]) => loadMetric(cfg.path)));
+  const results = await Promise.allSettled(entries.map(([, cfg]) => loadMetric(cfg.path, cfg.hint)));
 
   const metrics = {};
   const errors = [];
