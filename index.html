@@ -110,6 +110,14 @@
     white-space:nowrap;
     display:none;
   }
+  .chart-legend{
+    display:flex;gap:14px;font-size:11px;color:var(--sub);margin-bottom:4px;
+  }
+  .chart-legend .item{display:flex;align-items:center;gap:4px;}
+  .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
+  .rsi-wrap{margin-top:6px;}
+  .rsi-header{display:flex;justify-content:space-between;font-size:11px;color:var(--sub);margin-bottom:2px;}
+  #rsiChart{width:100%;display:block;}
   .range-tabs{
     display:flex;
     justify-content:space-between;
@@ -207,8 +215,16 @@
   </section>
 
   <section class="chart-section">
+    <div class="chart-legend">
+      <span class="item"><span class="swatch" style="background:#f7931a;"></span>Price</span>
+      <span class="item"><span class="swatch" style="background:#3b82f6;"></span>MA(200)</span>
+    </div>
     <div class="chart-tooltip" id="chartTooltip"></div>
     <canvas id="priceChart" height="220"></canvas>
+    <div class="rsi-wrap">
+      <div class="rsi-header"><span>RSI(14)</span><span id="rsiValue">-</span></div>
+      <canvas id="rsiChart" height="60"></canvas>
+    </div>
     <div class="range-tabs" id="rangeTabs">
       <button data-range="1D">1D</button>
       <button data-range="7D">7D</button>
@@ -244,6 +260,8 @@
   const LAST_HALVING_BLOCK = 840000;
   const HALVING_INTERVAL = 210000;
   const AVG_BLOCK_MINUTES = 10;
+  const MA_PERIOD = 200;
+  const RSI_PERIOD = 14;
 
   const RANGE_CONFIG = {
     "1D": { interval: "15m", limit: 96 },
@@ -259,7 +277,9 @@
     usdPrice: null,
     fxRate: null,
     range: "1Y",
-    chartPoints: []
+    chartPoints: [],
+    maPoints: [],
+    rsiPoints: []
   };
 
   const els = {
@@ -284,6 +304,42 @@
 
   const sparkCanvas = document.getElementById("sparkline");
   const chartCanvas = document.getElementById("priceChart");
+  const rsiCanvas = document.getElementById("rsiChart");
+  const rsiValueEl = document.getElementById("rsiValue");
+
+  // Simple moving average; entries before `period` samples exist are null.
+  function computeSMA(values, period){
+    const out = new Array(values.length).fill(null);
+    let sum = 0;
+    for(let i=0;i<values.length;i++){
+      sum += values[i];
+      if(i >= period) sum -= values[i-period];
+      if(i >= period-1) out[i] = sum/period;
+    }
+    return out;
+  }
+
+  // Wilder's RSI; entries before `period` samples exist are null.
+  function computeRSI(values, period){
+    const out = new Array(values.length).fill(null);
+    if(values.length <= period) return out;
+    let gainSum = 0, lossSum = 0;
+    for(let i=1;i<=period;i++){
+      const diff = values[i] - values[i-1];
+      if(diff >= 0) gainSum += diff; else lossSum -= diff;
+    }
+    let avgGain = gainSum/period, avgLoss = lossSum/period;
+    out[period] = avgLoss === 0 ? 100 : 100 - (100/(1+avgGain/avgLoss));
+    for(let i=period+1;i<values.length;i++){
+      const diff = values[i] - values[i-1];
+      const gain = diff > 0 ? diff : 0;
+      const loss = diff < 0 ? -diff : 0;
+      avgGain = (avgGain*(period-1) + gain)/period;
+      avgLoss = (avgLoss*(period-1) + loss)/period;
+      out[i] = avgLoss === 0 ? 100 : 100 - (100/(1+avgGain/avgLoss));
+    }
+    return out;
+  }
 
   function setStatus(msg){
     els.statusLine.textContent = msg || " ";
@@ -451,9 +507,21 @@
   async function updateChart(range){
     const cfg = RANGE_CONFIG[range];
     try{
-      const klines = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${cfg.interval}&limit=${cfg.limit}`);
-      state.chartPoints = klines.map(k => ({ t: k[0], v: parseFloat(k[4]) }));
+      // Fetch extra history so MA(200)/RSI(14) are already "warmed up"
+      // for the very first point shown in the visible range.
+      const fetchLimit = Math.min(1000, cfg.limit + MA_PERIOD);
+      const klines = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${cfg.interval}&limit=${fetchLimit}`);
+      const allPoints = klines.map(k => ({ t: k[0], v: parseFloat(k[4]) }));
+      const closes = allPoints.map(p => p.v);
+      const maAll = computeSMA(closes, MA_PERIOD);
+      const rsiAll = computeRSI(closes, RSI_PERIOD);
+
+      const sliceStart = Math.max(0, allPoints.length - cfg.limit);
+      state.chartPoints = allPoints.slice(sliceStart);
+      state.maPoints = maAll.slice(sliceStart);
+      state.rsiPoints = rsiAll.slice(sliceStart);
       drawChart();
+      drawRsi();
     }catch(e){
       setStatus("차트 로드 실패: " + e.message);
     }
@@ -470,7 +538,9 @@
     ctx.clearRect(0,0,w,h);
 
     const values = points.map(p=>p.v);
-    const max = Math.max(...values), min = Math.min(...values);
+    const maValues = (state.maPoints || []).filter(v => v != null);
+    const scaleValues = values.concat(maValues);
+    const max = Math.max(...scaleValues), min = Math.min(...scaleValues);
     const vRange = (max - min) || 1;
     const padTop = 30, padBottom = 10;
     const plotH = h - padTop - padBottom;
@@ -508,15 +578,29 @@
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // peak marker
-    const peakIdx = values.indexOf(max);
+    // 200-period moving average overlay
+    const maPoints = state.maPoints || [];
+    let maStarted = false;
     ctx.beginPath();
-    ctx.arc(xAt(peakIdx), yAt(max), 4, 0, Math.PI*2);
+    maPoints.forEach((v, i) => {
+      if(v == null){ maStarted = false; return; }
+      if(!maStarted){ ctx.moveTo(xAt(i), yAt(v)); maStarted = true; }
+      else ctx.lineTo(xAt(i), yAt(v));
+    });
+    ctx.strokeStyle = "#3b82f6";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // peak marker (based on price high, not the combined price+MA scale)
+    const priceMax = Math.max(...values);
+    const peakIdx = values.indexOf(priceMax);
+    ctx.beginPath();
+    ctx.arc(xAt(peakIdx), yAt(priceMax), 4, 0, Math.PI*2);
     ctx.fillStyle = "#f7931a";
     ctx.fill();
 
     els.tooltip.style.display = "block";
-    els.tooltip.textContent = "$" + fmtUsd(max);
+    els.tooltip.textContent = "$" + fmtUsd(priceMax);
     let peakX = xAt(peakIdx) - els.tooltip.offsetWidth/2;
     peakX = Math.max(0, Math.min(w - els.tooltip.offsetWidth, peakX));
     els.tooltip.style.left = peakX + "px";
@@ -540,6 +624,59 @@
     }
   }
 
+  function drawRsi(highlightIndex){
+    const points = state.rsiPoints || [];
+    const w = rsiCanvas.clientWidth, h = rsiCanvas.clientHeight || 60;
+    const dpr = window.devicePixelRatio || 1;
+    rsiCanvas.width = w * dpr; rsiCanvas.height = h * dpr;
+    const ctx = rsiCanvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    if(!points.length) return;
+
+    const xAt = i => (i / (points.length - 1)) * w;
+    const yAt = v => h - (v/100) * h;
+
+    ctx.strokeStyle = "rgba(150,150,150,0.3)";
+    ctx.setLineDash([3,3]);
+    ctx.lineWidth = 1;
+    [30,50,70].forEach(level => {
+      const y = yAt(level);
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    let started = false;
+    ctx.beginPath();
+    points.forEach((v,i) => {
+      if(v == null){ started = false; return; }
+      if(!started){ ctx.moveTo(xAt(i), yAt(v)); started = true; }
+      else ctx.lineTo(xAt(i), yAt(v));
+    });
+    ctx.strokeStyle = "#8b5cf6";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    const idx = highlightIndex != null ? highlightIndex : points.length - 1;
+    const shown = points[idx] != null ? points[idx] : [...points].reverse().find(v => v != null);
+    if(shown != null){
+      rsiValueEl.textContent = shown.toFixed(1);
+      rsiValueEl.style.color = shown >= 70 ? "var(--red)" : shown <= 30 ? "var(--green)" : "var(--text)";
+    } else {
+      rsiValueEl.textContent = "-";
+      rsiValueEl.style.color = "var(--text)";
+    }
+
+    if(highlightIndex != null){
+      ctx.beginPath();
+      ctx.moveTo(xAt(highlightIndex), 0);
+      ctx.lineTo(xAt(highlightIndex), h);
+      ctx.strokeStyle = "rgba(100,100,100,0.4)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
   function attachChartInteraction(){
     function handle(clientX){
       const rect = chartCanvas.getBoundingClientRect();
@@ -549,12 +686,13 @@
       const idx = Math.round((x / rect.width) * (points.length - 1));
       const clamped = Math.max(0, Math.min(points.length - 1, idx));
       drawChart(clamped);
+      drawRsi(clamped);
     }
     chartCanvas.addEventListener("mousemove", e => handle(e.clientX));
-    chartCanvas.addEventListener("mouseleave", () => drawChart());
+    chartCanvas.addEventListener("mouseleave", () => { drawChart(); drawRsi(); });
     chartCanvas.addEventListener("touchstart", e => handle(e.touches[0].clientX), {passive:true});
     chartCanvas.addEventListener("touchmove", e => handle(e.touches[0].clientX), {passive:true});
-    chartCanvas.addEventListener("touchend", () => drawChart());
+    chartCanvas.addEventListener("touchend", () => { drawChart(); drawRsi(); });
   }
 
   function attachRangeTabs(){
@@ -568,7 +706,7 @@
     });
   }
 
-  window.addEventListener("resize", () => { drawChart(); drawSparkline.lastCandles && drawSparkline(drawSparkline.lastCandles); });
+  window.addEventListener("resize", () => { drawChart(); drawRsi(); drawSparkline.lastCandles && drawSparkline(drawSparkline.lastCandles); });
 
   function init(){
     attachChartInteraction();
