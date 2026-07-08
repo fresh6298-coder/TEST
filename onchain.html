@@ -72,7 +72,7 @@
   .metric-value{font-size:24px;font-weight:700;}
   .metric-zone{font-size:12px;margin-bottom:10px;}
   .metric-desc{font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.5;}
-  .metric-chart{width:100%;height:70px;display:block;}
+  .metric-chart{width:100%;height:100px;display:block;}
 
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
@@ -134,20 +134,30 @@
 
   function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
 
+  function shortDate(d){
+    const dt = new Date(d);
+    if(isNaN(dt.getTime())) return String(d);
+    return dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+  }
+
   function drawSeries(canvas, history, bands){
-    const w = canvas.clientWidth, h = canvas.clientHeight || 70;
+    const w = canvas.clientWidth, hTotal = canvas.clientHeight || 100;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.width = w * dpr; canvas.height = hTotal * dpr;
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,w,h);
+    ctx.clearRect(0,0,w,hTotal);
     if(!history.length) return;
+
+    const padRight = 30, padBottom = 14;
+    const plotW = w - padRight;
+    const h = hTotal - padBottom;
 
     const values = history.map(p => p.value);
     const max = Math.max(...values, ...(bands||[]).map(b=>b.at));
     const min = Math.min(...values, ...(bands||[]).map(b=>b.at));
     const range = (max - min) || 1;
-    const xAt = i => (i/(history.length-1)) * w;
+    const xAt = i => (i/(history.length-1)) * plotW;
     const yAt = v => h - ((v-min)/range) * h;
 
     (bands||[]).forEach(b => {
@@ -155,8 +165,12 @@
       ctx.strokeStyle = b.color;
       ctx.setLineDash([3,3]);
       ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
       ctx.setLineDash([]);
+      ctx.fillStyle = b.color;
+      ctx.font = "9px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(String(b.at), plotW + 4, y + 3);
     });
 
     ctx.beginPath();
@@ -164,6 +178,21 @@
     ctx.strokeStyle = "#f7931a";
     ctx.lineWidth = 1.5;
     ctx.stroke();
+
+    const tickCount = Math.min(4, history.length);
+    const tickIdx = new Set();
+    for(let i=0;i<tickCount;i++){
+      tickIdx.add(Math.round(i * (history.length - 1) / (tickCount - 1 || 1)));
+    }
+    const sortedTicks = [...tickIdx].sort((a,b) => a-b);
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.font = "9px ui-monospace, monospace";
+    sortedTicks.forEach((i, idx) => {
+      const x = xAt(i);
+      ctx.textAlign = idx === 0 ? "left" : idx === sortedTicks.length - 1 ? "right" : "center";
+      const clampedX = idx === 0 ? Math.max(2, x) : idx === sortedTicks.length - 1 ? Math.min(plotW - 2, x) : x;
+      ctx.fillText(shortDate(history[i].date), clampedX, hTotal - 2);
+    });
   }
 
   function setZone(el, label, color){
