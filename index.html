@@ -96,7 +96,8 @@
   .stat-label{font-size:12px;color:var(--sub);}
   .stat-value{font-size:17px;font-weight:700;}
 
-  .chart-section{margin-bottom:28px;position:relative;}
+  .chart-section{margin-bottom:28px;}
+  .chart-canvas-wrap{position:relative;}
   #priceChart{width:100%;display:block;touch-action:none;}
   .chart-tooltip{
     position:absolute;
@@ -111,9 +112,11 @@
     display:none;
   }
   .chart-legend{
-    display:flex;gap:14px;font-size:11px;color:var(--sub);margin-bottom:4px;
+    display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin-bottom:4px;
   }
+  .tooltip-date{font-weight:600;color:var(--sub);font-size:11px;}
   .chart-legend .item{display:flex;align-items:center;gap:4px;}
+  .chart-legend .item.dimmed{opacity:0.35;}
   .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
   .rsi-wrap{margin-top:6px;}
   .rsi-header{display:flex;justify-content:space-between;font-size:11px;color:var(--sub);margin-bottom:2px;}
@@ -217,10 +220,13 @@
   <section class="chart-section">
     <div class="chart-legend">
       <span class="item"><span class="swatch" style="background:#f7931a;"></span>Price</span>
-      <span class="item"><span class="swatch" style="background:#3b82f6;"></span>MA(200)</span>
+      <span class="item" id="legendMa200d"><span class="swatch" style="background:#3b82f6;"></span>MA 200D</span>
+      <span class="item" id="legendMa200w"><span class="swatch" style="background:#14b8a6;"></span>MA 200W</span>
     </div>
-    <div class="chart-tooltip" id="chartTooltip"></div>
-    <canvas id="priceChart" height="220"></canvas>
+    <div class="chart-canvas-wrap">
+      <div class="chart-tooltip" id="chartTooltip"></div>
+      <canvas id="priceChart" height="220"></canvas>
+    </div>
     <div class="rsi-wrap">
       <div class="rsi-header"><span>RSI(14)</span><span id="rsiValue">-</span></div>
       <canvas id="rsiChart" height="60"></canvas>
@@ -278,7 +284,8 @@
     fxRate: null,
     range: "1Y",
     chartPoints: [],
-    maPoints: [],
+    ma200d: [],
+    ma200w: [],
     rsiPoints: []
   };
 
@@ -365,6 +372,19 @@
   }
   function fmtPct(n){
     return Math.abs(n).toFixed(2) + "%";
+  }
+
+  function fmtAxisDate(ts){
+    const d = new Date(ts);
+    if(state.range === "1D") return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    if(state.range === "5Y" || state.range === "ALL") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function fmtTooltipDate(ts){
+    const d = new Date(ts);
+    if(state.range === "1D") return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
   }
 
   function applyChangeRow(rowEl, valueEl, pct){
@@ -503,22 +523,53 @@
     }catch(e){ /* keep previous */ }
   }
 
+  // Fixed 200-day and 200-week moving averages, independent of the
+  // selected range, so they mean the same thing on every tab. Refreshed
+  // on their own slow interval since they barely move within a day.
+  async function updateLongTermMAs(){
+    try{
+      const [dailyKlines, weeklyKlines] = await Promise.all([
+        fetchJson("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000"),
+        fetchJson("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1w&limit=1000")
+      ]);
+      const buildSeries = (klines) => {
+        const times = klines.map(k => k[0]);
+        const closes = klines.map(k => parseFloat(k[4]));
+        const ma = computeSMA(closes, MA_PERIOD);
+        return times.map((t,i) => ({ t, v: ma[i] })).filter(p => p.v != null);
+      };
+      state.ma200d = buildSeries(dailyKlines);
+      state.ma200w = buildSeries(weeklyKlines);
+      drawChart();
+    }catch(e){ /* keep previous */ }
+  }
+
+  // Step-function lookup: latest value in `series` at or before time `t`.
+  function valueAtOrBefore(series, t){
+    if(!series.length || t < series[0].t) return null;
+    let lo = 0, hi = series.length - 1, ans = null;
+    while(lo <= hi){
+      const mid = (lo + hi) >> 1;
+      if(series[mid].t <= t){ ans = series[mid].v; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
+  }
+
   // ---- Main chart ----
   async function updateChart(range){
     const cfg = RANGE_CONFIG[range];
     try{
-      // Fetch extra history so MA(200)/RSI(14) are already "warmed up"
+      // Fetch a little extra history so RSI(14) is already "warmed up"
       // for the very first point shown in the visible range.
-      const fetchLimit = Math.min(1000, cfg.limit + MA_PERIOD);
+      const fetchLimit = Math.min(1000, cfg.limit + RSI_PERIOD);
       const klines = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${cfg.interval}&limit=${fetchLimit}`);
       const allPoints = klines.map(k => ({ t: k[0], v: parseFloat(k[4]) }));
       const closes = allPoints.map(p => p.v);
-      const maAll = computeSMA(closes, MA_PERIOD);
       const rsiAll = computeRSI(closes, RSI_PERIOD);
 
       const sliceStart = Math.max(0, allPoints.length - cfg.limit);
       state.chartPoints = allPoints.slice(sliceStart);
-      state.maPoints = maAll.slice(sliceStart);
       state.rsiPoints = rsiAll.slice(sliceStart);
       drawChart();
       drawRsi();
@@ -538,11 +589,18 @@
     ctx.clearRect(0,0,w,h);
 
     const values = points.map(p=>p.v);
-    const maValues = (state.maPoints || []).filter(v => v != null);
+    // Long-term MAs are hidden on very short ranges: they'd sit far off
+    // from intraday price action and just compress the visible detail.
+    const showMa = state.range !== "1D" && state.range !== "7D";
+    const ma200dLine = showMa ? points.map(p => valueAtOrBefore(state.ma200d, p.t)) : points.map(() => null);
+    const ma200wLine = showMa ? points.map(p => valueAtOrBefore(state.ma200w, p.t)) : points.map(() => null);
+    const maValues = ma200dLine.concat(ma200wLine).filter(v => v != null);
+    document.getElementById("legendMa200d").classList.toggle("dimmed", !showMa);
+    document.getElementById("legendMa200w").classList.toggle("dimmed", !showMa);
     const scaleValues = values.concat(maValues);
     const max = Math.max(...scaleValues), min = Math.min(...scaleValues);
     const vRange = (max - min) || 1;
-    const padTop = 30, padBottom = 10;
+    const padTop = 30, padBottom = 22;
     const plotH = h - padTop - padBottom;
 
     const xAt = i => (i / (points.length - 1)) * w;
@@ -578,18 +636,37 @@
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // 200-period moving average overlay
-    const maPoints = state.maPoints || [];
-    let maStarted = false;
-    ctx.beginPath();
-    maPoints.forEach((v, i) => {
-      if(v == null){ maStarted = false; return; }
-      if(!maStarted){ ctx.moveTo(xAt(i), yAt(v)); maStarted = true; }
-      else ctx.lineTo(xAt(i), yAt(v));
+    // 200-day / 200-week moving average overlays
+    function strokeMaLine(line, color){
+      let started = false;
+      ctx.beginPath();
+      line.forEach((v, i) => {
+        if(v == null){ started = false; return; }
+        if(!started){ ctx.moveTo(xAt(i), yAt(v)); started = true; }
+        else ctx.lineTo(xAt(i), yAt(v));
+      });
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    strokeMaLine(ma200dLine, "#3b82f6");
+    strokeMaLine(ma200wLine, "#14b8a6");
+
+    // date ticks along the bottom axis
+    const tickCount = Math.min(5, points.length);
+    const tickIdx = new Set();
+    for(let i=0;i<tickCount;i++){
+      tickIdx.add(Math.round(i * (points.length - 1) / (tickCount - 1 || 1)));
+    }
+    const sortedTicks = [...tickIdx].sort((a,b) => a-b);
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.font = "10px ui-monospace, monospace";
+    sortedTicks.forEach((i, idx) => {
+      const x = xAt(i);
+      ctx.textAlign = idx === 0 ? "left" : idx === sortedTicks.length - 1 ? "right" : "center";
+      const clampedX = idx === 0 ? Math.max(2, x) : idx === sortedTicks.length - 1 ? Math.min(w - 2, x) : x;
+      ctx.fillText(fmtAxisDate(points[i].t), clampedX, h - 6);
     });
-    ctx.strokeStyle = "#3b82f6";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
 
     // peak marker (based on price high, not the combined price+MA scale)
     const priceMax = Math.max(...values);
@@ -600,7 +677,7 @@
     ctx.fill();
 
     els.tooltip.style.display = "block";
-    els.tooltip.textContent = "$" + fmtUsd(priceMax);
+    els.tooltip.innerHTML = "$" + fmtUsd(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>`;
     let peakX = xAt(peakIdx) - els.tooltip.offsetWidth/2;
     peakX = Math.max(0, Math.min(w - els.tooltip.offsetWidth, peakX));
     els.tooltip.style.left = peakX + "px";
@@ -617,7 +694,7 @@
       ctx.arc(xAt(highlightIndex), yAt(p.v), 4, 0, Math.PI*2);
       ctx.fillStyle = "#111";
       ctx.fill();
-      els.tooltip.textContent = "$" + fmtUsd(p.v);
+      els.tooltip.innerHTML = "$" + fmtUsd(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>`;
       let hx = xAt(highlightIndex) - els.tooltip.offsetWidth/2;
       hx = Math.max(0, Math.min(w - els.tooltip.offsetWidth, hx));
       els.tooltip.style.left = hx + "px";
@@ -718,6 +795,7 @@
     updateFx();
     updateFng();
     updateHalving();
+    updateLongTermMAs();
     updateChart(state.range);
 
     setInterval(updatePrice, 5000);
@@ -726,6 +804,7 @@
     setInterval(updateFx, 600000);
     setInterval(updateFng, 600000);
     setInterval(updateHalving, 60000);
+    setInterval(updateLongTermMAs, 30 * 60000);
     setInterval(() => updateChart(state.range), 60000);
   }
 
