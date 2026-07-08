@@ -53,10 +53,33 @@ function normalizeSeries(json, hint) {
   return rows.map((row) => normalizeRecord(row, hint)).filter(Boolean);
 }
 
+// The plain endpoint seems to cap out around ~4 years of daily records;
+// try a large explicit limit in case the API defaults to a smaller page
+// and honors this param for a bigger one. Falls back to the plain
+// endpoint's result if the "big limit" request errors or doesn't help.
+async function fetchFullHistory(path) {
+  const base = await fetchJson(`${BASE}/${path}`);
+  const baseRows = Array.isArray(base) ? base : Array.isArray(base?.data) ? base.data : [];
+  try {
+    const big = await fetchJson(`${BASE}/${path}?limit=100000`);
+    const bigRows = Array.isArray(big) ? big : Array.isArray(big?.data) ? big.data : [];
+    return bigRows.length > baseRows.length ? big : base;
+  } catch {
+    return base;
+  }
+}
+
 async function loadMetric(path, hint) {
-  const history = normalizeSeries(await fetchJson(`${BASE}/${path}`), hint);
+  const json = await fetchFullHistory(path);
+  const history = normalizeSeries(json, hint);
   if (!history.length) throw new Error(`${path}: no parseable records`);
-  return { current: history[history.length - 1], history };
+  return {
+    current: history[history.length - 1],
+    history,
+    count: history.length,
+    earliest: history[0].date,
+    latest: history[history.length - 1].date,
+  };
 }
 
 export default async function handler(req, res) {

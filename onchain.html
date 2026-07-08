@@ -73,6 +73,7 @@
   .metric-zone{font-size:12px;margin-bottom:10px;}
   .metric-desc{font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.5;}
   .metric-chart{width:100%;height:100px;display:block;}
+  .metric-range{font-size:10px;color:var(--sub);text-align:right;margin-top:2px;}
 
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
@@ -107,6 +108,7 @@
     <div class="metric-zone" id="mvrvZone">-</div>
     <div class="metric-desc">시가총액과 실현시가총액의 괴리를 표준편차로 정규화한 지표. 역사적으로 7 이상이면 과열(사이클 고점권), 0 이하면 저평가(사이클 저점권) 구간으로 해석돼.</div>
     <canvas class="metric-chart" id="mvrvChart"></canvas>
+    <div class="metric-range" id="mvrvRange"></div>
   </div>
 
   <div class="metric-card">
@@ -114,6 +116,7 @@
     <div class="metric-zone" id="nuplZone">-</div>
     <div class="metric-desc">보유자 전체의 미실현 손익 비율. 0 이하 항복(Capitulation), 0.5~0.75 확신(Belief), 0.75 이상 도취(Euphoria) 구간으로 해석돼.</div>
     <canvas class="metric-chart" id="nuplChart"></canvas>
+    <div class="metric-range" id="nuplRange"></div>
   </div>
 
   <div class="metric-card">
@@ -121,6 +124,7 @@
     <div class="metric-zone" id="puellZone">-</div>
     <div class="metric-desc">일일 채굴 발행가치를 365일 평균과 비교한 지표. 4 이상이면 채굴자 수익성 과열(고점권), 0.5 이하면 저평가(저점권) 구간으로 해석돼.</div>
     <canvas class="metric-chart" id="puellChart"></canvas>
+    <div class="metric-range" id="puellRange"></div>
   </div>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
@@ -228,24 +232,31 @@
 
       document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date(data.fetchedAt).toLocaleString("ko-KR");
 
+      function setRange(el, metric){
+        el.textContent = metric.earliest + " ~ " + metric.latest + " (" + metric.count.toLocaleString("en-US") + "pts)";
+      }
+
       const m = data.metrics;
       if(m.mvrvZscore){
         document.getElementById("mvrvValue").textContent = m.mvrvZscore.current.value.toFixed(2);
         const [label, color] = mvrvZone(m.mvrvZscore.current.value);
         setZone(document.getElementById("mvrvZone"), label, color);
         drawSeries(document.getElementById("mvrvChart"), m.mvrvZscore.history, [{at:7,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
+        setRange(document.getElementById("mvrvRange"), m.mvrvZscore);
       }
       if(m.nupl){
         document.getElementById("nuplValue").textContent = m.nupl.current.value.toFixed(2);
         const [label, color] = nuplZone(m.nupl.current.value);
         setZone(document.getElementById("nuplZone"), label, color);
         drawSeries(document.getElementById("nuplChart"), m.nupl.history, [{at:0.75,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
+        setRange(document.getElementById("nuplRange"), m.nupl);
       }
       if(m.puellMultiple){
         document.getElementById("puellValue").textContent = m.puellMultiple.current.value.toFixed(2);
         const [label, color] = puellZone(m.puellMultiple.current.value);
         setZone(document.getElementById("puellZone"), label, color);
         drawSeries(document.getElementById("puellChart"), m.puellMultiple.history, [{at:4,color:"rgba(239,68,68,0.5)"},{at:0.5,color:"rgba(22,163,74,0.5)"}]);
+        setRange(document.getElementById("puellRange"), m.puellMultiple);
       }
 
       if(data.errors && data.errors.length){
