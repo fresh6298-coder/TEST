@@ -172,18 +172,28 @@
     }).join("");
   }
 
+  function shortDate(d){
+    const parts = String(d).trim().split(/\s+/);
+    return parts.length >= 2 ? parts[0] + " " + parts[1] : String(d);
+  }
+
   function drawChart(rows){
-    const points = rows.slice(-60).map(r => r.total).filter(v => v != null);
-    const w = chartCanvas.clientWidth, h = chartCanvas.clientHeight || 180;
+    const points = rows.slice(-60)
+      .filter(r => r.total != null)
+      .map(r => ({ date: r.date, v: r.total }));
+    const w = chartCanvas.clientWidth, hTotal = chartCanvas.clientHeight || 180;
+    const labelH = 16;
+    const h = hTotal - labelH;
     const dpr = window.devicePixelRatio || 1;
-    chartCanvas.width = w * dpr; chartCanvas.height = h * dpr;
+    chartCanvas.width = w * dpr; chartCanvas.height = hTotal * dpr;
     const ctx = chartCanvas.getContext("2d");
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,w,h);
+    ctx.clearRect(0,0,w,hTotal);
     if(!points.length) return;
 
-    const max = Math.max(...points, 0);
-    const min = Math.min(...points, 0);
+    const values = points.map(p => p.v);
+    const max = Math.max(...values, 0);
+    const min = Math.min(...values, 0);
     const range = (max - min) || 1;
     const zeroY = h - ((0 - min) / range) * h;
     const barW = w / points.length;
@@ -192,13 +202,28 @@
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(w, zeroY); ctx.stroke();
 
-    points.forEach((v, i) => {
-      const barH = (Math.abs(v) / range) * h;
+    points.forEach((p, i) => {
+      const barH = (Math.abs(p.v) / range) * h;
       const x = i * barW + barW * 0.15;
       const bw = Math.max(barW * 0.7, 1);
-      const y = v >= 0 ? zeroY - barH : zeroY;
-      ctx.fillStyle = v >= 0 ? "#16a34a" : "#ef4444";
+      const y = p.v >= 0 ? zeroY - barH : zeroY;
+      ctx.fillStyle = p.v >= 0 ? "#16a34a" : "#ef4444";
       ctx.fillRect(x, y, bw, Math.max(barH, 1));
+    });
+
+    const tickCount = Math.min(6, points.length);
+    const tickIndices = new Set();
+    for(let i=0;i<tickCount;i++){
+      tickIndices.add(Math.round(i * (points.length - 1) / (tickCount - 1 || 1)));
+    }
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.font = "10px ui-monospace, monospace";
+    const sortedTicks = [...tickIndices].sort((a,b) => a - b);
+    sortedTicks.forEach((i, idx) => {
+      const x = i * barW + barW / 2;
+      ctx.textAlign = idx === 0 ? "left" : idx === sortedTicks.length - 1 ? "right" : "center";
+      const clampedX = idx === 0 ? Math.max(2, x) : idx === sortedTicks.length - 1 ? Math.min(w - 2, x) : x;
+      ctx.fillText(shortDate(points[i].date), clampedX, hTotal - 4);
     });
   }
 

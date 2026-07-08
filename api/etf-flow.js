@@ -10,7 +10,7 @@ function buildResult(rawRows, source) {
   const dataRows = rawRows
     .slice(1)
     .filter((r) => r.length === headers.length && r[0])
-    .filter((r) => !/^total/i.test(r[0]))
+    .filter((r) => !/^(total|average|maximum|minimum|max|min)\b/i.test(r[0]))
     .map((r) => {
       const values = {};
       headers.slice(1).forEach((h, i) => {
