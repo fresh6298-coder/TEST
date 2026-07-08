@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Bitcoin On-Chain Indicators</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:640px;
+    margin:0 auto;
+    padding:20px 20px 40px;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:22px;
+  }
+  .back-link{
+    color:var(--sub);
+    text-decoration:none;
+    font-size:20px;
+    padding:4px 8px;
+  }
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;
+    flex-shrink:0;
+  }
+  .topbar h1{
+    font-size:19px;margin:0;flex:1;font-weight:700;
+  }
+  .live-dot{
+    width:10px;height:10px;border-radius:50%;
+    background:var(--green);
+  }
+  .updated{
+    font-size:12px;color:var(--sub);margin-bottom:20px;
+  }
+
+  .metric-card{
+    border:1px solid var(--track);
+    border-radius:10px;
+    padding:16px;
+    margin-bottom:16px;
+  }
+  .metric-head{
+    display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;
+  }
+  .metric-name{font-size:14px;font-weight:700;}
+  .metric-value{font-size:24px;font-weight:700;}
+  .metric-zone{font-size:12px;margin-bottom:10px;}
+  .metric-desc{font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.5;}
+  .metric-chart{width:100%;height:70px;display:block;}
+
+  .status-line{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
+  }
+  .source-note{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:24px;
+  }
+  .source-note a{color:inherit;}
+
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f0f0f;
+      --text:#f2f2f2;
+      --sub:#8f8f8f;
+      --track:#2a2a2a;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
+    <div class="coin-icon">₿</div>
+    <h1>On-Chain Indicators</h1>
+    <span class="live-dot" title="자동 갱신"></span>
+  </header>
+  <div class="updated" id="updatedLine">불러오는 중...</div>
+
+  <div class="metric-card">
+    <div class="metric-head"><span class="metric-name">MVRV Z-Score</span><span class="metric-value" id="mvrvValue">-</span></div>
+    <div class="metric-zone" id="mvrvZone">-</div>
+    <div class="metric-desc">시가총액과 실현시가총액의 괴리를 표준편차로 정규화한 지표. 역사적으로 7 이상이면 과열(사이클 고점권), 0 이하면 저평가(사이클 저점권) 구간으로 해석돼.</div>
+    <canvas class="metric-chart" id="mvrvChart"></canvas>
+  </div>
+
+  <div class="metric-card">
+    <div class="metric-head"><span class="metric-name">NUPL</span><span class="metric-value" id="nuplValue">-</span></div>
+    <div class="metric-zone" id="nuplZone">-</div>
+    <div class="metric-desc">보유자 전체의 미실현 손익 비율. 0 이하 항복(Capitulation), 0.5~0.75 확신(Belief), 0.75 이상 도취(Euphoria) 구간으로 해석돼.</div>
+    <canvas class="metric-chart" id="nuplChart"></canvas>
+  </div>
+
+  <div class="metric-card">
+    <div class="metric-head"><span class="metric-name">Puell Multiple</span><span class="metric-value" id="puellValue">-</span></div>
+    <div class="metric-zone" id="puellZone">-</div>
+    <div class="metric-desc">일일 채굴 발행가치를 365일 평균과 비교한 지표. 4 이상이면 채굴자 수익성 과열(고점권), 0.5 이하면 저평가(저점권) 구간으로 해석돼.</div>
+    <canvas class="metric-chart" id="puellChart"></canvas>
+  </div>
+
+  <p class="status-line" id="statusLine">&nbsp;</p>
+  <p class="source-note">Data: <a href="https://bitcoin-data.com" target="_blank" rel="noopener">bitcoin-data.com</a></p>
+  <p class="source-note"><a href="index.html">← Bitcoin Dashboard</a> &nbsp;|&nbsp; <a href="etf.html">ETF Flow</a> &nbsp;|&nbsp; <a href="assets.html">Global Assets →</a></p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
+
+  function drawSeries(canvas, history, bands){
+    const w = canvas.clientWidth, h = canvas.clientHeight || 70;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    if(!history.length) return;
+
+    const values = history.map(p => p.value);
+    const max = Math.max(...values, ...(bands||[]).map(b=>b.at));
+    const min = Math.min(...values, ...(bands||[]).map(b=>b.at));
+    const range = (max - min) || 1;
+    const xAt = i => (i/(history.length-1)) * w;
+    const yAt = v => h - ((v-min)/range) * h;
+
+    (bands||[]).forEach(b => {
+      const y = yAt(b.at);
+      ctx.strokeStyle = b.color;
+      ctx.setLineDash([3,3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    ctx.beginPath();
+    history.forEach((p,i) => i===0 ? ctx.moveTo(xAt(i), yAt(p.value)) : ctx.lineTo(xAt(i), yAt(p.value)));
+    ctx.strokeStyle = "#f7931a";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function setZone(el, label, color){
+    el.textContent = label;
+    el.style.color = color;
+  }
+
+  function mvrvZone(v){
+    if(v >= 7) return ["과열 (사이클 고점권 근접)", "var(--red)"];
+    if(v <= 0) return ["저평가 (사이클 저점권 근접)", "var(--green)"];
+    return ["중립", "var(--sub)"];
+  }
+  function nuplZone(v){
+    if(v >= 0.75) return ["Euphoria / Greed (도취)", "var(--red)"];
+    if(v >= 0.5) return ["Belief / Denial (확신)", "#f97316"];
+    if(v >= 0.25) return ["Optimism / Belief (낙관)", "var(--sub)"];
+    if(v >= 0) return ["Hope / Fear (희망/공포)", "#84cc16"];
+    return ["Capitulation (항복)", "var(--green)"];
+  }
+  function puellZone(v){
+    if(v >= 4) return ["과열 (채굴자 수익성 고점권)", "var(--red)"];
+    if(v <= 0.5) return ["저평가 (채굴자 수익성 저점권)", "var(--green)"];
+    return ["중립", "var(--sub)"];
+  }
+
+  async function load(){
+    try{
+      setStatus("");
+      const res = await fetch("/api/onchain-metrics");
+      if(!res.ok) throw new Error("API " + res.status);
+      const data = await res.json();
+      if(!data.metrics || !Object.keys(data.metrics).length) throw new Error("데이터 없음");
+
+      document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date(data.fetchedAt).toLocaleString("ko-KR");
+
+      const m = data.metrics;
+      if(m.mvrvZscore){
+        document.getElementById("mvrvValue").textContent = m.mvrvZscore.current.value.toFixed(2);
+        const [label, color] = mvrvZone(m.mvrvZscore.current.value);
+        setZone(document.getElementById("mvrvZone"), label, color);
+        drawSeries(document.getElementById("mvrvChart"), m.mvrvZscore.history, [{at:7,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
+      }
+      if(m.nupl){
+        document.getElementById("nuplValue").textContent = m.nupl.current.value.toFixed(2);
+        const [label, color] = nuplZone(m.nupl.current.value);
+        setZone(document.getElementById("nuplZone"), label, color);
+        drawSeries(document.getElementById("nuplChart"), m.nupl.history, [{at:0.75,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
+      }
+      if(m.puellMultiple){
+        document.getElementById("puellValue").textContent = m.puellMultiple.current.value.toFixed(2);
+        const [label, color] = puellZone(m.puellMultiple.current.value);
+        setZone(document.getElementById("puellZone"), label, color);
+        drawSeries(document.getElementById("puellChart"), m.puellMultiple.history, [{at:4,color:"rgba(239,68,68,0.5)"},{at:0.5,color:"rgba(22,163,74,0.5)"}]);
+      }
+
+      if(data.errors && data.errors.length){
+        setStatus("일부 지표 실패: " + data.errors.join(" / "));
+      }
+    }catch(e){
+      setStatus("데이터 로드 실패: " + e.message);
+    }
+  }
+
+  load();
+  setInterval(load, 60 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
