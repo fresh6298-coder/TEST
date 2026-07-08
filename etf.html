@@ -131,6 +131,7 @@
   </div>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
+  <p class="source-note" id="rawApiNote" style="display:none;"><a href="/api/etf-flow" target="_blank" rel="noopener">raw API 응답 보기 →</a></p>
   <p class="source-note">Data: <a href="https://farside.co.uk/btc/" target="_blank" rel="noopener">farside.co.uk/btc</a></p>
   <p class="source-note"><a href="index.html">← Bitcoin Dashboard</a> &nbsp;|&nbsp; <a href="assets.html">Global Assets by Market Cap →</a> &nbsp;|&nbsp; <a href="onchain.html">On-Chain Indicators →</a> &nbsp;|&nbsp; <a href="news.html">News →</a></p>
 </div>
@@ -248,6 +249,7 @@
       drawChart(lastRows);
     }catch(e){
       setStatus("데이터 로드 실패: " + e.message);
+      document.getElementById("rawApiNote").style.display = "block";
     }
   }
 
