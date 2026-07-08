@@ -328,26 +328,39 @@
     els.statPremium.style.color = premium >= 0 ? "var(--green)" : "var(--red)";
   }
 
-  // ---- Price (Upbit KRW + Binance USD) ----
+  // ---- Price (Upbit KRW + Binance USD, independent so one failing doesn't block the other) ----
   async function updatePrice(){
+    const failures = [];
+
     try{
-      const [upbit, binance] = await Promise.all([
-        fetchJson("https://api.upbit.com/v1/ticker?markets=KRW-BTC"),
-        fetchJson("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT")
-      ]);
+      const upbit = await fetchJson("https://api.upbit.com/v1/ticker?markets=KRW-BTC");
       const u = upbit[0];
       state.krwPrice = u.trade_price;
       els.priceKrw.textContent = fmtInt(u.trade_price);
       applyChangeRow(els.changeKrwRow, els.changeKrw, u.signed_change_rate * 100);
+    }catch(e){
+      failures.push("KRW(Upbit): " + e.message);
+    }
 
+    try{
+      const binance = await fetchJson("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT");
       state.usdPrice = parseFloat(binance.lastPrice);
       els.priceUsd.textContent = fmtUsd(state.usdPrice);
       applyChangeRow(els.changeUsdRow, els.changeUsd, parseFloat(binance.priceChangePercent));
-
-      updatePremium();
     }catch(e){
-      setStatus("가격 업데이트 실패: " + e.message);
+      try{
+        // Binance blocks some regions; CoinGecko has no such restriction.
+        const cg = await fetchJson("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true");
+        state.usdPrice = cg.bitcoin.usd;
+        els.priceUsd.textContent = fmtUsd(state.usdPrice);
+        applyChangeRow(els.changeUsdRow, els.changeUsd, cg.bitcoin.usd_24h_change);
+      }catch(e2){
+        failures.push("USD(Binance/CoinGecko): " + e2.message);
+      }
     }
+
+    updatePremium();
+    setStatus(failures.length ? "일부 가격 실패: " + failures.join(" / ") : "");
   }
 
   // ---- Mini sparkline (Upbit last 10 days) ----
