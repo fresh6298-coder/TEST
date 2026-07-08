@@ -1,6 +1,14 @@
 const SOURCE_URL = "https://farside.co.uk/btc/";
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const READER_URL = "https://r.jina.ai/https://farside.co.uk/btc/";
+
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  Referer: "https://www.google.com/",
+};
 
 function stripTags(html) {
   return html
@@ -9,6 +17,15 @@ function stripTags(html) {
     .replace(/&amp;/gi, "&")
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripMarkdown(text) {
+  return text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\*\*([^*]*)\*\*/g, "$1")
+    .replace(/[*_`]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -33,7 +50,7 @@ function extractTables(html) {
   return tables;
 }
 
-function parseTable(tableHtml) {
+function parseHtmlTable(tableHtml) {
   const rows = [];
   const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   let rm;
@@ -50,56 +67,117 @@ function parseTable(tableHtml) {
   return rows;
 }
 
-export default async function handler(req, res) {
-  try {
-    const upstream = await fetch(SOURCE_URL, {
-      headers: { "User-Agent": USER_AGENT },
-    });
-    if (!upstream.ok) {
-      res.status(502).json({ error: `Upstream responded ${upstream.status}` });
-      return;
+function bestHtmlTableRows(html) {
+  const tables = extractTables(html)
+    .map(parseHtmlTable)
+    .filter((rows) => rows.length > 2);
+  if (!tables.length) return null;
+  return tables.reduce((a, b) => (b.length > a.length ? b : a));
+}
+
+// r.jina.ai returns the page as markdown; pipe tables look like:
+// | Date | IBIT | FBTC | ... | Total |
+// | --- | --- | --- | ... | --- |
+// | 14 Jan 2026 | 100.1 | (20.3) | ... | 50.2 |
+function bestMarkdownTableRows(markdown) {
+  const lines = markdown.split("\n").map((l) => l.trim());
+  const isSeparator = (l) => /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(l);
+  const isTableLine = (l) => l.startsWith("|") && l.endsWith("|");
+
+  const blocks = [];
+  let current = [];
+  for (const line of lines) {
+    if (isTableLine(line)) {
+      if (!isSeparator(line)) current.push(line);
+    } else if (current.length) {
+      blocks.push(current);
+      current = [];
     }
-    const html = await upstream.text();
-    const tables = extractTables(html)
-      .map(parseTable)
-      .filter((rows) => rows.length > 2);
-
-    if (!tables.length) {
-      res.status(502).json({ error: "No data table found on source page" });
-      return;
-    }
-
-    const rawRows = tables.reduce((a, b) => (b.length > a.length ? b : a));
-    const headers = rawRows[0];
-    const totalIdx = headers.findIndex((h) => /total/i.test(h));
-
-    const dataRows = rawRows
-      .slice(1)
-      .filter((r) => r.length === headers.length && r[0])
-      .filter((r) => !/^total/i.test(r[0]))
-      .map((r) => {
-        const values = {};
-        headers.slice(1).forEach((h, i) => {
-          values[h] = parseNumber(r[i + 1]);
-        });
-        return {
-          date: r[0],
-          values,
-          total: totalIdx >= 0 ? parseNumber(r[totalIdx]) : null,
-        };
-      });
-
-    res.setHeader(
-      "Cache-Control",
-      "public, s-maxage=3600, stale-while-revalidate=1800"
-    );
-    res.status(200).json({
-      source: SOURCE_URL,
-      fetchedAt: new Date().toISOString(),
-      headers,
-      rows: dataRows,
-    });
-  } catch (err) {
-    res.status(500).json({ error: String((err && err.message) || err) });
   }
+  if (current.length) blocks.push(current);
+  if (!blocks.length) return null;
+
+  const best = blocks.reduce((a, b) => (b.length > a.length ? b : a));
+  return best.map((line) =>
+    line
+      .slice(1, -1)
+      .split("|")
+      .map((cell) => stripMarkdown(cell))
+  );
+}
+
+function buildResult(rawRows, source) {
+  const headers = rawRows[0];
+  const totalIdx = headers.findIndex((h) => /total/i.test(h));
+
+  const dataRows = rawRows
+    .slice(1)
+    .filter((r) => r.length === headers.length && r[0])
+    .filter((r) => !/^total/i.test(r[0]))
+    .map((r) => {
+      const values = {};
+      headers.slice(1).forEach((h, i) => {
+        values[h] = parseNumber(r[i + 1]);
+      });
+      return {
+        date: r[0],
+        values,
+        total: totalIdx >= 0 ? parseNumber(r[totalIdx]) : null,
+      };
+    });
+
+  return {
+    source,
+    fetchedAt: new Date().toISOString(),
+    headers,
+    rows: dataRows,
+  };
+}
+
+export default async function handler(req, res) {
+  const errors = [];
+
+  try {
+    const direct = await fetch(SOURCE_URL, { headers: BROWSER_HEADERS });
+    if (direct.ok) {
+      const html = await direct.text();
+      const rawRows = bestHtmlTableRows(html);
+      if (rawRows) {
+        res.setHeader(
+          "Cache-Control",
+          "public, s-maxage=3600, stale-while-revalidate=1800"
+        );
+        res.status(200).json(buildResult(rawRows, SOURCE_URL));
+        return;
+      }
+      errors.push("direct: no data table found in HTML");
+    } else {
+      errors.push(`direct: upstream responded ${direct.status}`);
+    }
+  } catch (err) {
+    errors.push(`direct: ${String((err && err.message) || err)}`);
+  }
+
+  try {
+    const viaReader = await fetch(READER_URL);
+    if (viaReader.ok) {
+      const markdown = await viaReader.text();
+      const rawRows = bestMarkdownTableRows(markdown);
+      if (rawRows) {
+        res.setHeader(
+          "Cache-Control",
+          "public, s-maxage=3600, stale-while-revalidate=1800"
+        );
+        res.status(200).json(buildResult(rawRows, READER_URL));
+        return;
+      }
+      errors.push("reader: no data table found in markdown");
+    } else {
+      errors.push(`reader: upstream responded ${viaReader.status}`);
+    }
+  } catch (err) {
+    errors.push(`reader: ${String((err && err.message) || err)}`);
+  }
+
+  res.status(502).json({ error: "All fetch strategies failed", details: errors });
 }
