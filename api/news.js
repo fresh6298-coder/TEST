@@ -65,6 +65,25 @@ function parseRss(xml, sourceName) {
   return items;
 }
 
+const TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single";
+
+async function translateToKorean(text) {
+  if (!text) return text;
+  try {
+    const url = `${TRANSLATE_URL}?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(text)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return text;
+    const data = await res.json();
+    const translated = (data[0] || []).map((chunk) => chunk[0]).join("");
+    return translated || text;
+  } catch {
+    return text;
+  }
+}
+
 async function loadFeed(feed) {
   const r = await fetch(feed.url, { headers: HEADERS });
   if (!r.ok) {
@@ -98,7 +117,13 @@ export default async function handler(req, res) {
   if (btcOnly.length >= 5) items = btcOnly;
 
   items.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
-  items = items.slice(0, 40);
+  items = items.slice(0, 24);
+
+  await Promise.all(
+    items.map(async (it) => {
+      it.titleKo = await translateToKorean(it.title);
+    })
+  );
 
   res.setHeader("Cache-Control", "public, s-maxage=600, stale-while-revalidate=300");
   res.status(200).json({ fetchedAt: new Date().toISOString(), items, errors });
