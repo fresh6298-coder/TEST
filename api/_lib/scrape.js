@@ -20,7 +20,9 @@ export function stripTags(html) {
 
 export function stripMarkdown(text) {
   return text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\bimage\s*\d+\s*:\s*/gi, "")
     .replace(/\*\*([^*]*)\*\*/g, "$1")
     .replace(/[*_`]/g, "")
     .replace(/\s+/g, " ")

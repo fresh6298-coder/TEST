@@ -161,14 +161,15 @@
   }
 
   function renderTable(headers, rows){
-    els.tableHead.innerHTML = "<th>Date</th>" + headers.slice(1).map(h => `<th>${h}</th>`).join("");
+    const otherHeaders = headers.slice(1).filter(h => h !== "Total");
+    els.tableHead.innerHTML = "<th>Date</th><th>Total</th>" + otherHeaders.map(h => `<th>${h}</th>`).join("");
     const recent = rows.slice(-20).reverse();
     els.tableBody.innerHTML = recent.map(r => {
-      const cells = headers.slice(1).map(h => {
-        const v = h === "Total" ? r.total : r.values[h];
+      const cells = otherHeaders.map(h => {
+        const v = r.values[h];
         return `<td class="${cls(v)}">${fmt(v)}</td>`;
       }).join("");
-      return `<tr><td>${r.date}</td>${cells}</tr>`;
+      return `<tr><td>${r.date}</td><td class="${cls(r.total)}">${fmt(r.total)}</td>${cells}</tr>`;
     }).join("");
   }
 
