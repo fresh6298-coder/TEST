@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Bitcoin DCA Simulator</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:640px;
+    margin:0 auto;
+    padding:20px 20px 80px;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:22px;
+  }
+  .back-link{
+    color:var(--sub);
+    text-decoration:none;
+    font-size:20px;
+    padding:4px 8px;
+  }
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;
+    flex-shrink:0;
+  }
+  .topbar h1{
+    font-size:19px;margin:0;flex:1;font-weight:700;
+  }
+  .live-dot{
+    width:10px;height:10px;border-radius:50%;
+    background:var(--green);
+  }
+  .panel{
+    border:1px solid var(--track);
+    border-radius:10px;
+    padding:16px;
+    margin-bottom:20px;
+  }
+  .panel .desc{font-size:12px;color:var(--sub);margin-bottom:16px;line-height:1.5;}
+
+  .dca-inputs{display:flex;flex-direction:column;gap:14px;margin-bottom:16px;}
+  .dca-field{display:flex;flex-direction:column;gap:6px;}
+  .dca-field label{font-size:12px;color:var(--sub);}
+  .dca-field input, .dca-field select{
+    font-family:inherit;font-size:15px;
+    padding:10px 12px;border:1px solid var(--track);border-radius:8px;
+    background:var(--bg);color:var(--text);
+  }
+  .dca-run{
+    font-family:inherit;font-size:15px;font-weight:700;
+    padding:12px;border:none;border-radius:8px;
+    background:var(--orange);color:#fff;cursor:pointer;
+  }
+  .dca-run:disabled{opacity:0.5;}
+
+  .dca-results{
+    display:grid;grid-template-columns:1fr 1fr;gap:10px;
+    margin-top:18px;padding-top:16px;border-top:1px solid var(--track);
+  }
+  .dca-stat{display:flex;flex-direction:column;gap:4px;}
+  .dca-stat .label{font-size:11px;color:var(--sub);}
+  .dca-stat .value{font-size:18px;font-weight:700;}
+  .dca-stat.wide{grid-column:1 / -1;}
+
+  .chart-legend{display:flex;gap:12px;font-size:11px;color:var(--sub);margin:16px 0 6px;}
+  .chart-legend .item{display:flex;align-items:center;gap:4px;}
+  .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
+  .dca-chart{width:100%;height:180px;display:block;}
+
+  .status-line{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
+  }
+  .source-note{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:24px;
+  }
+  .source-note a{color:inherit;}
+
+  .bottom-nav{
+    position:fixed;left:0;right:0;bottom:0;
+    display:flex;
+    background:var(--bg);
+    border-top:1px solid var(--track);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom));
+    z-index:100;
+  }
+  .bottom-nav a{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    color:var(--sub);text-decoration:none;font-size:8px;padding:4px 1px;
+  }
+  .bottom-nav a .icon{font-size:17px;line-height:1;}
+  .bottom-nav a.active{color:var(--orange);}
+
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f0f0f;
+      --text:#f2f2f2;
+      --sub:#8f8f8f;
+      --track:#2a2a2a;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
+    <div class="coin-icon">₿</div>
+    <h1>DCA Simulator</h1>
+    <span class="live-dot" title="자동 갱신"></span>
+  </header>
+
+  <section class="panel">
+    <h2 style="font-size:16px;margin:0 0 4px;">적립식 투자 시뮬레이터</h2>
+    <div class="desc">매달 정해진 금액으로 비트코인을 꾸준히 샀다면 지금 얼마가 됐을지 계산해봐.</div>
+
+    <div class="dca-inputs">
+      <div class="dca-field">
+        <label for="dcaAmount">월 투자금액 (원)</label>
+        <input type="number" id="dcaAmount" value="100000" step="10000" min="1000">
+      </div>
+      <div class="dca-field">
+        <label for="dcaPeriod">시작 시점</label>
+        <select id="dcaPeriod">
+          <option value="0.5">6개월 전</option>
+          <option value="1" selected>1년 전</option>
+          <option value="2">2년 전</option>
+          <option value="3">3년 전</option>
+          <option value="5">5년 전</option>
+        </select>
+      </div>
+      <button class="dca-run" id="dcaRun">계산하기</button>
+    </div>
+
+    <div class="status-line" id="statusLine">&nbsp;</div>
+
+    <div class="dca-results" id="dcaResults" style="display:none;">
+      <div class="dca-stat"><span class="label">총 투자금액</span><span class="value" id="dcaInvested">-</span></div>
+      <div class="dca-stat"><span class="label">현재 평가금액</span><span class="value" id="dcaValue">-</span></div>
+      <div class="dca-stat"><span class="label">수익률</span><span class="value" id="dcaReturn">-</span></div>
+      <div class="dca-stat"><span class="label">보유 BTC</span><span class="value" id="dcaBtc">-</span></div>
+      <div class="dca-stat wide"><span class="label">평균 매입단가</span><span class="value" id="dcaAvgPrice">-</span></div>
+    </div>
+
+    <div class="chart-legend" id="dcaLegend" style="display:none;">
+      <span class="item"><span class="swatch" style="background:#9ca3af;"></span>누적 투자금</span>
+      <span class="item"><span class="swatch" style="background:#f7931a;"></span>평가금액</span>
+    </div>
+    <canvas class="dca-chart" id="dcaChart"></canvas>
+  </section>
+
+  <p class="source-note" id="rawSourceNote" style="display:none;"></p>
+  <p class="source-note">Data: Upbit / Bithumb / Binance (자동 폴백)</p>
+</div>
+
+<nav class="bottom-nav">
+  <a href="index.html"><span class="icon">₿</span>Home</a>
+  <a href="etf.html"><span class="icon">💰</span>ETF</a>
+  <a href="assets.html"><span class="icon">🌐</span>Assets</a>
+  <a href="onchain.html"><span class="icon">⛓️</span>On-Chain</a>
+  <a href="news.html"><span class="icon">📰</span>News</a>
+  <a href="cycles.html"><span class="icon">🔄</span>Cycles</a>
+  <a href="dca.html" class="active"><span class="icon">🐷</span>DCA</a>
+</nav>
+
+<script>
+(function(){
+  "use strict";
+
+  function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
+
+  function fmtKrw(n){
+    return "₩" + Math.round(n).toLocaleString("en-US");
+  }
+
+  // ---- Historical daily KRW/BTC price, with automatic fallback chain ----
+  async function fetchUpbitHistory(startMs){
+    let map = {};
+    let to = null;
+    for(let page=0; page<40; page++){
+      const url = "https://api.upbit.com/v1/candles/days?market=KRW-BTC&count=200" + (to ? "&to=" + to : "");
+      const res = await fetch(url);
+      if(!res.ok) throw new Error("Upbit " + res.status);
+      const batch = await res.json();
+      if(!batch.length) break;
+      batch.forEach(c => { map[c.candle_date_time_kst.slice(0,10)] = c.trade_price; });
+      const oldest = batch[batch.length-1];
+      if(new Date(oldest.candle_date_time_utc).getTime() <= startMs) break;
+      to = oldest.candle_date_time_utc;
+      if(batch.length < 200) break;
+    }
+    if(!Object.keys(map).length) throw new Error("Upbit: 데이터 없음");
+    return map;
+  }
+
+  async function fetchBithumbHistory(){
+    const res = await fetch("https://api.bithumb.com/public/candlestick/BTC_KRW/24h");
+    if(!res.ok) throw new Error("Bithumb " + res.status);
+    const json = await res.json();
+    if(json.status !== "0000" || !Array.isArray(json.data)) throw new Error("Bithumb status " + json.status);
+    const map = {};
+    json.data.forEach(row => {
+      const d = new Date(row[0]).toISOString().slice(0,10);
+      map[d] = parseFloat(row[2]); // close
+    });
+    if(!Object.keys(map).length) throw new Error("Bithumb: 데이터 없음");
+    return map;
+  }
+
+  async function fetchBinanceUsdHistory(startMs){
+    let all = [];
+    let start = startMs;
+    const now = Date.now();
+    for(let page=0; page<10 && start < now; page++){
+      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=${start}&limit=1000`);
+      if(!res.ok) throw new Error("Binance " + res.status);
+      const batch = await res.json();
+      if(!Array.isArray(batch) || !batch.length) break;
+      all = all.concat(batch);
+      if(batch.length < 1000) break;
+      start = batch[batch.length-1][0] + 86400000;
+    }
+    if(!all.length) throw new Error("Binance: 데이터 없음");
+    const map = {};
+    all.forEach(k => { map[new Date(k[0]).toISOString().slice(0,10)] = parseFloat(k[4]); });
+    return map;
+  }
+
+  async function fetchFxRate(){
+    const res = await fetch("https://open.er-api.com/v6/latest/USD");
+    if(!res.ok) throw new Error("FX " + res.status);
+    const json = await res.json();
+    return json.rates.KRW;
+  }
+
+  // Returns { priceMap, source } where priceMap is date -> KRW price.
+  async function fetchKrwPriceHistory(startMs){
+    const errors = [];
+    try{
+      return { priceMap: await fetchUpbitHistory(startMs), source: "Upbit" };
+    }catch(e){ errors.push("Upbit: " + e.message); }
+
+    try{
+      return { priceMap: await fetchBithumbHistory(), source: "Bithumb" };
+    }catch(e){ errors.push("Bithumb: " + e.message); }
+
+    try{
+      const [usdMap, fx] = await Promise.all([fetchBinanceUsdHistory(startMs), fetchFxRate()]);
+      const map = {};
+      Object.entries(usdMap).forEach(([d,v]) => { map[d] = v * fx; });
+      return { priceMap: map, source: "Binance×현재환율 (근사치)" };
+    }catch(e){ errors.push("Binance: " + e.message); }
+
+    throw new Error(errors.join(" / "));
+  }
+
+  function drawDcaChart(canvas, dates, invested, value){
+    const w = canvas.clientWidth, hTotal = canvas.clientHeight || 180;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = hTotal * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,hTotal);
+    if(!dates.length) return;
+
+    const padBottom = 16;
+    const h = hTotal - padBottom;
+    const allVals = invested.concat(value);
+    const max = Math.max(...allVals), min = Math.min(0, ...allVals);
+    const range = (max - min) || 1;
+    const xAt = i => (i/(dates.length-1)) * w;
+    const yAt = v => h - ((v-min)/range) * h;
+
+    ctx.strokeStyle = "rgba(150,150,150,0.25)";
+    ctx.setLineDash([3,3]);
+    ctx.lineWidth = 1;
+    for(let i=0;i<=2;i++){
+      const y = (h/2)*i;
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    function stroke(arr, color, width){
+      ctx.beginPath();
+      arr.forEach((v,i) => i===0 ? ctx.moveTo(xAt(i), yAt(v)) : ctx.lineTo(xAt(i), yAt(v)));
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
+    }
+    stroke(invested, "#9ca3af", 1.5);
+    stroke(value, "#f7931a", 2);
+
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.font = "9px ui-monospace, monospace";
+    [0, dates.length-1].forEach((i, idx) => {
+      ctx.textAlign = idx === 0 ? "left" : "right";
+      ctx.fillText(dates[i], idx === 0 ? 2 : w-2, hTotal - 3);
+    });
+  }
+
+  async function runSimulation(){
+    const btn = document.getElementById("dcaRun");
+    btn.disabled = true;
+    setStatus("계산 중...");
+    document.getElementById("dcaResults").style.display = "none";
+    document.getElementById("dcaLegend").style.display = "none";
+
+    try{
+      const monthlyAmount = parseFloat(document.getElementById("dcaAmount").value);
+      const years = parseFloat(document.getElementById("dcaPeriod").value);
+      if(!monthlyAmount || monthlyAmount <= 0) throw new Error("투자금액을 확인해줘");
+
+      const now = new Date();
+      const start = new Date(now.getTime() - years * 365 * 86400000);
+      const { priceMap, source } = await fetchKrwPriceHistory(start.getTime());
+      const sortedDates = Object.keys(priceMap).sort();
+      if(!sortedDates.length) throw new Error("가격 데이터 없음");
+
+      function priceOnOrAfter(dateStr){
+        const idx = sortedDates.findIndex(d => d >= dateStr);
+        return idx === -1 ? null : { date: sortedDates[idx], price: priceMap[sortedDates[idx]] };
+      }
+
+      let totalInvested = 0, totalBtc = 0;
+      const chartDates = [], chartInvested = [], chartValue = [];
+      const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+      while(cursor <= now){
+        const dateStr = cursor.toISOString().slice(0,10);
+        const hit = priceOnOrAfter(dateStr);
+        if(hit){
+          totalInvested += monthlyAmount;
+          totalBtc += monthlyAmount / hit.price;
+          chartDates.push(hit.date);
+          chartInvested.push(totalInvested);
+          chartValue.push(totalBtc * hit.price);
+        }
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+
+      if(!totalBtc) throw new Error("매수 시점을 찾지 못했어");
+
+      const lastDate = sortedDates[sortedDates.length-1];
+      const currentPrice = priceMap[lastDate];
+      const currentValue = totalBtc * currentPrice;
+      const returnPct = (currentValue / totalInvested - 1) * 100;
+      const avgPrice = totalInvested / totalBtc;
+
+      document.getElementById("dcaInvested").textContent = fmtKrw(totalInvested);
+      document.getElementById("dcaValue").textContent = fmtKrw(currentValue);
+      const returnEl = document.getElementById("dcaReturn");
+      returnEl.textContent = (returnPct >= 0 ? "+" : "") + returnPct.toFixed(1) + "%";
+      returnEl.style.color = returnPct >= 0 ? "var(--green)" : "var(--red)";
+      document.getElementById("dcaBtc").textContent = totalBtc.toFixed(6) + " BTC";
+      document.getElementById("dcaAvgPrice").textContent = fmtKrw(avgPrice);
+
+      document.getElementById("dcaResults").style.display = "grid";
+      document.getElementById("dcaLegend").style.display = "flex";
+      drawDcaChart(document.getElementById("dcaChart"), chartDates, chartInvested, chartValue);
+
+      setStatus(source.includes("근사") ? `참고: ${source} 기준으로 계산됨 (실제 원화 이력과 다를 수 있음)` : `${source} 기준 ${chartDates.length}회 매수 시뮬레이션`);
+    }catch(e){
+      setStatus("계산 실패: " + e.message);
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById("dcaRun").addEventListener("click", runSimulation);
+  window.addEventListener("resize", () => {
+    const canvas = document.getElementById("dcaChart");
+    if(document.getElementById("dcaResults").style.display === "grid"){
+      // redraw isn't cached separately here; simplest is to re-run silently is overkill,
+      // so just leave the chart as-is on resize (rare on a form-driven page).
+    }
+  });
+
+  runSimulation();
+})();
+</script>
+</body>
+</html>
