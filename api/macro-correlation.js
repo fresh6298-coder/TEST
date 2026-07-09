@@ -15,24 +15,57 @@ const STOOQ_SYMBOLS = [
   { key: "dxy", stooq: "dx.f", label: "US Dollar Index" },
 ];
 
-async function fetchStooqCloses(symbol) {
-  const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`;
-  const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error(`${symbol}: upstream responded ${res.status}`);
-  const text = await res.text();
-  const lines = text.trim().split("\n");
-  if (lines.length < 2 || !/^date/i.test(lines[0])) {
-    throw new Error(`${symbol}: unexpected CSV (first line: ${lines[0]?.slice(0, 60)})`);
-  }
+function parseStooqCsv(text) {
+  const lines = text.split(/\r?\n/);
+  const headerIdx = lines.findIndex((l) => /^date\s*,/i.test(l.trim()));
+  if (headerIdx === -1) return null;
   const closes = {};
-  for (const line of lines.slice(1)) {
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) break;
     const cols = line.split(",");
     const date = cols[0];
     const close = parseFloat(cols[4]);
     if (date && !Number.isNaN(close)) closes[date] = close;
   }
-  if (!Object.keys(closes).length) throw new Error(`${symbol}: no rows parsed`);
-  return closes;
+  return Object.keys(closes).length ? closes : null;
+}
+
+// stooq's bot protection sometimes serves an HTML page instead of CSV to a
+// serverless function's IP; r.jina.ai's reader proxy (already used for
+// farside.co.uk and companiesmarketcap.com) gets through more often since
+// it fetches from its own infrastructure rather than ours.
+async function fetchStooqCloses(symbol) {
+  const directUrl = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`;
+  const errors = [];
+
+  try {
+    const res = await fetch(directUrl, { headers: HEADERS });
+    if (res.ok) {
+      const parsed = parseStooqCsv(await res.text());
+      if (parsed) return parsed;
+      errors.push("direct: response wasn't parseable CSV");
+    } else {
+      errors.push(`direct: upstream responded ${res.status}`);
+    }
+  } catch (err) {
+    errors.push(`direct: ${err.message}`);
+  }
+
+  try {
+    const res = await fetch(`https://r.jina.ai/${directUrl}`);
+    if (res.ok) {
+      const parsed = parseStooqCsv(await res.text());
+      if (parsed) return parsed;
+      errors.push("reader: response wasn't parseable CSV");
+    } else {
+      errors.push(`reader: upstream responded ${res.status}`);
+    }
+  } catch (err) {
+    errors.push(`reader: ${err.message}`);
+  }
+
+  throw new Error(`${symbol}: ${errors.join(" / ")}`);
 }
 
 export default async function handler(req, res) {
