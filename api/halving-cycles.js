@@ -4,43 +4,39 @@ const HALVINGS = [
   { label: "2024 반감기", date: "2024-04-20" },
 ];
 
-const COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range";
-
 const MAX_DAYS = 1460; // ~4 years, one full halving-epoch window, for apples-to-apples comparison
 
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  Accept: "application/json",
 };
 
-async function fetchDailyPrices(fromUnix, toUnix) {
-  const url = `${COINGECKO_URL}?vs_currency=usd&from=${fromUnix}&to=${toUnix}`;
+// stooq.com's free CSV export (no key) has BTC/USD history going back to
+// ~2014, unlike CoinGecko/CryptoCompare's historical endpoints which now
+// require a paid key.
+async function fetchBtcDailyMap() {
+  const url = "https://stooq.com/q/d/l/?s=btcusd&i=d";
   const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error(`CoinGecko responded ${res.status}`);
-  const json = await res.json();
-  if (!Array.isArray(json?.prices) || !json.prices.length) {
-    throw new Error("No price data in CoinGecko response");
+  if (!res.ok) throw new Error(`stooq responded ${res.status}`);
+  const text = await res.text();
+  const lines = text.trim().split("\n");
+  if (lines.length < 2 || !/^date/i.test(lines[0])) {
+    throw new Error(`unexpected CSV (first line: ${lines[0]?.slice(0, 60)})`);
   }
-  return json.prices;
-}
-
-// Collapse to one price per UTC calendar day (last sample of that day wins).
-function toDailyMap(prices) {
   const map = new Map();
-  for (const [ts, price] of prices) {
-    const day = new Date(ts).toISOString().slice(0, 10);
-    map.set(day, price);
+  for (const line of lines.slice(1)) {
+    const cols = line.split(",");
+    const date = cols[0];
+    const close = parseFloat(cols[4]);
+    if (date && !Number.isNaN(close)) map.set(date, close);
   }
+  if (!map.size) throw new Error("no rows parsed from stooq CSV");
   return map;
 }
 
 export default async function handler(req, res) {
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const from = Math.floor(new Date("2015-01-01T00:00:00Z").getTime() / 1000);
-    const prices = await fetchDailyPrices(from, now);
-    const dailyMap = toDailyMap(prices);
+    const dailyMap = await fetchBtcDailyMap();
     const sortedDays = [...dailyMap.keys()].sort();
 
     const cycles = HALVINGS.map((h) => {

@@ -31,21 +31,6 @@ async function fetchStooqCloses(symbol) {
   return closes;
 }
 
-async function fetchBtcCloses() {
-  const to = Math.floor(Date.now() / 1000);
-  const from = to - DAYS_BACK * 86400;
-  const url = `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
-  const res = await fetch(url, { headers: { ...HEADERS, Accept: "application/json" } });
-  if (!res.ok) throw new Error(`BTC(CoinGecko): upstream responded ${res.status}`);
-  const json = await res.json();
-  if (!Array.isArray(json?.prices) || !json.prices.length) throw new Error("BTC(CoinGecko): no price data");
-  const closes = new Map();
-  for (const [ts, price] of json.prices) {
-    closes.set(new Date(ts).toISOString().slice(0, 10), price);
-  }
-  return closes;
-}
-
 function pearsonCorrelation(a, b) {
   const n = a.length;
   if (n < 2) return null;
@@ -73,7 +58,7 @@ export default async function handler(req, res) {
 
   let btcCloses;
   try {
-    btcCloses = await fetchBtcCloses();
+    btcCloses = await fetchStooqCloses("btcusd");
   } catch (err) {
     res.status(502).json({ error: `BTC price fetch failed: ${err.message}` });
     return;
@@ -96,10 +81,12 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Only compare on dates every series actually has (BTC trades weekends, TradFi doesn't).
+  // Only compare on dates every series actually has (BTC trades weekends, TradFi doesn't),
+  // then keep just the most recent window since stooq returns full history.
   const commonDates = [...btcCloses.keys()]
     .filter((d) => availableKeys.every((k) => assetCloses[k].has(d)))
-    .sort();
+    .sort()
+    .slice(-DAYS_BACK);
 
   if (commonDates.length < 10) {
     res.status(502).json({ error: "Not enough overlapping trading days", details: errors });
