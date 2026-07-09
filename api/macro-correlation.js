@@ -31,6 +31,22 @@ async function fetchStooqCloses(symbol) {
   return closes;
 }
 
+// stooq didn't have a working btcusd CSV ticker; Binance is already
+// proven reliable elsewhere in this app and easily covers the ~2yr window
+// this page needs (unlike the multi-year halving-cycles page).
+async function fetchBtcCloses() {
+  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=${DAYS_BACK}`;
+  const res = await fetch(url, { headers: HEADERS });
+  if (!res.ok) throw new Error(`BTC(Binance): upstream responded ${res.status}`);
+  const klines = await res.json();
+  if (!Array.isArray(klines) || !klines.length) throw new Error("BTC(Binance): no data");
+  const closes = new Map();
+  for (const k of klines) {
+    closes.set(new Date(k[0]).toISOString().slice(0, 10), parseFloat(k[4]));
+  }
+  return closes;
+}
+
 function pearsonCorrelation(a, b) {
   const n = a.length;
   if (n < 2) return null;
@@ -58,7 +74,7 @@ export default async function handler(req, res) {
 
   let btcCloses;
   try {
-    btcCloses = await fetchStooqCloses("btcusd");
+    btcCloses = await fetchBtcCloses();
   } catch (err) {
     res.status(502).json({ error: `BTC price fetch failed: ${err.message}` });
     return;

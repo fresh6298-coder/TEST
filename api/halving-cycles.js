@@ -1,5 +1,10 @@
+// Binance's BTCUSDT history only goes back to Aug 2017, so the 2016
+// halving isn't coverable here. CryptoCompare's news endpoint and
+// CoinGecko's historical range endpoint both now require a paid API key,
+// and stooq.com didn't have a working btcusd ticker for CSV export, so
+// Binance (already used successfully elsewhere in this app) is the most
+// reliable free source available for the cycles it can cover.
 const HALVINGS = [
-  { label: "2016 반감기", date: "2016-07-09" },
   { label: "2020 반감기", date: "2020-05-11" },
   { label: "2024 반감기", date: "2024-04-20" },
 ];
@@ -11,32 +16,38 @@ const HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 };
 
-// stooq.com's free CSV export (no key) has BTC/USD history going back to
-// ~2014, unlike CoinGecko/CryptoCompare's historical endpoints which now
-// require a paid key.
-async function fetchBtcDailyMap() {
-  const url = "https://stooq.com/q/d/l/?s=btcusd&i=d";
-  const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error(`stooq responded ${res.status}`);
-  const text = await res.text();
-  const lines = text.trim().split("\n");
-  if (lines.length < 2 || !/^date/i.test(lines[0])) {
-    throw new Error(`unexpected CSV (first line: ${lines[0]?.slice(0, 60)})`);
+async function fetchAllDailyKlines(startTimeMs) {
+  let all = [];
+  let start = startTimeMs;
+  const now = Date.now();
+  while (start < now) {
+    const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=${start}&limit=1000`;
+    const res = await fetch(url, { headers: HEADERS });
+    if (!res.ok) throw new Error(`Binance responded ${res.status}`);
+    const batch = await res.json();
+    if (!Array.isArray(batch) || !batch.length) break;
+    all = all.concat(batch);
+    if (batch.length < 1000) break;
+    start = batch[batch.length - 1][0] + 86400000;
   }
+  if (!all.length) throw new Error("no klines returned");
+  return all;
+}
+
+function toDailyMap(klines) {
   const map = new Map();
-  for (const line of lines.slice(1)) {
-    const cols = line.split(",");
-    const date = cols[0];
-    const close = parseFloat(cols[4]);
-    if (date && !Number.isNaN(close)) map.set(date, close);
+  for (const k of klines) {
+    const day = new Date(k[0]).toISOString().slice(0, 10);
+    map.set(day, parseFloat(k[4]));
   }
-  if (!map.size) throw new Error("no rows parsed from stooq CSV");
   return map;
 }
 
 export default async function handler(req, res) {
   try {
-    const dailyMap = await fetchBtcDailyMap();
+    const earliestNeeded = new Date("2020-01-01T00:00:00Z").getTime();
+    const klines = await fetchAllDailyKlines(earliestNeeded);
+    const dailyMap = toDailyMap(klines);
     const sortedDays = [...dailyMap.keys()].sort();
 
     const cycles = HALVINGS.map((h) => {
