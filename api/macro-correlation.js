@@ -35,18 +35,23 @@ function parseStooqCsv(text) {
 // serverless function's IP; r.jina.ai's reader proxy (already used for
 // farside.co.uk and companiesmarketcap.com) gets through more often since
 // it fetches from its own infrastructure rather than ours.
+function snippet(text) {
+  return JSON.stringify((text || "").replace(/\s+/g, " ").trim().slice(0, 160));
+}
+
 async function fetchStooqCloses(symbol) {
   const directUrl = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`;
   const errors = [];
 
   try {
     const res = await fetch(directUrl, { headers: HEADERS });
+    const text = await res.text();
     if (res.ok) {
-      const parsed = parseStooqCsv(await res.text());
+      const parsed = parseStooqCsv(text);
       if (parsed) return parsed;
-      errors.push("direct: response wasn't parseable CSV");
+      errors.push(`direct: not parseable, got ${snippet(text)}`);
     } else {
-      errors.push(`direct: upstream responded ${res.status}`);
+      errors.push(`direct: upstream responded ${res.status}, got ${snippet(text)}`);
     }
   } catch (err) {
     errors.push(`direct: ${err.message}`);
@@ -54,12 +59,13 @@ async function fetchStooqCloses(symbol) {
 
   try {
     const res = await fetch(`https://r.jina.ai/${directUrl}`);
+    const text = await res.text();
     if (res.ok) {
-      const parsed = parseStooqCsv(await res.text());
+      const parsed = parseStooqCsv(text);
       if (parsed) return parsed;
-      errors.push("reader: response wasn't parseable CSV");
+      errors.push(`reader: not parseable, got ${snippet(text)}`);
     } else {
-      errors.push(`reader: upstream responded ${res.status}`);
+      errors.push(`reader: upstream responded ${res.status}, got ${snippet(text)}`);
     }
   } catch (err) {
     errors.push(`reader: ${err.message}`);
