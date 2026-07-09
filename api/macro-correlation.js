@@ -2,87 +2,66 @@
 // calling Binance from this serverless function gets HTTP 451 (geo-block on
 // the function's own US-hosted IP), even though the same calls work fine
 // from an end user's browser. This endpoint only proxies the non-crypto
-// assets, which stooq.com doesn't serve with CORS headers for direct
-// browser fetches.
+// assets.
+//
+// stooq.com was tried first but serves an active JavaScript verification
+// challenge to this function's IP (both directly and via the r.jina.ai
+// reader proxy), which a plain fetch can't solve. Yahoo Finance's chart
+// endpoint is a long-standing, widely used free/keyless source for exactly
+// this kind of index/commodity data.
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept: "application/json",
 };
 
-const STOOQ_SYMBOLS = [
-  { key: "gold", stooq: "xauusd", label: "Gold (XAU/USD)" },
-  { key: "nasdaq", stooq: "^ndq", label: "Nasdaq Composite" },
-  { key: "dxy", stooq: "dx.f", label: "US Dollar Index" },
+const YAHOO_SYMBOLS = [
+  { symbol: "GC=F", label: "Gold (Futures)" },
+  { symbol: "^IXIC", label: "Nasdaq Composite" },
+  { symbol: "DX-Y.NYB", label: "US Dollar Index" },
 ];
 
-function parseStooqCsv(text) {
-  const lines = text.split(/\r?\n/);
-  const headerIdx = lines.findIndex((l) => /^date\s*,/i.test(l.trim()));
-  if (headerIdx === -1) return null;
-  const closes = {};
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) break;
-    const cols = line.split(",");
-    const date = cols[0];
-    const close = parseFloat(cols[4]);
-    if (date && !Number.isNaN(close)) closes[date] = close;
-  }
-  return Object.keys(closes).length ? closes : null;
-}
-
-// stooq's bot protection sometimes serves an HTML page instead of CSV to a
-// serverless function's IP; r.jina.ai's reader proxy (already used for
-// farside.co.uk and companiesmarketcap.com) gets through more often since
-// it fetches from its own infrastructure rather than ours.
 function snippet(text) {
   return JSON.stringify((text || "").replace(/\s+/g, " ").trim().slice(0, 160));
 }
 
-async function fetchStooqCloses(symbol) {
-  const directUrl = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`;
-  const errors = [];
+async function fetchYahooCloses(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5y&interval=1d`;
+  const res = await fetch(url, { headers: HEADERS });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${symbol}: upstream responded ${res.status}, got ${snippet(text)}`);
 
+  let json;
   try {
-    const res = await fetch(directUrl, { headers: HEADERS });
-    const text = await res.text();
-    if (res.ok) {
-      const parsed = parseStooqCsv(text);
-      if (parsed) return parsed;
-      errors.push(`direct: not parseable, got ${snippet(text)}`);
-    } else {
-      errors.push(`direct: upstream responded ${res.status}, got ${snippet(text)}`);
-    }
-  } catch (err) {
-    errors.push(`direct: ${err.message}`);
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(`${symbol}: non-JSON response, got ${snippet(text)}`);
   }
 
-  try {
-    const res = await fetch(`https://r.jina.ai/${directUrl}`);
-    const text = await res.text();
-    if (res.ok) {
-      const parsed = parseStooqCsv(text);
-      if (parsed) return parsed;
-      errors.push(`reader: not parseable, got ${snippet(text)}`);
-    } else {
-      errors.push(`reader: upstream responded ${res.status}, got ${snippet(text)}`);
-    }
-  } catch (err) {
-    errors.push(`reader: ${err.message}`);
+  const result = json?.chart?.result?.[0];
+  if (!result) {
+    throw new Error(`${symbol}: no chart result (${json?.chart?.error?.description || snippet(text)})`);
   }
-
-  throw new Error(`${symbol}: ${errors.join(" / ")}`);
+  const timestamps = result.timestamp || [];
+  const closesArr = result.indicators?.quote?.[0]?.close || [];
+  const closes = {};
+  timestamps.forEach((ts, i) => {
+    const c = closesArr[i];
+    if (c != null) closes[new Date(ts * 1000).toISOString().slice(0, 10)] = c;
+  });
+  if (!Object.keys(closes).length) throw new Error(`${symbol}: no close data in response`);
+  return closes;
 }
 
 export default async function handler(req, res) {
-  const results = await Promise.allSettled(STOOQ_SYMBOLS.map((s) => fetchStooqCloses(s.stooq)));
+  const results = await Promise.allSettled(YAHOO_SYMBOLS.map((s) => fetchYahooCloses(s.symbol)));
 
   const assets = {};
   const errors = [];
-  STOOQ_SYMBOLS.forEach((s, i) => {
+  YAHOO_SYMBOLS.forEach((s, i) => {
     const r = results[i];
     if (r.status === "fulfilled") assets[s.label] = r.value;
-    else errors.push(`${s.label}: ${r.reason.message}`);
+    else errors.push(r.reason.message);
   });
 
   if (!Object.keys(assets).length) {
