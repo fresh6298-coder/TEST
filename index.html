@@ -437,7 +437,18 @@
       els.priceKrw.textContent = fmtInt(u.trade_price);
       applyChangeRow(els.changeKrwRow, els.changeKrw, u.signed_change_rate * 100);
     }catch(e){
-      failures.push("KRW(Upbit): " + e.message);
+      try{
+        // Upbit fails intermittently (CORS/rate-limit flakiness); Bithumb is
+        // another Korean exchange with a similar public, keyless ticker.
+        const bithumb = await fetchJson("https://api.bithumb.com/public/ticker/BTC_KRW");
+        if(bithumb.status !== "0000") throw new Error("status " + bithumb.status);
+        const d = bithumb.data;
+        state.krwPrice = parseFloat(d.closing_price);
+        els.priceKrw.textContent = fmtInt(state.krwPrice);
+        applyChangeRow(els.changeKrwRow, els.changeKrw, parseFloat(d.fluctate_rate_24H));
+      }catch(e2){
+        failures.push("KRW(Upbit/Bithumb): " + e2.message);
+      }
     }
 
     try{
