@@ -122,9 +122,8 @@
   </section>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
-  <p class="source-note" id="rawApiNote1" style="display:none;"><a href="/api/halving-cycles" target="_blank" rel="noopener">반감기 raw API 보기 →</a></p>
   <p class="source-note" id="rawApiNote2" style="display:none;"><a href="/api/macro-correlation" target="_blank" rel="noopener">매크로 raw API 보기 →</a></p>
-  <p class="source-note">Data: CoinGecko, stooq.com</p>
+  <p class="source-note">Data: Binance, stooq.com</p>
   <p class="source-note"><a href="index.html">← Bitcoin Dashboard</a> &nbsp;|&nbsp; <a href="etf.html">ETF Flow</a> &nbsp;|&nbsp; <a href="assets.html">Global Assets</a> &nbsp;|&nbsp; <a href="onchain.html">On-Chain</a> &nbsp;|&nbsp; <a href="news.html">News →</a></p>
 </div>
 
@@ -201,6 +200,60 @@
     ).join("");
   }
 
+  // BTC price is fetched directly from the browser (not via our serverless
+  // function) because Binance geo-blocks the function's US-hosted IP with
+  // HTTP 451, even though the same calls work fine from an end user's
+  // browser — same reason index.html calls Binance client-side too.
+  async function fetchBinancePaged(startTimeMs){
+    const map = {};
+    let start = startTimeMs;
+    const now = Date.now();
+    while(start < now){
+      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=${start}&limit=1000`);
+      if(!res.ok) throw new Error("Binance " + res.status);
+      const batch = await res.json();
+      if(!Array.isArray(batch) || !batch.length) break;
+      batch.forEach(k => { map[new Date(k[0]).toISOString().slice(0,10)] = parseFloat(k[4]); });
+      if(batch.length < 1000) break;
+      start = batch[batch.length-1][0] + 86400000;
+    }
+    return map;
+  }
+
+  async function fetchBinanceRecent(limit){
+    const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=${limit}`);
+    if(!res.ok) throw new Error("Binance " + res.status);
+    const klines = await res.json();
+    const map = {};
+    klines.forEach(k => { map[new Date(k[0]).toISOString().slice(0,10)] = parseFloat(k[4]); });
+    return map;
+  }
+
+  function pearsonCorrelation(a, b){
+    const n = a.length;
+    if(n < 2) return null;
+    const meanA = a.reduce((s,v) => s+v, 0) / n;
+    const meanB = b.reduce((s,v) => s+v, 0) / n;
+    let cov = 0, varA = 0, varB = 0;
+    for(let i=0;i<n;i++){
+      const da = a[i]-meanA, db = b[i]-meanB;
+      cov += da*db; varA += da*da; varB += db*db;
+    }
+    if(varA === 0 || varB === 0) return null;
+    return cov / Math.sqrt(varA*varB);
+  }
+  function dailyReturns(values){
+    const out = [];
+    for(let i=1;i<values.length;i++) out.push(values[i]/values[i-1] - 1);
+    return out;
+  }
+
+  const HALVINGS = [
+    { label: "2020 반감기", date: "2020-05-11" },
+    { label: "2024 반감기", date: "2024-04-20" },
+  ];
+  const MAX_DAYS = 1460;
+
   let cycleSeriesList = null;
 
   function renderCycles(){
@@ -214,26 +267,32 @@
 
   async function loadCycles(){
     try{
-      const res = await fetch("/api/halving-cycles");
-      if(!res.ok) throw new Error("API " + res.status);
-      const data = await res.json();
-      if(!data.cycles || !data.cycles.length) throw new Error("데이터 없음");
+      const dailyMap = await fetchBinancePaged(new Date("2020-01-01T00:00:00Z").getTime());
+      const sortedDays = Object.keys(dailyMap).sort();
+      if(!sortedDays.length) throw new Error("데이터 없음");
 
-      const colors = ["#3b82f6", "#14b8a6", "#f7931a"];
-      cycleSeriesList = data.cycles
-        .filter(c => c.series && c.series.length)
-        .map((c, i) => ({
-          points: c.series.map(p => ({ x: p.day, y: p.ratio })),
-          color: colors[i % colors.length],
-          label: c.label,
-        }));
+      const colors = ["#3b82f6", "#f7931a"];
+      cycleSeriesList = HALVINGS.map((h, i) => {
+        const startIdx = sortedDays.findIndex(d => d >= h.date);
+        if(startIdx === -1) return null;
+        const startDay = sortedDays[startIdx];
+        const basePrice = dailyMap[startDay];
+        const startMs = new Date(startDay).getTime();
+        const points = [];
+        for(let j=startIdx; j<sortedDays.length; j++){
+          const day = sortedDays[j];
+          const daysSince = Math.round((new Date(day).getTime() - startMs) / 86400000);
+          if(daysSince > MAX_DAYS) break;
+          points.push({ x: daysSince, y: dailyMap[day] / basePrice });
+        }
+        return { points, color: colors[i % colors.length], label: h.label };
+      }).filter(Boolean);
 
       renderLegend(document.getElementById("cycleLegend"),
         cycleSeriesList.map(s => ({ color: s.color, label: s.label })));
       renderCycles();
     }catch(e){
       setStatus("반감기 차트 로드 실패: " + e.message);
-      document.getElementById("rawApiNote1").style.display = "block";
     }
   }
 
@@ -256,10 +315,24 @@
 
   async function loadMacro(){
     try{
-      const res = await fetch("/api/macro-correlation");
-      if(!res.ok) throw new Error("API " + res.status);
-      const data = await res.json();
-      if(!data.series || !data.dates || !data.dates.length) throw new Error("데이터 없음");
+      const [serverData, btcMap] = await Promise.all([
+        fetch("/api/macro-correlation").then(r => {
+          if(!r.ok) throw new Error("API " + r.status);
+          return r.json();
+        }),
+        fetchBinanceRecent(730)
+      ]);
+      if(!serverData.assets || !Object.keys(serverData.assets).length) throw new Error("데이터 없음");
+
+      const assetLabels = Object.keys(serverData.assets);
+      const commonDates = Object.keys(btcMap)
+        .filter(d => assetLabels.every(label => serverData.assets[label][d] != null))
+        .sort();
+      if(commonDates.length < 10) throw new Error("겹치는 거래일 부족");
+
+      const rebase = arr => arr.map(v => (v/arr[0]) * 100);
+      const btcSeries = commonDates.map(d => btcMap[d]);
+      const btcReturns = dailyReturns(btcSeries);
 
       const colorMap = {
         "BTC": "#f7931a",
@@ -267,24 +340,32 @@
         "Nasdaq Composite": "#3b82f6",
         "US Dollar Index": "#14b8a6",
       };
-      const labels = Object.keys(data.series);
-      macroSeriesList = labels.map(label => ({
-        points: data.series[label].map((v,i) => ({ x: i, y: v })),
-        color: colorMap[label] || "#888",
-        label,
-      }));
+
+      macroSeriesList = [{
+        points: rebase(btcSeries).map((v,i) => ({ x: i, y: v })),
+        color: colorMap.BTC, label: "BTC",
+      }];
+      const correlations = {};
+      assetLabels.forEach(label => {
+        const closes = commonDates.map(d => serverData.assets[label][d]);
+        macroSeriesList.push({
+          points: rebase(closes).map((v,i) => ({ x: i, y: v })),
+          color: colorMap[label] || "#888", label,
+        });
+        correlations[label] = pearsonCorrelation(btcReturns, dailyReturns(closes));
+      });
 
       renderLegend(document.getElementById("macroLegend"),
         macroSeriesList.map(s => ({ color: s.color, label: s.label })));
 
-      const n = data.dates.length;
+      const n = commonDates.length;
       const tickIdx = [0, Math.floor(n*0.33), Math.floor(n*0.66), n-1];
-      macroXTicks = tickIdx.map(i => ({ value: i, label: data.dates[i].slice(0,7) }));
+      macroXTicks = tickIdx.map(i => ({ value: i, label: commonDates[i].slice(0,7) }));
 
       renderMacro();
 
       const grid = document.getElementById("corrGrid");
-      grid.innerHTML = Object.entries(data.correlations).map(([label, r]) => {
+      grid.innerHTML = Object.entries(correlations).map(([label, r]) => {
         const [interp, color] = corrInterpretation(r);
         return `<div class="corr-card">
           <div class="label">BTC ↔ ${label}</div>
@@ -293,8 +374,8 @@
         </div>`;
       }).join("");
 
-      if(data.errors && data.errors.length){
-        setStatus("일부 매크로 자산 실패: " + data.errors.join(" / "));
+      if(serverData.errors && serverData.errors.length){
+        setStatus("일부 매크로 자산 실패: " + serverData.errors.join(" / "));
         document.getElementById("rawApiNote2").style.display = "block";
       }
     }catch(e){
