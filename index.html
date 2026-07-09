@@ -26,7 +26,7 @@
   .app{
     max-width:480px;
     margin:0 auto;
-    padding:20px 20px 40px;
+    padding:20px 20px 80px;
   }
   .topbar{
     display:flex;
@@ -172,6 +172,20 @@
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
   }
+  .bottom-nav{
+    position:fixed;left:0;right:0;bottom:0;
+    display:flex;
+    background:var(--bg);
+    border-top:1px solid var(--track);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom));
+    z-index:100;
+  }
+  .bottom-nav a{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    color:var(--sub);text-decoration:none;font-size:9px;padding:4px 2px;
+  }
+  .bottom-nav a .icon{font-size:19px;line-height:1;}
+  .bottom-nav a.active{color:var(--orange);}
   .source-note{
     text-align:center;font-size:13px;margin-top:20px;
   }
@@ -256,8 +270,16 @@
 
   <p class="tagline">Stay humble and stack sats.</p>
   <p class="status-line" id="statusLine">&nbsp;</p>
-  <p class="source-note"><a href="etf.html">Bitcoin ETF Flow →</a> &nbsp;|&nbsp; <a href="assets.html">Global Assets by Market Cap →</a> &nbsp;|&nbsp; <a href="onchain.html">On-Chain Indicators →</a> &nbsp;|&nbsp; <a href="news.html">News →</a> &nbsp;|&nbsp; <a href="cycles.html">Cycles & Macro →</a></p>
 </div>
+
+<nav class="bottom-nav">
+  <a href="index.html" class="active"><span class="icon">₿</span>Home</a>
+  <a href="etf.html"><span class="icon">💰</span>ETF</a>
+  <a href="assets.html"><span class="icon">🌐</span>Assets</a>
+  <a href="onchain.html"><span class="icon">⛓️</span>On-Chain</a>
+  <a href="news.html"><span class="icon">📰</span>News</a>
+  <a href="cycles.html"><span class="icon">🔄</span>Cycles</a>
+</nav>
 
 <script>
 (function(){
