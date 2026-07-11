@@ -203,9 +203,7 @@
     ctx.font = "9px ui-monospace, monospace";
     ctx.fillStyle = "rgba(140,140,140,0.9)";
     (opts.yTicks || []).forEach(tick => {
-      if(tick.value < Math.pow(10,minY) || tick.value > Math.pow(10,maxY)) {
-        if(!opts.logScale) return;
-      }
+      if(opts.logScale && (tick.value < Math.pow(10,minY) || tick.value > Math.pow(10,maxY))) return;
       const y = yAt(tick.value);
       if(y < -5 || y > h+5) return;
       ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
@@ -232,6 +230,25 @@
         ctx.fillText(tick.label, cx, hTotal - 3);
       });
     }
+  }
+
+  function niceStep(rawStep){
+    if(!rawStep || !isFinite(rawStep)) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const norm = rawStep / mag;
+    const step = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+    return step * mag;
+  }
+
+  function makeYTicks(minY, maxY, targetCount){
+    const range = (maxY - minY) || 1;
+    const step = niceStep(range / (targetCount || 5));
+    const start = Math.ceil(minY / step) * step;
+    const ticks = [];
+    for(let v = start; v <= maxY + step*1e-6; v += step){
+      ticks.push({ value: v, label: String(Math.round(v)) });
+    }
+    return ticks;
   }
 
   function renderLegend(el, items, opts){
@@ -417,8 +434,13 @@
       .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
       .filter(s => s.points.length >= 2);
 
+    const visibleYs = visible.flatMap(s => s.points.map(p => p.y));
+    const yTicks = visibleYs.length
+      ? makeYTicks(Math.min(...visibleYs), Math.max(...visibleYs))
+      : [];
+
     drawLineChart(document.getElementById("macroChart"), visible, {
-      logScale: false, xTicks: makeXTicks(range), padRight: 4
+      logScale: false, xTicks: makeXTicks(range), yTicks, padRight: 30
     });
 
     document.getElementById("macroRangeLabel").textContent = fmtRangeLabel(range);
