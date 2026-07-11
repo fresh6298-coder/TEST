@@ -129,7 +129,7 @@
 
   <section class="panel">
     <h2>매크로 상관관계</h2>
-    <div class="desc">최근 약 2년간 비트코인과 금·나스닥·달러인덱스(DXY)를 각각 시작일=100으로 정규화해 비교해.</div>
+    <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)를 각각 시작일=100으로 정규화해 비교해.</div>
     <div class="chart-legend" id="macroLegend"></div>
     <canvas class="panel-chart" id="macroChart"></canvas>
     <div class="corr-grid" id="corrGrid"></div>
@@ -243,15 +243,6 @@
     return map;
   }
 
-  async function fetchBinanceRecent(limit){
-    const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=${limit}`);
-    if(!res.ok) throw new Error("Binance " + res.status);
-    const klines = await res.json();
-    const map = {};
-    klines.forEach(k => { map[new Date(k[0]).toISOString().slice(0,10)] = parseFloat(k[4]); });
-    return map;
-  }
-
   function pearsonCorrelation(a, b){
     const n = a.length;
     if(n < 2) return null;
@@ -343,7 +334,7 @@
           if(!r.ok) throw new Error("API " + r.status);
           return r.json();
         }),
-        fetchBinanceRecent(730)
+        fetchBinancePaged(new Date("2017-08-01T00:00:00Z").getTime())
       ]);
       if(!serverData.assets || !Object.keys(serverData.assets).length) throw new Error("데이터 없음");
 

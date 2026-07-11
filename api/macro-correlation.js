@@ -26,7 +26,7 @@ function snippet(text) {
 }
 
 async function fetchYahooCloses(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5y&interval=1d`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=max&interval=1d`;
   const res = await fetch(url, { headers: HEADERS });
   const text = await res.text();
   if (!res.ok) throw new Error(`${symbol}: upstream responded ${res.status}, got ${snippet(text)}`);
