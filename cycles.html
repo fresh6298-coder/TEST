@@ -71,6 +71,17 @@
   .chart-legend .item{display:flex;align-items:center;gap:4px;}
   .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
   .panel-chart{width:100%;height:180px;display:block;}
+  #macroChart{touch-action:none;cursor:grab;}
+  #macroChart:active{cursor:grabbing;}
+  .macro-zoom-bar{
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:11px;color:var(--sub);margin-top:4px;
+  }
+  .macro-zoom-bar button{
+    font-family:inherit;font-size:11px;color:var(--orange);
+    background:none;border:1px solid var(--orange);border-radius:12px;
+    padding:3px 10px;cursor:pointer;
+  }
 
   .corr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px;}
   .corr-card{border:1px solid var(--track);border-radius:8px;padding:10px;text-align:center;}
@@ -132,6 +143,10 @@
     <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자·서울 아파트 매매가격지수를 각각 시작일=100으로 정규화해 비교해. (서울 지수는 REB 주간 통계 스냅샷으로, 실시간 갱신되지 않아.)</div>
     <div class="chart-legend" id="macroLegend"></div>
     <canvas class="panel-chart" id="macroChart"></canvas>
+    <div class="macro-zoom-bar">
+      <span id="macroRangeLabel"></span>
+      <button id="macroResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
     <div class="corr-grid" id="corrGrid"></div>
   </section>
 
@@ -341,12 +356,132 @@
     return ["상관관계 거의 없음", "var(--sub)"];
   }
 
-  let macroSeriesList = null, macroXTicks = null;
+  let macroSeriesList = null;
+  let macroFullRange = null; // {min,max} in ms — the entire dataset's span
+  let macroViewRange = null; // {min,max} in ms — currently zoomed window, null = full range
+
+  function makeXTicks(range){
+    const tickTs = [range.min, range.min + (range.max-range.min)*0.33, range.min + (range.max-range.min)*0.66, range.max];
+    return tickTs.map(t => ({ value: t, label: new Date(t).toISOString().slice(0,10) }));
+  }
+
+  function fmtRangeLabel(range){
+    const f = t => new Date(t).toISOString().slice(0,10);
+    return f(range.min) + " ~ " + f(range.max);
+  }
 
   function renderMacro(){
-    if(!macroSeriesList) return;
-    drawLineChart(document.getElementById("macroChart"), macroSeriesList, {
-      logScale: false, xTicks: macroXTicks, padRight: 4
+    if(!macroSeriesList || !macroFullRange) return;
+    const range = macroViewRange || macroFullRange;
+    const visible = macroSeriesList
+      .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
+      .filter(s => s.points.length >= 2);
+
+    drawLineChart(document.getElementById("macroChart"), visible, {
+      logScale: false, xTicks: makeXTicks(range), padRight: 4
+    });
+
+    document.getElementById("macroRangeLabel").textContent = fmtRangeLabel(range);
+    document.getElementById("macroResetZoom").style.display = macroViewRange ? "inline-block" : "none";
+  }
+
+  function clampRange(range, full){
+    const width = Math.min(range.max - range.min, full.max - full.min);
+    let min = range.min, max = min + width;
+    if(min < full.min){ min = full.min; max = min + width; }
+    if(max > full.max){ max = full.max; min = max - width; }
+    return { min, max };
+  }
+
+  const MIN_ZOOM_MS = 14 * 86400000; // don't zoom in past ~2 weeks
+
+  function zoomMacro(factor, centerTs){
+    if(!macroFullRange) return;
+    const cur = macroViewRange || macroFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = macroFullRange.max - macroFullRange.min;
+    const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+    const ratio = (centerTs - cur.min) / width;
+    const min = centerTs - newWidth * ratio;
+    const next = clampRange({ min, max: min + newWidth }, macroFullRange);
+    macroViewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+    renderMacro();
+  }
+
+  function panMacro(deltaMs){
+    if(!macroFullRange) return;
+    const cur = macroViewRange || macroFullRange;
+    const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, macroFullRange);
+    macroViewRange = (next.max - next.min) >= (macroFullRange.max - macroFullRange.min) - 1000 ? null : next;
+    renderMacro();
+  }
+
+  function attachMacroZoomPan(){
+    const canvas = document.getElementById("macroChart");
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        touchState = { mode: "pan", lastX: e.touches[0].clientX };
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState || !macroFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "pan" && e.touches.length === 1){
+        const dxPx = e.touches[0].clientX - touchState.lastX;
+        touchState.lastX = e.touches[0].clientX;
+        const range = macroViewRange || macroFullRange;
+        const msPerPx = (range.max - range.min) / rect.width;
+        panMacro(-dxPx * msPerPx);
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const range = macroViewRange || macroFullRange;
+        const centerTs = range.min + (midX / rect.width) * (range.max - range.min);
+        zoomMacro(touchState.lastDist / dist, centerTs);
+        touchState.lastDist = dist;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0) touchState = null;
+      else if(e.touches.length === 1) touchState = { mode: "pan", lastX: e.touches[0].clientX };
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!macroFullRange) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const range = macroViewRange || macroFullRange;
+      const centerTs = range.min + ((e.clientX - rect.left) / rect.width) * (range.max - range.min);
+      zoomMacro(e.deltaY > 0 ? 1.2 : 1/1.2, centerTs);
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !macroFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = macroViewRange || macroFullRange;
+      const msPerPx = (range.max - range.min) / rect.width;
+      panMacro(-dxPx * msPerPx);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    document.getElementById("macroResetZoom").addEventListener("click", () => {
+      macroViewRange = null;
+      renderMacro();
     });
   }
 
@@ -430,9 +565,7 @@
       renderLegend(document.getElementById("macroLegend"),
         macroSeriesList.map(s => ({ color: s.color, label: s.label })));
 
-      const tickTs = [overallMinX, overallMinX + (overallMaxX-overallMinX)*0.33, overallMinX + (overallMaxX-overallMinX)*0.66, overallMaxX];
-      macroXTicks = tickTs.map(t => ({ value: t, label: new Date(t).toISOString().slice(0,7) }));
-
+      macroFullRange = { min: overallMinX, max: overallMaxX };
       renderMacro();
 
       const grid = document.getElementById("corrGrid");
@@ -464,6 +597,7 @@
   }
 
   window.addEventListener("resize", () => { renderCycles(); renderMacro(); });
+  attachMacroZoomPan();
   load();
   setInterval(load, 60 * 60 * 1000);
 })();
