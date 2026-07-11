@@ -129,7 +129,7 @@
 
   <section class="panel">
     <h2>매크로 상관관계</h2>
-    <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)를 각각 시작일=100으로 정규화해 비교해.</div>
+    <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자를 각각 시작일=100으로 정규화해 비교해.</div>
     <div class="chart-legend" id="macroLegend"></div>
     <canvas class="panel-chart" id="macroChart"></canvas>
     <div class="corr-grid" id="corrGrid"></div>
@@ -354,6 +354,8 @@
         "Gold (Futures)": "#eab308",
         "Nasdaq Composite": "#3b82f6",
         "US Dollar Index": "#14b8a6",
+        "KOSPI": "#ef4444",
+        "삼성전자": "#8b5cf6",
       };
 
       macroSeriesList = [{

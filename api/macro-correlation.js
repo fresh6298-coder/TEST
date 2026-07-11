@@ -19,6 +19,8 @@ const YAHOO_SYMBOLS = [
   { symbol: "GC=F", label: "Gold (Futures)" },
   { symbol: "^IXIC", label: "Nasdaq Composite" },
   { symbol: "DX-Y.NYB", label: "US Dollar Index" },
+  { symbol: "^KS11", label: "KOSPI" },
+  { symbol: "005930.KS", label: "삼성전자" },
 ];
 
 function snippet(text) {
