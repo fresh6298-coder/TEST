@@ -129,7 +129,7 @@
 
   <section class="panel">
     <h2>매크로 상관관계</h2>
-    <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자를 각각 시작일=100으로 정규화해 비교해.</div>
+    <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자·서울 아파트 매매가격지수를 각각 시작일=100으로 정규화해 비교해. (서울 지수는 REB 주간 통계 스냅샷으로, 실시간 갱신되지 않아.)</div>
     <div class="chart-legend" id="macroLegend"></div>
     <canvas class="panel-chart" id="macroChart"></canvas>
     <div class="corr-grid" id="corrGrid"></div>
@@ -137,7 +137,7 @@
 
   <p class="status-line" id="statusLine">&nbsp;</p>
   <p class="source-note" id="rawApiNote2" style="display:none;"><a href="/api/macro-correlation" target="_blank" rel="noopener">매크로 raw API 보기 →</a></p>
-  <p class="source-note">Data: Binance, Yahoo Finance</p>
+  <p class="source-note">Data: Binance, Yahoo Finance, REB(한국부동산원) 서울 아파트 매매가격지수 스냅샷</p>
 </div>
 
 <nav class="bottom-nav">
@@ -255,6 +255,28 @@
     return out;
   }
 
+  // Step-function lookup: latest value in a [{t,v}] array (sorted by t) at
+  // or before time `t`. Used to align the weekly Seoul index against BTC's
+  // daily series.
+  function valueAtOrBefore(sortedArr, t){
+    if(!sortedArr.length || t < sortedArr[0].t) return null;
+    let lo = 0, hi = sortedArr.length - 1, ans = null;
+    while(lo <= hi){
+      const mid = (lo + hi) >> 1;
+      if(sortedArr[mid].t <= t){ ans = sortedArr[mid].v; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  async function fetchSeoulApartmentIndex(){
+    const res = await fetch("/data/seoul-apt-price-index.json");
+    if(!res.ok) throw new Error("Seoul index " + res.status);
+    const data = await res.json();
+    if(!data.prices || !Object.keys(data.prices).length) throw new Error("서울 지수 데이터 없음");
+    return data.prices;
+  }
+
   const HALVINGS = [
     { label: "2016 반감기", date: "2016-07-09" },
     { label: "2020 반감기", date: "2020-05-11" },
@@ -330,12 +352,13 @@
 
   async function loadMacro(){
     try{
-      const [serverData, btcMap] = await Promise.all([
+      const [serverData, btcMap, seoulResult] = await Promise.all([
         fetch("/api/macro-correlation").then(r => {
           if(!r.ok) throw new Error("API " + r.status);
           return r.json();
         }),
-        fetchBtcHistory()
+        fetchBtcHistory(),
+        fetchSeoulApartmentIndex().catch(e => ({ __error: e.message }))
       ]);
       if(!serverData.assets || !Object.keys(serverData.assets).length) throw new Error("데이터 없음");
 
@@ -346,6 +369,7 @@
       if(commonDates.length < 10) throw new Error("겹치는 거래일 부족");
 
       const rebase = arr => arr.map(v => (v/arr[0]) * 100);
+      const toTs = d => new Date(d).getTime();
       const btcSeries = commonDates.map(d => btcMap[d]);
       const btcReturns = dailyReturns(btcSeries);
 
@@ -356,28 +380,58 @@
         "US Dollar Index": "#14b8a6",
         "KOSPI": "#ef4444",
         "삼성전자": "#8b5cf6",
+        "서울 아파트 매매가격지수": "#22c55e",
       };
 
       macroSeriesList = [{
-        points: rebase(btcSeries).map((v,i) => ({ x: i, y: v })),
+        points: rebase(btcSeries).map((v,i) => ({ x: toTs(commonDates[i]), y: v })),
         color: colorMap.BTC, label: "BTC",
       }];
       const correlations = {};
       assetLabels.forEach(label => {
         const closes = commonDates.map(d => serverData.assets[label][d]);
         macroSeriesList.push({
-          points: rebase(closes).map((v,i) => ({ x: i, y: v })),
+          points: rebase(closes).map((v,i) => ({ x: toTs(commonDates[i]), y: v })),
           color: colorMap[label] || "#888", label,
         });
         correlations[label] = pearsonCorrelation(btcReturns, dailyReturns(closes));
       });
 
+      let overallMinX = toTs(commonDates[0]), overallMaxX = toTs(commonDates[commonDates.length-1]);
+
+      // Seoul apartment index is weekly, from a static uploaded snapshot
+      // (not a live feed) — align it against BTC's daily series by nearest
+      // prior day instead of requiring exact date matches like the daily
+      // assets above.
+      if(seoulResult && !seoulResult.__error){
+        const seoulDates = Object.keys(seoulResult).sort();
+        const btcSorted = Object.keys(btcMap).sort().map(d => ({ t: toTs(d), v: btcMap[d] }));
+        const inRange = seoulDates
+          .map(d => ({ t: toTs(d), v: seoulResult[d] }))
+          .filter(p => p.t >= overallMinX && p.t <= overallMaxX);
+
+        if(inRange.length >= 5){
+          const seoulValues = inRange.map(p => p.v);
+          const seoulRebased = rebase(seoulValues);
+          macroSeriesList.push({
+            points: inRange.map((p,i) => ({ x: p.t, y: seoulRebased[i] })),
+            color: colorMap["서울 아파트 매매가격지수"], label: "서울 아파트 매매가격지수",
+          });
+
+          const btcAtSeoulDates = inRange.map(p => valueAtOrBefore(btcSorted, p.t));
+          if(btcAtSeoulDates.every(v => v != null)){
+            correlations["서울 아파트 매매가격지수"] = pearsonCorrelation(
+              dailyReturns(btcAtSeoulDates), dailyReturns(seoulValues)
+            );
+          }
+        }
+      }
+
       renderLegend(document.getElementById("macroLegend"),
         macroSeriesList.map(s => ({ color: s.color, label: s.label })));
 
-      const n = commonDates.length;
-      const tickIdx = [0, Math.floor(n*0.33), Math.floor(n*0.66), n-1];
-      macroXTicks = tickIdx.map(i => ({ value: i, label: commonDates[i].slice(0,7) }));
+      const tickTs = [overallMinX, overallMinX + (overallMaxX-overallMinX)*0.33, overallMinX + (overallMaxX-overallMinX)*0.66, overallMaxX];
+      macroXTicks = tickTs.map(t => ({ value: t, label: new Date(t).toISOString().slice(0,7) }));
 
       renderMacro();
 
@@ -391,8 +445,10 @@
         </div>`;
       }).join("");
 
-      if(serverData.errors && serverData.errors.length){
-        setStatus("일부 매크로 자산 실패: " + serverData.errors.join(" / "));
+      const errors = [...(serverData.errors || [])];
+      if(seoulResult && seoulResult.__error) errors.push("서울 아파트 지수: " + seoulResult.__error);
+      if(errors.length){
+        setStatus("일부 매크로 자산 실패: " + errors.join(" / "));
         document.getElementById("rawApiNote2").style.display = "block";
       }
     }catch(e){
