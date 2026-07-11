@@ -98,7 +98,17 @@
 
   .chart-section{margin-bottom:28px;}
   .chart-canvas-wrap{position:relative;}
-  #priceChart{width:100%;display:block;touch-action:none;}
+  #priceChart{width:100%;display:block;touch-action:none;cursor:grab;}
+  #priceChart:active{cursor:grabbing;}
+  .chart-zoom-bar{
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:11px;color:var(--sub);margin-top:4px;
+  }
+  .chart-zoom-bar button{
+    font-family:inherit;font-size:11px;color:var(--orange);
+    background:none;border:1px solid var(--orange);border-radius:12px;
+    padding:3px 10px;cursor:pointer;
+  }
   .chart-tooltip{
     position:absolute;
     top:0;
@@ -245,6 +255,10 @@
       <div class="rsi-header"><span>RSI(14)</span><span id="rsiValue">-</span></div>
       <canvas id="rsiChart" height="60"></canvas>
     </div>
+    <div class="chart-zoom-bar">
+      <span id="chartRangeLabel"></span>
+      <button id="chartResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
     <div class="range-tabs" id="rangeTabs">
       <button data-range="1D">1D</button>
       <button data-range="7D">7D</button>
@@ -309,7 +323,8 @@
     chartPoints: [],
     ma200d: [],
     ma200w: [],
-    rsiPoints: []
+    rsiPoints: [],
+    viewRange: null // {start,end} indices into chartPoints/rsiPoints; null = full range
   };
 
   const els = {
@@ -607,13 +622,122 @@
       state.rsiPoints = rsiAll.slice(sliceStart);
       drawChart();
       drawRsi();
+      updateChartRangeLabel();
     }catch(e){
       setStatus("차트 로드 실패: " + e.message);
     }
   }
 
-  function drawChart(highlightIndex){
+  // Pinch-zoom / pan over the currently loaded range's points, independent
+  // of the 1D/7D/1M/... tabs above (those pick which data to fetch; this
+  // just narrows or widens the visible window of already-fetched points).
+  const MIN_ZOOM_POINTS = 10;
+
+  function clampIndexRange(range, maxIdx){
+    const width = Math.max(0, Math.min(range.end - range.start, maxIdx));
+    let start = range.start, end = start + width;
+    if(start < 0){ start = 0; end = start + width; }
+    if(end > maxIdx){ end = maxIdx; start = end - width; }
+    return { start, end };
+  }
+
+  function visibleSlice(arr){
+    if(!arr || !arr.length) return arr;
+    if(!state.viewRange) return arr;
+    const clamped = clampIndexRange(state.viewRange, arr.length - 1);
+    return arr.slice(clamped.start, clamped.end + 1);
+  }
+
+  function updateChartRangeLabel(){
+    const full = state.chartPoints;
+    const label = document.getElementById("chartRangeLabel");
+    const resetBtn = document.getElementById("chartResetZoom");
+    if(!full || !full.length){ label.textContent = ""; resetBtn.style.display = "none"; return; }
+    const visible = visibleSlice(full);
+    label.textContent = visible.length > 1
+      ? fmtTooltipDate(visible[0].t) + " ~ " + fmtTooltipDate(visible[visible.length-1].t)
+      : "";
+    resetBtn.style.display = state.viewRange ? "inline-block" : "none";
+  }
+
+  function zoomChart(factor, centerIdx){
     const points = state.chartPoints;
+    if(!points || points.length < 2) return;
+    const maxIdx = points.length - 1;
+    const cur = state.viewRange || { start: 0, end: maxIdx };
+    const width = cur.end - cur.start;
+    const newWidth = Math.max(MIN_ZOOM_POINTS, Math.min(maxIdx, Math.round(width * factor)));
+    const ratio = width ? (centerIdx - cur.start) / width : 0.5;
+    const start = Math.round(centerIdx - newWidth * ratio);
+    const next = clampIndexRange({ start, end: start + newWidth }, maxIdx);
+    state.viewRange = (next.end - next.start) >= maxIdx ? null : next;
+    drawChart(); drawRsi();
+    updateChartRangeLabel();
+  }
+
+  function panChart(deltaIdx){
+    const points = state.chartPoints;
+    if(!points || points.length < 2) return;
+    const maxIdx = points.length - 1;
+    const cur = state.viewRange || { start: 0, end: maxIdx };
+    const next = clampIndexRange({ start: cur.start + deltaIdx, end: cur.end + deltaIdx }, maxIdx);
+    state.viewRange = (next.end - next.start) >= maxIdx ? null : next;
+    drawChart(); drawRsi();
+    updateChartRangeLabel();
+  }
+
+  function attachChartZoomPan(){
+    const canvas = chartCanvas;
+    let pinchState = null;
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchState = { lastDist: Math.hypot(dx, dy) };
+      } else {
+        pinchState = null;
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!pinchState || e.touches.length !== 2 || !state.chartPoints.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      const points = visibleSlice(state.chartPoints);
+      const cur = state.viewRange || { start: 0, end: state.chartPoints.length - 1 };
+      const centerIdx = cur.start + (midX / rect.width) * (points.length - 1);
+      zoomChart(pinchState.lastDist / dist, centerIdx);
+      pinchState.lastDist = dist;
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length < 2) pinchState = null;
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!state.chartPoints.length) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const points = visibleSlice(state.chartPoints);
+      const cur = state.viewRange || { start: 0, end: state.chartPoints.length - 1 };
+      const centerIdx = cur.start + ((e.clientX - rect.left) / rect.width) * (points.length - 1);
+      zoomChart(e.deltaY > 0 ? 1.2 : 1/1.2, centerIdx);
+    }, { passive: false });
+
+    document.getElementById("chartResetZoom").addEventListener("click", () => {
+      state.viewRange = null;
+      drawChart(); drawRsi();
+      updateChartRangeLabel();
+    });
+  }
+
+  function drawChart(highlightIndex){
+    const points = visibleSlice(state.chartPoints);
     if(!points || points.length === 0) return;
     const dpr = window.devicePixelRatio || 1;
     const w = chartCanvas.clientWidth, h = chartCanvas.clientHeight || 220;
@@ -736,7 +860,7 @@
   }
 
   function drawRsi(highlightIndex){
-    const points = state.rsiPoints || [];
+    const points = visibleSlice(state.rsiPoints) || [];
     const w = rsiCanvas.clientWidth, h = rsiCanvas.clientHeight || 60;
     const dpr = window.devicePixelRatio || 1;
     rsiCanvas.width = w * dpr; rsiCanvas.height = h * dpr;
@@ -792,8 +916,8 @@
     function handle(clientX){
       const rect = chartCanvas.getBoundingClientRect();
       const x = clientX - rect.left;
-      const points = state.chartPoints;
-      if(!points.length) return;
+      const points = visibleSlice(state.chartPoints);
+      if(!points || !points.length) return;
       const idx = Math.round((x / rect.width) * (points.length - 1));
       const clamped = Math.max(0, Math.min(points.length - 1, idx));
       drawChart(clamped);
@@ -801,9 +925,12 @@
     }
     chartCanvas.addEventListener("mousemove", e => handle(e.clientX));
     chartCanvas.addEventListener("mouseleave", () => { drawChart(); drawRsi(); });
-    chartCanvas.addEventListener("touchstart", e => handle(e.touches[0].clientX), {passive:true});
-    chartCanvas.addEventListener("touchmove", e => handle(e.touches[0].clientX), {passive:true});
+    // Single-finger touch scrubs the crosshair (as before); two-finger touch
+    // is reserved for pinch-zoom, handled separately in attachChartZoomPan.
+    chartCanvas.addEventListener("touchstart", e => { if(e.touches.length === 1) handle(e.touches[0].clientX); }, {passive:true});
+    chartCanvas.addEventListener("touchmove", e => { if(e.touches.length === 1) handle(e.touches[0].clientX); }, {passive:true});
     chartCanvas.addEventListener("touchend", () => { drawChart(); drawRsi(); });
+    attachChartZoomPan();
   }
 
   function attachRangeTabs(){
@@ -813,6 +940,7 @@
       document.querySelectorAll("#rangeTabs button").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       state.range = btn.dataset.range;
+      state.viewRange = null;
       updateChart(state.range);
     });
   }
