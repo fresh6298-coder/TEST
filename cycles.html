@@ -70,6 +70,8 @@
   .chart-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin-bottom:6px;}
   .chart-legend .item{display:flex;align-items:center;gap:4px;}
   .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
+  .chart-legend.toggleable .item{cursor:pointer;user-select:none;padding:2px 0;}
+  .chart-legend.toggleable .item.off{opacity:0.35;text-decoration:line-through;}
   .panel-chart{width:100%;height:180px;display:block;}
   #macroChart{touch-action:none;cursor:grab;}
   #macroChart:active{cursor:grabbing;}
@@ -232,10 +234,18 @@
     }
   }
 
-  function renderLegend(el, items){
-    el.innerHTML = items.map(it =>
-      `<span class="item"><span class="swatch" style="background:${it.color};"></span>${it.label}</span>`
-    ).join("");
+  function renderLegend(el, items, opts){
+    opts = opts || {};
+    el.classList.toggle("toggleable", !!opts.onToggle);
+    el.innerHTML = items.map((it, i) => {
+      const isOff = opts.hiddenSet && opts.hiddenSet.has(it.label);
+      return `<span class="item${isOff ? " off" : ""}" data-idx="${i}"><span class="swatch" style="background:${it.color};"></span>${it.label}</span>`;
+    }).join("");
+    if(opts.onToggle){
+      el.querySelectorAll(".item").forEach(node => {
+        node.addEventListener("click", () => opts.onToggle(items[Number(node.dataset.idx)].label));
+      });
+    }
   }
 
   // Long BTC history comes from our own server endpoint (Yahoo Finance
@@ -348,6 +358,33 @@
     }
   }
 
+  function renderCorrGrid(){
+    if(!macroCorrelations) return;
+    const grid = document.getElementById("corrGrid");
+    grid.innerHTML = Object.entries(macroCorrelations)
+      .filter(([label]) => !macroHidden.has(label))
+      .map(([label, r]) => {
+        const [interp, color] = corrInterpretation(r);
+        return `<div class="corr-card">
+          <div class="label">BTC ↔ ${label}</div>
+          <div class="value" style="color:${color}">${r == null ? "-" : r.toFixed(2)}</div>
+          <div class="interp" style="color:${color}">${interp}</div>
+        </div>`;
+      }).join("");
+  }
+
+  function toggleMacroAsset(label){
+    if(macroHidden.has(label)) macroHidden.delete(label);
+    else macroHidden.add(label);
+    if(macroSeriesList){
+      renderLegend(document.getElementById("macroLegend"),
+        macroSeriesList.map(s => ({ color: s.color, label: s.label })),
+        { hiddenSet: macroHidden, onToggle: toggleMacroAsset });
+    }
+    renderMacro();
+    renderCorrGrid();
+  }
+
   function corrInterpretation(r){
     if(r == null) return ["데이터 부족", "var(--sub)"];
     const a = Math.abs(r);
@@ -359,6 +396,8 @@
   let macroSeriesList = null;
   let macroFullRange = null; // {min,max} in ms — the entire dataset's span
   let macroViewRange = null; // {min,max} in ms — currently zoomed window, null = full range
+  let macroHidden = new Set(); // labels the user has toggled off via the legend
+  let macroCorrelations = null; // { label: r } from the last successful load
 
   function makeXTicks(range){
     const tickTs = [range.min, range.min + (range.max-range.min)*0.33, range.min + (range.max-range.min)*0.66, range.max];
@@ -374,6 +413,7 @@
     if(!macroSeriesList || !macroFullRange) return;
     const range = macroViewRange || macroFullRange;
     const visible = macroSeriesList
+      .filter(s => !macroHidden.has(s.label))
       .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
       .filter(s => s.points.length >= 2);
 
@@ -562,21 +602,15 @@
         }
       }
 
-      renderLegend(document.getElementById("macroLegend"),
-        macroSeriesList.map(s => ({ color: s.color, label: s.label })));
-
       macroFullRange = { min: overallMinX, max: overallMaxX };
-      renderMacro();
+      macroCorrelations = correlations;
 
-      const grid = document.getElementById("corrGrid");
-      grid.innerHTML = Object.entries(correlations).map(([label, r]) => {
-        const [interp, color] = corrInterpretation(r);
-        return `<div class="corr-card">
-          <div class="label">BTC ↔ ${label}</div>
-          <div class="value" style="color:${color}">${r == null ? "-" : r.toFixed(2)}</div>
-          <div class="interp" style="color:${color}">${interp}</div>
-        </div>`;
-      }).join("");
+      renderLegend(document.getElementById("macroLegend"),
+        macroSeriesList.map(s => ({ color: s.color, label: s.label })),
+        { hiddenSet: macroHidden, onToggle: toggleMacroAsset });
+
+      renderMacro();
+      renderCorrGrid();
 
       const errors = [...(serverData.errors || [])];
       if(seoulResult && seoulResult.__error) errors.push("서울 아파트 지수: " + seoulResult.__error);
