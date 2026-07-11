@@ -264,6 +264,7 @@
       <button data-range="7D">7D</button>
       <button data-range="1M">1M</button>
       <button data-range="1Y" class="active">1Y</button>
+      <button data-range="3Y">3Y</button>
       <button data-range="5Y">5Y</button>
       <button data-range="ALL">All</button>
     </div>
@@ -311,6 +312,7 @@
     "7D": { interval: "1h", limit: 168 },
     "1M": { interval: "4h", limit: 180 },
     "1Y": { interval: "1d", limit: 365 },
+    "3Y": { interval: "3d", limit: 365 },
     "5Y": { interval: "1w", limit: 260 },
     "ALL": { interval: "1M", limit: 96 }
   };
@@ -415,7 +417,7 @@
   function fmtAxisDate(ts){
     const d = new Date(ts);
     if(state.range === "1D") return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
-    if(state.range === "5Y" || state.range === "ALL") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    if(state.range === "3Y" || state.range === "5Y" || state.range === "ALL") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
@@ -686,37 +688,56 @@
     updateChartRangeLabel();
   }
 
+  function panChartByPixels(dxPx, rectWidth){
+    const points = visibleSlice(state.chartPoints);
+    if(!points || points.length < 2) return;
+    const pointsPerPixel = (points.length - 1) / rectWidth;
+    panChart(-dxPx * pointsPerPixel);
+  }
+
   function attachChartZoomPan(){
     const canvas = chartCanvas;
-    let pinchState = null;
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
 
+    // One-finger drag pans left/right (same gesture as the macro correlation
+    // chart on the Cycles page); two-finger pinch zooms in/out.
     canvas.addEventListener("touchstart", e => {
-      if(e.touches.length === 2){
+      if(e.touches.length === 1){
+        touchState = { mode: "pan", lastX: e.touches[0].clientX };
+      } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        pinchState = { lastDist: Math.hypot(dx, dy) };
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
       } else {
-        pinchState = null;
+        touchState = null;
       }
     }, { passive: true });
 
     canvas.addEventListener("touchmove", e => {
-      if(!pinchState || e.touches.length !== 2 || !state.chartPoints.length) return;
+      if(!touchState || !state.chartPoints.length) return;
       const rect = canvas.getBoundingClientRect();
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.hypot(dx, dy);
-      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-      const points = visibleSlice(state.chartPoints);
-      const cur = state.viewRange || { start: 0, end: state.chartPoints.length - 1 };
-      const centerIdx = cur.start + (midX / rect.width) * (points.length - 1);
-      zoomChart(pinchState.lastDist / dist, centerIdx);
-      pinchState.lastDist = dist;
+      if(touchState.mode === "pan" && e.touches.length === 1){
+        const dxPx = e.touches[0].clientX - touchState.lastX;
+        touchState.lastX = e.touches[0].clientX;
+        panChartByPixels(dxPx, rect.width);
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const points = visibleSlice(state.chartPoints);
+        const cur = state.viewRange || { start: 0, end: state.chartPoints.length - 1 };
+        const centerIdx = cur.start + (midX / rect.width) * (points.length - 1);
+        zoomChart(touchState.lastDist / dist, centerIdx);
+        touchState.lastDist = dist;
+      }
       e.preventDefault();
     }, { passive: false });
 
     canvas.addEventListener("touchend", e => {
-      if(e.touches.length < 2) pinchState = null;
+      if(e.touches.length === 0) touchState = null;
+      else if(e.touches.length === 1) touchState = { mode: "pan", lastX: e.touches[0].clientX };
     });
 
     canvas.addEventListener("wheel", e => {
@@ -729,11 +750,25 @@
       zoomChart(e.deltaY > 0 ? 1.2 : 1/1.2, centerIdx);
     }, { passive: false });
 
+    // Desktop: click-drag pans (mirrors touch pan); plain hover (no button
+    // held) still scrubs the crosshair tooltip via attachChartInteraction.
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !state.chartPoints.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      panChartByPixels(dxPx, rect.width);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
     document.getElementById("chartResetZoom").addEventListener("click", () => {
       state.viewRange = null;
       drawChart(); drawRsi();
       updateChartRangeLabel();
     });
+
+    return { isDragging: () => mouseDragging };
   }
 
   function drawChart(highlightIndex){
@@ -923,14 +958,13 @@
       drawChart(clamped);
       drawRsi(clamped);
     }
-    chartCanvas.addEventListener("mousemove", e => handle(e.clientX));
-    chartCanvas.addEventListener("mouseleave", () => { drawChart(); drawRsi(); });
-    // Single-finger touch scrubs the crosshair (as before); two-finger touch
-    // is reserved for pinch-zoom, handled separately in attachChartZoomPan.
-    chartCanvas.addEventListener("touchstart", e => { if(e.touches.length === 1) handle(e.touches[0].clientX); }, {passive:true});
-    chartCanvas.addEventListener("touchmove", e => { if(e.touches.length === 1) handle(e.touches[0].clientX); }, {passive:true});
-    chartCanvas.addEventListener("touchend", () => { drawChart(); drawRsi(); });
-    attachChartZoomPan();
+    // Touch is handled entirely by attachChartZoomPan (one-finger pan,
+    // two-finger pinch-zoom) below. On desktop, plain mouse hover still
+    // scrubs the crosshair tooltip; click-drag pans instead (see
+    // attachChartZoomPan's mousedown/mousemove handlers).
+    const zoomPan = attachChartZoomPan();
+    chartCanvas.addEventListener("mousemove", e => { if(!zoomPan.isDragging()) handle(e.clientX); });
+    chartCanvas.addEventListener("mouseleave", () => { if(!zoomPan.isDragging()){ drawChart(); drawRsi(); } });
   }
 
   function attachRangeTabs(){
