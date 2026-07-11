@@ -26,7 +26,10 @@ function snippet(text) {
 }
 
 async function fetchYahooCloses(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=max&interval=1d`;
+  // range=max makes Yahoo silently downgrade to monthly candles for these
+  // long-history symbols even with interval=1d requested; an explicit range
+  // long enough to cover BTC's full history (since Aug 2017) keeps it daily.
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=10y&interval=1d`;
   const res = await fetch(url, { headers: HEADERS });
   const text = await res.text();
   if (!res.ok) throw new Error(`${symbol}: upstream responded ${res.status}, got ${snippet(text)}`);
