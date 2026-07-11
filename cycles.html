@@ -223,24 +223,17 @@
     ).join("");
   }
 
-  // BTC price is fetched directly from the browser (not via our serverless
-  // function) because Binance geo-blocks the function's US-hosted IP with
-  // HTTP 451, even though the same calls work fine from an end user's
-  // browser — same reason index.html calls Binance client-side too.
-  async function fetchBinancePaged(startTimeMs){
-    const map = {};
-    let start = startTimeMs;
-    const now = Date.now();
-    while(start < now){
-      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=${start}&limit=1000`);
-      if(!res.ok) throw new Error("Binance " + res.status);
-      const batch = await res.json();
-      if(!Array.isArray(batch) || !batch.length) break;
-      batch.forEach(k => { map[new Date(k[0]).toISOString().slice(0,10)] = parseFloat(k[4]); });
-      if(batch.length < 1000) break;
-      start = batch[batch.length-1][0] + 86400000;
-    }
-    return map;
+  // Long BTC history comes from our own server endpoint (Yahoo Finance
+  // BTC-USD, back to ~2014) instead of Binance directly: Binance geo-blocks
+  // the serverless function's US-hosted IP with HTTP 451, and even from the
+  // browser it only has data since Aug 2017 anyway, too short to cover the
+  // 2016 halving.
+  async function fetchBtcHistory(){
+    const res = await fetch("/api/btc-history");
+    if(!res.ok) throw new Error("API " + res.status);
+    const data = await res.json();
+    if(!data.prices || !Object.keys(data.prices).length) throw new Error("데이터 없음");
+    return data.prices;
   }
 
   function pearsonCorrelation(a, b){
@@ -263,10 +256,16 @@
   }
 
   const HALVINGS = [
+    { label: "2016 반감기", date: "2016-07-09" },
     { label: "2020 반감기", date: "2020-05-11" },
     { label: "2024 반감기", date: "2024-04-20" },
   ];
   const MAX_DAYS = 1460;
+  // If the nearest available price is more than this many days after the
+  // actual halving date, we don't really have data for that cycle — treat
+  // it as missing rather than silently starting the cycle late (which
+  // would understate its multiplier).
+  const MAX_START_GAP_DAYS = 30;
 
   let cycleSeriesList = null;
 
@@ -281,15 +280,17 @@
 
   async function loadCycles(){
     try{
-      const dailyMap = await fetchBinancePaged(new Date("2020-01-01T00:00:00Z").getTime());
+      const dailyMap = await fetchBtcHistory();
       const sortedDays = Object.keys(dailyMap).sort();
       if(!sortedDays.length) throw new Error("데이터 없음");
 
-      const colors = ["#3b82f6", "#f7931a"];
+      const colors = ["#a855f7", "#3b82f6", "#f7931a"];
       cycleSeriesList = HALVINGS.map((h, i) => {
         const startIdx = sortedDays.findIndex(d => d >= h.date);
         if(startIdx === -1) return null;
         const startDay = sortedDays[startIdx];
+        const gapDays = Math.round((new Date(startDay).getTime() - new Date(h.date).getTime()) / 86400000);
+        if(gapDays > MAX_START_GAP_DAYS) return null;
         const basePrice = dailyMap[startDay];
         const startMs = new Date(startDay).getTime();
         const points = [];
@@ -334,7 +335,7 @@
           if(!r.ok) throw new Error("API " + r.status);
           return r.json();
         }),
-        fetchBinancePaged(new Date("2017-08-01T00:00:00Z").getTime())
+        fetchBtcHistory()
       ]);
       if(!serverData.assets || !Object.keys(serverData.assets).length) throw new Error("데이터 없음");
 
