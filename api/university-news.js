@@ -1,105 +1,21 @@
 // Bitcoin University is the user's own beehiiv newsletter.
 //
-// A plain fetch of /feed with a Chrome desktop User-Agent returns the
-// site's client-rendered SPA shell (confirmed from the deployed function's
-// raw error: a 200 response starting with "<!DOCTYPE html>", with no
-// <link rel="alternate" type="application/rss+xml"> anywhere in it either).
-// But other tools (e.g. Gemini, when explicitly told this is an RSS feed)
-// have read real <item>/<title> content from the exact same URL. The
-// likely explanation: beehiiv (or a CDN/edge worker in front of it) is
-// doing content negotiation or user-agent sniffing — serving XML only to
-// requests that look like a feed reader or a known crawler, and falling
-// back to the HTML app shell for everything else. So we try a few
-// feed-reader-shaped requests before giving up on RSS entirely.
-const FEED_URL = "https://bitcoin-university.beehiiv.com/feed";
-
-// Fallback if none of those work: render the homepage like a browser via
-// the r.jina.ai reader proxy (same workaround already used elsewhere in
-// this app for farside.co.uk and companiesmarketcap.com) and scrape post
-// links out of the resulting markdown.
+// /feed on this custom domain always returns the site's client-rendered
+// SPA shell (a 200 response starting with "<!DOCTYPE html>"), no matter
+// what User-Agent/Accept headers are sent — confirmed by trying a Chrome
+// UA, a Googlebot UA, and Google's FeedFetcher UA, all with an RSS-only
+// Accept header, and getting byte-identical HTML back every time. So
+// there's no real feed to fetch here; the actual post list only exists in
+// the JS-rendered homepage.
+//
+// Workaround: render the homepage like a browser via the r.jina.ai reader
+// proxy (same approach already used elsewhere in this app for
+// farside.co.uk and companiesmarketcap.com) and scrape post links out of
+// the resulting markdown. This has been confirmed working end-to-end from
+// the deployed function (it returned the real page title), the remaining
+// issue is just matching the actual link structure r.jina.ai produces.
 const HOME_URL = "https://bitcoin-university.beehiiv.com/";
 const READER_URL = "https://r.jina.ai/" + HOME_URL;
-
-const FETCH_ATTEMPTS = [
-  {
-    label: "rss-accept+googlebot-ua",
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-      Accept: "application/rss+xml, application/xml, text/xml",
-    },
-  },
-  {
-    label: "rss-accept+feedfetcher-ua",
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; FeedFetcher-Google; +http://www.google.com/feedfetcher.html)",
-      Accept: "application/rss+xml, application/xml, text/xml",
-    },
-  },
-  {
-    label: "rss-accept-only+chrome-ua",
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      Accept: "application/rss+xml, application/xml, text/xml",
-    },
-  },
-];
-
-function decodeEntities(s) {
-  return s
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .trim();
-}
-
-function extractTag(xml, tag) {
-  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
-  return m ? decodeEntities(m[1]) : null;
-}
-
-function extractImage(xml) {
-  let m =
-    xml.match(/<media:content[^>]*url="([^"]+)"/i) ||
-    xml.match(/<media:thumbnail[^>]*url="([^"]+)"/i) ||
-    xml.match(/<enclosure[^>]*url="([^"]+)"[^>]*type="image/i);
-  if (m) return m[1];
-  m = xml.match(/<img[^>]*src="([^"]+)"/i);
-  return m ? m[1] : null;
-}
-
-function looksLikeXml(text) {
-  return /^\s*(<\?xml|<rss[\s>]|<feed[\s>])/i.test(text);
-}
-
-function parsePostsFromXml(xml) {
-  const items = [];
-  const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
-  let m;
-  while ((m = itemRegex.exec(xml)) !== null) {
-    const block = m[1];
-    const title = extractTag(block, "title");
-    const link = extractTag(block, "link") || extractTag(block, "guid");
-    const pubDateStr = extractTag(block, "pubDate") || extractTag(block, "dc:date");
-    const description =
-      extractTag(block, "content:encoded") || extractTag(block, "description") || "";
-    const publishedAt = pubDateStr ? Date.parse(pubDateStr) : NaN;
-
-    if (title && link) {
-      items.push({
-        title,
-        url: link.trim(),
-        imageUrl: extractImage(block),
-        summary: description.replace(/<[^>]*>/g, "").trim().slice(0, 280) || null,
-        publishedAt: Number.isNaN(publishedAt) ? null : publishedAt,
-      });
-    }
-  }
-  return items;
-}
 
 // beehiiv's default post permalink shape.
 const POST_LINK_RE = /\[([^\]]*)\]\((https:\/\/bitcoin-university\.beehiiv\.com\/p\/[^)\s]+)\)/g;
@@ -141,68 +57,31 @@ function parsePostsFromMarkdown(markdown) {
   return posts.slice(0, 30);
 }
 
-function snippet(text) {
-  return JSON.stringify((text || "").replace(/\s+/g, " ").trim().slice(0, 160));
-}
-
-async function tryRssAttempts() {
-  const errors = [];
-  for (const attempt of FETCH_ATTEMPTS) {
-    try {
-      const r = await fetch(FEED_URL, { headers: attempt.headers });
-      const text = await r.text();
-      if (!r.ok) {
-        errors.push(`${attempt.label}: upstream responded ${r.status}, got ${snippet(text)}`);
-        continue;
-      }
-      if (!looksLikeXml(text)) {
-        errors.push(`${attempt.label}: not XML, got ${snippet(text)}`);
-        continue;
-      }
-      const posts = parsePostsFromXml(text);
-      if (!posts.length) {
-        errors.push(`${attempt.label}: XML but no <item> posts parsed, got ${snippet(text)}`);
-        continue;
-      }
-      return { posts, via: attempt.label };
-    } catch (err) {
-      errors.push(`${attempt.label}: ${String((err && err.message) || err)}`);
-    }
-  }
-  const e = new Error("all RSS attempts failed: " + errors.join(" | "));
-  e.details = errors;
-  throw e;
-}
-
-async function tryHomepageScrape() {
-  const r = await fetch(READER_URL);
-  const markdown = await r.text();
-  if (!r.ok) throw new Error(`reader upstream responded ${r.status}, got ${snippet(markdown)}`);
-
-  const posts = parsePostsFromMarkdown(markdown);
-  if (!posts.length) throw new Error(`no post links found in rendered homepage, got ${snippet(markdown)}`);
-  return { posts, via: "homepage-scrape" };
+function snippet(text, len) {
+  return JSON.stringify((text || "").replace(/\s+/g, " ").trim().slice(0, len || 160));
 }
 
 export default async function handler(req, res) {
-  const errors = [];
   try {
-    const { posts, via } = await tryRssAttempts();
-    res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=900");
-    res.status(200).json({ fetchedAt: new Date().toISOString(), posts, via });
-    return;
-  } catch (e) {
-    errors.push(e.message);
-  }
+    const r = await fetch(READER_URL);
+    const markdown = await r.text();
+    if (!r.ok) throw new Error(`reader upstream responded ${r.status}, got ${snippet(markdown)}`);
 
-  try {
-    const { posts, via } = await tryHomepageScrape();
-    res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=900");
-    res.status(200).json({ fetchedAt: new Date().toISOString(), posts, via });
-    return;
-  } catch (e) {
-    errors.push(e.message);
-  }
+    // ?debug=1 dumps the raw rendered markdown so the link/date structure
+    // can be inspected directly instead of guessing from a short snippet.
+    if (req.query && req.query.debug) {
+      res.status(200).json({ markdown });
+      return;
+    }
 
-  res.status(502).json({ error: "Bitcoin University feed fetch failed", details: errors });
+    const posts = parsePostsFromMarkdown(markdown);
+    if (!posts.length) {
+      throw new Error(`no post links found in rendered homepage, got ${snippet(markdown, 4000)}`);
+    }
+
+    res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=900");
+    res.status(200).json({ fetchedAt: new Date().toISOString(), posts });
+  } catch (e) {
+    res.status(502).json({ error: "Bitcoin University feed fetch failed: " + e.message });
+  }
 }
