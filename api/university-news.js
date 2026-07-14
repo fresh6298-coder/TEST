@@ -1,9 +1,12 @@
-// Bitcoin University is the user's own beehiiv newsletter. beehiiv's free
-// (Launch) plan has no public API access (Scale+ only), but this specific
-// RSS feed URL was manually generated/provided by the user, so we can treat
-// it like any other RSS source (see api/news.js) instead of maintaining a
-// static JSON file by hand.
-const FEED_URL = "https://bitcoin-university.beehiiv.com/feed";
+// Bitcoin University is the user's own beehiiv newsletter. Requesting
+// /feed directly returns the site's own SPA HTML shell (a 200 response
+// starting with "<!DOCTYPE html>...") rather than XML — /feed isn't a real
+// route on the custom domain, it just falls through to the client app's
+// catch-all. Real RSS readers work around this via feed autodiscovery: the
+// HTML <head> still advertises the actual feed URL via a
+// <link rel="alternate" type="application/rss+xml" href="..."> tag, so we
+// fetch that HTML, extract the real feed URL, and fetch that instead.
+const START_URL = "https://bitcoin-university.beehiiv.com/feed";
 
 const HEADERS = {
   "User-Agent":
@@ -41,6 +44,24 @@ function snippet(text) {
   return JSON.stringify((text || "").replace(/\s+/g, " ").trim().slice(0, 160));
 }
 
+function looksLikeXml(text) {
+  return /^\s*(<\?xml|<rss[\s>]|<feed[\s>])/i.test(text);
+}
+
+function discoverFeedUrl(html, baseUrl) {
+  const m = html.match(
+    /<link[^>]+type=["']application\/(?:rss|atom)\+xml["'][^>]*>/i
+  );
+  if (!m) return null;
+  const hrefMatch = m[0].match(/href=["']([^"']+)["']/i);
+  if (!hrefMatch) return null;
+  try {
+    return new URL(hrefMatch[1], baseUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
 function parsePosts(xml) {
   const items = [];
   const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
@@ -68,14 +89,32 @@ function parsePosts(xml) {
   return items;
 }
 
+async function fetchFeedXml() {
+  const r1 = await fetch(START_URL, { headers: HEADERS });
+  const text1 = await r1.text();
+  if (!r1.ok) throw new Error(`upstream responded ${r1.status}, got ${snippet(text1)}`);
+  if (looksLikeXml(text1)) return text1;
+
+  const discovered = discoverFeedUrl(text1, START_URL);
+  if (!discovered) {
+    throw new Error(
+      `/feed returned HTML with no <link rel="alternate" type="application/rss+xml"> to discover, got ${snippet(text1)}`
+    );
+  }
+  const r2 = await fetch(discovered, { headers: HEADERS });
+  const text2 = await r2.text();
+  if (!r2.ok) throw new Error(`discovered feed ${discovered} responded ${r2.status}, got ${snippet(text2)}`);
+  if (!looksLikeXml(text2)) {
+    throw new Error(`discovered feed ${discovered} wasn't XML either, got ${snippet(text2)}`);
+  }
+  return text2;
+}
+
 export default async function handler(req, res) {
   try {
-    const r = await fetch(FEED_URL, { headers: HEADERS });
-    const text = await r.text();
-    if (!r.ok) throw new Error(`upstream responded ${r.status}, got ${snippet(text)}`);
-
-    const posts = parsePosts(text);
-    if (!posts.length) throw new Error(`no posts parsed, got ${snippet(text)}`);
+    const xml = await fetchFeedXml();
+    const posts = parsePosts(xml);
+    if (!posts.length) throw new Error(`no posts parsed, got ${snippet(xml)}`);
 
     posts.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
 
