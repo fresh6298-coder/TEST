@@ -167,7 +167,7 @@
       <a class="post-item" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">
         <div class="post-title">${escapeHtml(p.title)}</div>
         ${p.summary ? `<div class="post-summary">${escapeHtml(p.summary)}</div>` : ""}
-        <div class="post-meta"><span class="post-source">Bitcoin University</span> · ${fmtDate(p.publishedAt)}</div>
+        <div class="post-meta"><span class="post-source">Bitcoin University</span>${fmtDate(p.publishedAt) ? " · " + fmtDate(p.publishedAt) : ""}</div>
       </a>
     `).join("");
   }
@@ -193,7 +193,7 @@
     try{
       setStatus("");
       const posts = await loadLiveFeed();
-      document.getElementById("updatedLine").textContent = "최근 글: " + (posts[0] ? fmtDate(posts[0].publishedAt) : "-");
+      document.getElementById("updatedLine").textContent = "최근 글 " + posts.length + "개 불러옴";
       render(posts);
     }catch(e){
       document.getElementById("rawApiNote").style.display = "block";
