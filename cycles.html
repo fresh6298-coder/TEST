@@ -692,6 +692,10 @@
   // widely cited industry estimates (Statista, Chainalysis, Triple-A,
   // CoinShares); methodologies vary a lot (on-chain address heuristics vs
   // survey vs exchange-account counts), so treat this as illustrative.
+  // The last point (2025-01-01) is the newest real survey-based figure we
+  // have; everything after it is extrapolated automatically (see
+  // projectedAdoptionPct below) so this line keeps moving forward without
+  // needing a manual edit every time someone reopens the page.
   const BITCOIN_ADOPTION_START_YEAR = 2009;
   const BITCOIN_ADOPTION = [
     { year: 2009, pct: 0 },
@@ -702,10 +706,32 @@
     { year: 2019, pct: 0.7 },
     { year: 2021, pct: 2.3 },
     { year: 2023, pct: 4.8 },
-    { year: 2025, pct: 5.6 },
-    { year: 2026, pct: 6.0 },
   ];
+  const ADOPTION_LAST_SURVEY_ANCHOR = { date: Date.UTC(2025, 0, 1), pct: 5.6 };
   const ADOPTION_MAX_YEARS = 30;
+
+  // Auto-extends the Bitcoin line past the last real survey anchor using
+  // the adoption-growth exponent from Santostasi & Perrenod (2026):
+  // non-zero-balance address count N(t) ~ t^3.046, t = days since the
+  // Genesis Block. Applying that same growth *rate* to the last known
+  // ownership-% anchor (rather than converting raw address counts
+  // directly) keeps the projection consistent with survey-based figures —
+  // raw address count understates real ownership by roughly an order of
+  // magnitude because of exchange custodial concentration (addresses ≠
+  // people), a limitation the paper itself notes.
+  const GENESIS_DATE = Date.UTC(2009, 0, 3);
+  const ADOPTION_BETA_A = 3.046;
+  const MS_PER_DAY = 86400000;
+
+  function daysSinceGenesis(ms){ return (ms - GENESIS_DATE) / MS_PER_DAY; }
+
+  function projectedAdoptionPct(nowMs){
+    const tAnchor = daysSinceGenesis(ADOPTION_LAST_SURVEY_ANCHOR.date);
+    const tNow = daysSinceGenesis(nowMs);
+    if(tNow <= tAnchor) return ADOPTION_LAST_SURVEY_ANCHOR.pct;
+    const growth = Math.pow(tNow / tAnchor, ADOPTION_BETA_A);
+    return Math.min(100, ADOPTION_LAST_SURVEY_ANCHOR.pct * growth);
+  }
 
   function logisticSeries(t50, spread, ceiling, maxYears){
     const k = 4.394 / spread; // ln(9*9): ~10%->90% of ceiling over `spread` years
@@ -734,10 +760,12 @@
       points: logisticSeries(t.t50, t.spread, t.ceiling, ADOPTION_MAX_YEARS),
       color: t.color, label: t.label,
     }));
-    seriesList.push({
-      points: BITCOIN_ADOPTION.map(p => ({ x: p.year - BITCOIN_ADOPTION_START_YEAR, y: p.pct })),
-      color: BITCOIN_COLOR, label: "비트코인", lineWidth: 2.5,
-    });
+    const now = Date.now();
+    const bitcoinPoints = BITCOIN_ADOPTION.map(p => ({ x: p.year - BITCOIN_ADOPTION_START_YEAR, y: p.pct }));
+    const anchorYears = daysSinceGenesis(ADOPTION_LAST_SURVEY_ANCHOR.date) / 365.25;
+    bitcoinPoints.push({ x: anchorYears, y: ADOPTION_LAST_SURVEY_ANCHOR.pct });
+    bitcoinPoints.push({ x: daysSinceGenesis(now) / 365.25, y: projectedAdoptionPct(now) });
+    seriesList.push({ points: bitcoinPoints, color: BITCOIN_COLOR, label: "비트코인", lineWidth: 2.5 });
 
     const visible = seriesList.filter(s => !adoptionHidden.has(s.label));
     // Linear 0-100% axis, all curves anchored at (0, 0%) — Bitcoin's ~6%
@@ -763,10 +791,12 @@
       { hiddenSet: adoptionHidden, onToggle: toggleAdoption });
     renderAdoption();
 
-    const latest = BITCOIN_ADOPTION[BITCOIN_ADOPTION.length - 1];
-    const yearsSinceGenesis = latest.year - BITCOIN_ADOPTION_START_YEAR;
+    const now = Date.now();
+    const yearsSinceGenesis = Math.floor(daysSinceGenesis(now) / 365.25);
+    const currentPct = projectedAdoptionPct(now);
     document.getElementById("adoptionNote").innerHTML =
-      `<b>비트코인은 제네시스 블록 이후 ${yearsSinceGenesis}년째, 추정 전 세계 인구의 약 ${latest.pct}% 정도가 보유 중이야.</b> ` +
+      `<b>비트코인은 제네시스 블록 이후 ${yearsSinceGenesis}년째, 추정 전 세계 인구의 약 ${currentPct.toFixed(1)}% 정도가 보유 중이야.</b> ` +
+      `(2025년 이후 구간은 실제 설문 통계가 아니라, 논문의 주소 수 성장률 N(t) ∝ t<sup>3.05</sup>를 그대로 적용해 매번 접속 시점 기준으로 자동 연장한 값이야.) ` +
       `단 Santostasi & Perrenod(2026)의 멱법칙 논문에 따르면 비트코인 주소 수는 N(t) ∝ t<sup>3.05</sup> 형태의 거듭제곱 성장(R²=0.977, 15년간 안정적)을 보여 — ` +
       `이는 위 그래프의 다른 기술들이 따르는 로지스틱(S자형) 곡선과 달리 뚜렷한 상한(포화점)을 전제하지 않는 '전염병 확산(saturation wave)' 모델과 같은 형태야. ` +
       `즉 다른 기술들처럼 조만간 성장이 꺾일 것이라는 근거는 아직 나타나지 않았어.`;
