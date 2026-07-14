@@ -741,7 +741,10 @@
     const yTicks = [0.001,0.01,0.1,1,10,100].map(v => ({ value: v, label: v+"%" }));
     const xTicks = [0,10,20,30].map(v => ({ value: v, label: v+"년" }));
     drawLineChart(document.getElementById("adoptionChart"), visible, {
-      logScale: true, yTicks, xTicks, padRight: 34
+      // Wider than the other charts' padRight (34) — labels like "0.001%"
+      // are longer than "x200" or "400" and were getting clipped at the
+      // canvas edge before this.
+      logScale: true, yTicks, xTicks, padRight: 48
     });
   }
 
