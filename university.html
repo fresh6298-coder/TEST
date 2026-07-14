@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Bitcoin News</title>
+<title>Bitcoin University</title>
 <style>
   :root{
     --orange:#f7931a;
@@ -49,7 +49,7 @@
     flex-shrink:0;
   }
   .topbar h1{
-    font-size:22px;margin:0;flex:1;font-weight:700;
+    font-size:20px;margin:0;flex:1;font-weight:700;
   }
   .live-dot{
     width:10px;height:10px;border-radius:50%;
@@ -59,26 +59,26 @@
     font-size:12px;color:var(--sub);margin-bottom:20px;
   }
 
-  .news-list{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
-  .news-item{
-    display:flex;gap:12px;
+  .post-list{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
+  .post-item{
+    display:block;
     border:1px solid var(--track);
     border-radius:10px;
-    padding:12px;
+    padding:14px;
     text-decoration:none;
     color:inherit;
   }
-  .news-thumb{
-    width:76px;height:76px;flex-shrink:0;
-    border-radius:6px;object-fit:cover;
-    background:var(--track);
-  }
-  .news-body{min-width:0;display:flex;flex-direction:column;gap:4px;}
-  .news-title{font-size:14px;font-weight:700;line-height:1.35;
+  .post-title{font-size:15px;font-weight:700;line-height:1.35;margin-bottom:6px;}
+  .post-summary{font-size:12px;color:var(--sub);line-height:1.5;margin-bottom:8px;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
   }
-  .news-meta{font-size:11px;color:var(--sub);}
-  .news-source{color:var(--orange);font-weight:600;}
+  .post-meta{font-size:11px;color:var(--sub);}
+  .post-source{color:var(--orange);font-weight:600;}
+
+  .empty-state{
+    text-align:center;color:var(--sub);font-size:13px;
+    border:1px dashed var(--track);border-radius:10px;padding:32px 16px;line-height:1.6;
+  }
 
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
@@ -116,17 +116,16 @@
 <div class="app">
   <header class="topbar">
     <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
-    <div class="coin-icon">₿</div>
-    <h1>Bitcoin News</h1>
-    <span class="live-dot" title="자동 갱신"></span>
+    <div class="coin-icon">📚</div>
+    <h1>Bitcoin University</h1>
+    <span class="live-dot" title="수동 갱신"></span>
   </header>
   <div class="updated" id="updatedLine">불러오는 중...</div>
 
-  <div class="news-list" id="newsList"></div>
+  <div class="post-list" id="postList"></div>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
-  <p class="source-note" id="rawApiNote" style="display:none;"><a href="/api/news" target="_blank" rel="noopener">raw API 응답 보기 →</a></p>
-  <p class="source-note">Data: CoinDesk, Cointelegraph, Bitcoin Magazine, Bitcoin.com (RSS) · Translated via Google Translate</p>
+  <p class="source-note">Data: <a href="https://bitcoin-university.beehiiv.com" target="_blank" rel="noopener">bitcoin-university.beehiiv.com</a> · beehiiv 무료 플랜이라 자동 연동 불가, 새 글은 수동으로 등록됨</p>
 </div>
 
 <nav class="bottom-nav">
@@ -134,8 +133,8 @@
   <a href="etf.html"><span class="icon">💰</span>ETF</a>
   <a href="assets.html"><span class="icon">🌐</span>Assets</a>
   <a href="onchain.html"><span class="icon">⛓️</span>On-Chain</a>
-  <a href="news.html" class="active"><span class="icon">📰</span>News</a>
-  <a href="university.html"><span class="icon">📚</span>University</a>
+  <a href="news.html"><span class="icon">📰</span>News</a>
+  <a href="university.html" class="active"><span class="icon">📚</span>University</a>
   <a href="cycles.html"><span class="icon">🔄</span>Cycles</a>
   <a href="dca.html"><span class="icon">🐷</span>DCA</a>
 </nav>
@@ -146,53 +145,49 @@
 
   function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
 
-  function timeAgo(ms){
-    if(!ms) return "";
-    const diffMin = Math.max(0, Math.round((Date.now() - ms) / 60000));
-    if(diffMin < 60) return diffMin + "분 전";
-    const diffHr = Math.round(diffMin / 60);
-    if(diffHr < 24) return diffHr + "시간 전";
-    return Math.round(diffHr / 24) + "일 전";
+  function fmtDate(dateStr){
+    if(!dateStr) return "";
+    const d = new Date(dateStr);
+    if(isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
   }
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
 
-  function render(items){
-    const list = document.getElementById("newsList");
-    list.innerHTML = items.map(it => {
-      const thumb = it.imageUrl
-        ? `<img class="news-thumb" src="${escapeHtml(it.imageUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
-        : `<div class="news-thumb"></div>`;
-      return `<a class="news-item" href="${escapeHtml(it.url)}" target="_blank" rel="noopener">
-        ${thumb}
-        <div class="news-body">
-          <div class="news-title">${escapeHtml(it.titleKo || it.title)}</div>
-          <div class="news-meta"><span class="news-source">${escapeHtml(it.source)}</span> · ${timeAgo(it.publishedAt)}</div>
-        </div>
-      </a>`;
-    }).join("");
+  function render(posts){
+    const list = document.getElementById("postList");
+    if(!posts.length){
+      list.innerHTML = `<div class="empty-state">아직 등록된 컬럼이 없어.<br>새 글이 올라오면 알려주면 여기에 추가돼.</div>`;
+      return;
+    }
+    list.innerHTML = posts.map(p => `
+      <a class="post-item" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">
+        <div class="post-title">${escapeHtml(p.title)}</div>
+        ${p.summary ? `<div class="post-summary">${escapeHtml(p.summary)}</div>` : ""}
+        <div class="post-meta"><span class="post-source">Bitcoin University</span> · ${fmtDate(p.publishedAt)}</div>
+      </a>
+    `).join("");
   }
 
   async function load(){
     try{
       setStatus("");
-      const res = await fetch("/api/news");
-      if(!res.ok) throw new Error("API " + res.status);
+      const res = await fetch("/data/university-posts.json", { cache: "no-store" });
+      if(!res.ok) throw new Error("데이터 로드 실패 " + res.status);
       const data = await res.json();
-      if(!data.items || !data.items.length) throw new Error("데이터 없음");
+      const posts = (data.posts || []).slice().sort((a,b) => new Date(b.publishedAt) - new Date(a.publishedAt));
 
-      document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date(data.fetchedAt).toLocaleString("ko-KR");
-      render(data.items);
+      document.getElementById("updatedLine").textContent = "마지막 등록: " + (posts[0] ? fmtDate(posts[0].publishedAt) : "-");
+      render(posts);
     }catch(e){
       setStatus("데이터 로드 실패: " + e.message);
-      document.getElementById("rawApiNote").style.display = "block";
+      render([]);
     }
   }
 
   load();
-  setInterval(load, 10 * 60 * 1000);
 })();
 </script>
 </body>

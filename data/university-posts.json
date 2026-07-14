@@ -1,0 +1,5 @@
+{
+  "source": "Bitcoin University (bitcoin-university.beehiiv.com)",
+  "note": "beehiiv 무료 플랜이라 RSS/공개 API 연동이 불가능해 자동 갱신되지 않음. 새 컬럼이 게시되면 제목/링크/날짜/요약을 전달받아 이 파일에 수동으로 추가.",
+  "posts": []
+}
