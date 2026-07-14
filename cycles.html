@@ -694,7 +694,7 @@
   // survey vs exchange-account counts), so treat this as illustrative.
   const BITCOIN_ADOPTION_START_YEAR = 2009;
   const BITCOIN_ADOPTION = [
-    { year: 2009, pct: 0.0001 },
+    { year: 2009, pct: 0 },
     { year: 2011, pct: 0.002 },
     { year: 2013, pct: 0.02 },
     { year: 2015, pct: 0.07 },
@@ -709,10 +709,16 @@
 
   function logisticSeries(t50, spread, ceiling, maxYears){
     const k = 4.394 / spread; // ln(9*9): ~10%->90% of ceiling over `spread` years
+    const sigma = t => 1 / (1 + Math.exp(-k * (t - t50)));
+    // Every technology actually started at 0% adoption in its year of
+    // introduction — a plain logistic doesn't hit exactly 0 at t=0, so
+    // shift and rescale it to anchor there while still approaching
+    // `ceiling` at large t.
+    const sigma0 = sigma(0);
     const points = [];
     for(let t = 0; t <= maxYears; t++){
-      const frac = 1 / (1 + Math.exp(-k * (t - t50)));
-      points.push({ x: t, y: frac * ceiling });
+      const frac = (sigma(t) - sigma0) / (1 - sigma0);
+      points.push({ x: t, y: Math.max(0, frac) * ceiling });
     }
     return points;
   }
@@ -734,17 +740,13 @@
     });
 
     const visible = seriesList.filter(s => !adoptionHidden.has(s.label));
-    // Log scale on the y-axis: on a linear 0-100% axis, Bitcoin's ~6%
-    // current adoption is indistinguishable from zero next to technologies
-    // that reached 90%+ saturation — the log scale is what actually makes
-    // the early-stage trajectories comparable.
-    const yTicks = [0.001,0.01,0.1,1,10,100].map(v => ({ value: v, label: v+"%" }));
+    // Linear 0-100% axis, all curves anchored at (0, 0%) — Bitcoin's ~6%
+    // current adoption is deliberately tiny next to technologies that
+    // reached 90%+ saturation; that's the point of the comparison.
+    const yTicks = [0,20,40,60,80,100].map(v => ({ value: v, label: v+"%" }));
     const xTicks = [0,10,20,30].map(v => ({ value: v, label: v+"년" }));
     drawLineChart(document.getElementById("adoptionChart"), visible, {
-      // Wider than the other charts' padRight (34) — labels like "0.001%"
-      // are longer than "x200" or "400" and were getting clipped at the
-      // canvas edge before this.
-      logScale: true, yTicks, xTicks, padRight: 48
+      logScale: false, yTicks, xTicks, padRight: 30
     });
   }
 
