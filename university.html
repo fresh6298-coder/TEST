@@ -118,14 +118,15 @@
     <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
     <div class="coin-icon">📚</div>
     <h1>Bitcoin University</h1>
-    <span class="live-dot" title="수동 갱신"></span>
+    <span class="live-dot" title="자동 갱신"></span>
   </header>
   <div class="updated" id="updatedLine">불러오는 중...</div>
 
   <div class="post-list" id="postList"></div>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
-  <p class="source-note">Data: <a href="https://bitcoin-university.beehiiv.com" target="_blank" rel="noopener">bitcoin-university.beehiiv.com</a> · beehiiv 무료 플랜이라 자동 연동 불가, 새 글은 수동으로 등록됨</p>
+  <p class="source-note" id="rawApiNote" style="display:none;"><a href="/api/university-news" target="_blank" rel="noopener">raw API 응답 보기 →</a></p>
+  <p class="source-note" id="sourceNote">Data: <a href="https://bitcoin-university.beehiiv.com" target="_blank" rel="noopener">bitcoin-university.beehiiv.com</a> (RSS)</p>
 </div>
 
 <nav class="bottom-nav">
@@ -171,19 +172,41 @@
     `).join("");
   }
 
+  async function loadLiveFeed(){
+    const res = await fetch("/api/university-news");
+    if(!res.ok) throw new Error("API " + res.status);
+    const data = await res.json();
+    if(!data.posts || !data.posts.length) throw new Error("데이터 없음");
+    return data.posts;
+  }
+
+  // Manually-curated fallback (see data/university-posts.json) in case the
+  // beehiiv RSS feed ever breaks or the URL changes.
+  async function loadStaticFallback(){
+    const res = await fetch("/data/university-posts.json", { cache: "no-store" });
+    if(!res.ok) throw new Error("데이터 로드 실패 " + res.status);
+    const data = await res.json();
+    return (data.posts || []).slice().sort((a,b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+  }
+
   async function load(){
     try{
       setStatus("");
-      const res = await fetch("/data/university-posts.json", { cache: "no-store" });
-      if(!res.ok) throw new Error("데이터 로드 실패 " + res.status);
-      const data = await res.json();
-      const posts = (data.posts || []).slice().sort((a,b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-
-      document.getElementById("updatedLine").textContent = "마지막 등록: " + (posts[0] ? fmtDate(posts[0].publishedAt) : "-");
+      const posts = await loadLiveFeed();
+      document.getElementById("updatedLine").textContent = "최근 글: " + (posts[0] ? fmtDate(posts[0].publishedAt) : "-");
       render(posts);
     }catch(e){
-      setStatus("데이터 로드 실패: " + e.message);
-      render([]);
+      document.getElementById("rawApiNote").style.display = "block";
+      try{
+        const posts = await loadStaticFallback();
+        document.getElementById("updatedLine").textContent = "최근 글: " + (posts[0] ? fmtDate(posts[0].publishedAt) : "-");
+        document.getElementById("sourceNote").innerHTML = 'Data: <a href="https://bitcoin-university.beehiiv.com" target="_blank" rel="noopener">bitcoin-university.beehiiv.com</a> · RSS 로드 실패로 수동 등록 목록 표시 중';
+        setStatus("실시간 피드 로드 실패, 수동 등록 목록으로 표시: " + e.message);
+        render(posts);
+      }catch(e2){
+        setStatus("데이터 로드 실패: " + e.message);
+        render([]);
+      }
     }
   }
 
