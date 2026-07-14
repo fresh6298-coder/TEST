@@ -17,17 +17,20 @@
 const HOME_URL = "https://bitcoin-university.beehiiv.com/";
 const READER_URL = "https://r.jina.ai/" + HOME_URL;
 
-// beehiiv's default post permalink shape.
-const POST_LINK_RE = /\[([^\]]*)\]\((https:\/\/bitcoin-university\.beehiiv\.com\/p\/[^)\s]+)\)/g;
-
-// Best-effort date near a link's position in the rendered markdown — dates
-// on a beehiiv homepage usually sit right next to the title, but aren't
-// part of the markdown link syntax itself, so this can't be exact.
+// Each post on the homepage renders as an image wrapped in a link to the
+// post (`[![Image N: title](imgUrl)](postUrl)`), immediately followed by
+// the real title as its own "### title" heading, then optionally a
+// one-line summary, then a byline ("... 저널리스트"), a "•" separator, and
+// a date. Every post also repeats later on the page (under "Featured" /
+// "Latest" sections) usually with the summary/byline stripped out, so we
+// only keep the first (richest) occurrence of each URL.
+const POST_URL_RE = /\]\((https:\/\/bitcoin-university\.beehiiv\.com\/p\/[^)\s]+)\)/g;
+const HEADING_RE = /^\s*\n+###\s+(.+?)\s*\n/;
 const DATE_RE = /([A-Z][a-z]{2,8}\s+\d{1,2},\s+\d{4})|(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/;
+const BYLINE_RE = /저널리스트|^by\s/i;
 
-function nearbyDate(markdown, fromIndex) {
-  const window = markdown.slice(fromIndex, fromIndex + 300);
-  const m = window.match(DATE_RE);
+function parseDate(text) {
+  const m = text.match(DATE_RE);
   if (!m) return null;
   if (m[1]) {
     const t = Date.parse(m[1]);
@@ -41,19 +44,30 @@ function parsePostsFromMarkdown(markdown) {
   const seen = new Set();
   const posts = [];
   let m;
-  while ((m = POST_LINK_RE.exec(markdown)) !== null) {
-    const title = m[1].replace(/\bimage\s*\d+\s*:\s*/gi, "").trim();
-    const url = m[2].trim();
-    if (!title || seen.has(url)) continue;
+  while ((m = POST_URL_RE.exec(markdown)) !== null) {
+    const url = m[1].trim();
+    if (seen.has(url)) continue;
+
+    const rest = markdown.slice(m.index + m[0].length, m.index + m[0].length + 600);
+    const heading = rest.match(HEADING_RE);
+    if (!heading) continue; // not actually a post card (e.g. a stray nav link)
+    const title = heading[1].trim();
+    if (!title) continue;
+
     seen.add(url);
-    posts.push({
-      title,
-      url,
-      imageUrl: null,
-      summary: null,
-      publishedAt: nearbyDate(markdown, m.index + m[0].length),
-    });
+
+    const afterHeading = rest.slice(heading.index + heading[0].length);
+    let summary = null;
+    for (const line of afterHeading.split("\n").map((l) => l.trim()).filter(Boolean)) {
+      if (line === "•" || DATE_RE.test(line)) break;
+      if (BYLINE_RE.test(line)) continue;
+      summary = line;
+      break;
+    }
+
+    posts.push({ title, url, imageUrl: null, summary, publishedAt: parseDate(rest) });
   }
+  posts.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
   return posts.slice(0, 30);
 }
 
