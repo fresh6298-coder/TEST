@@ -91,6 +91,13 @@
   .corr-card .value{font-size:20px;font-weight:700;}
   .corr-card .interp{font-size:10px;margin-top:2px;}
 
+  .info-box{
+    font-size:11px;color:var(--sub);line-height:1.6;
+    background:rgba(247,147,26,0.08);border:1px solid rgba(247,147,26,0.3);
+    border-radius:8px;padding:10px;margin-top:12px;
+  }
+  .info-box b{color:var(--text);}
+
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
   }
@@ -150,6 +157,14 @@
       <button id="macroResetZoom" type="button" style="display:none;">전체 기간 보기</button>
     </div>
     <div class="corr-grid" id="corrGrid"></div>
+  </section>
+
+  <section class="panel">
+    <h2>기술 도입 곡선 비교</h2>
+    <div class="desc">전기·전화·라디오·TV·PC·휴대폰·인터넷·스마트폰이 등장 후 몇 년 만에 얼마나 보급됐는지와, 비트코인의 전 세계 인구 대비 추정 보유율을 도입 후 경과 연수 기준으로 겹쳐서 비교해. (비트코인 외 곡선은 여러 문헌에서 자주 인용되는 근사치를 바탕으로 재구성한 참고용 곡선이고, 비트코인 보유율도 출처별로 추정치가 갈려.)</div>
+    <div class="chart-legend toggleable" id="adoptionLegend"></div>
+    <canvas class="panel-chart" id="adoptionChart"></canvas>
+    <div class="info-box" id="adoptionNote"></div>
   </section>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
@@ -653,9 +668,109 @@
     document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date().toLocaleString("ko-KR");
   }
 
-  window.addEventListener("resize", () => { renderCycles(); renderMacro(); });
+  // ---- Technology adoption curve comparison ----
+  // Reference curves are logistic (S-curve) fits through commonly cited
+  // "years since introduction -> % of households/population" milestones
+  // for each technology (t50 = years to reach half the eventual ceiling;
+  // spread = roughly how many years it takes to go from ~10% to ~90% of
+  // that ceiling). These are illustrative approximations compiled from
+  // widely published comparisons, not a single precise dataset.
+  const TECH_ADOPTION = [
+    { label: "전기", color: "#78716c", t50: 46, spread: 34, ceiling: 100 },
+    { label: "전화", color: "#a8a29e", t50: 70, spread: 50, ceiling: 97 },
+    { label: "라디오", color: "#eab308", t50: 11, spread: 12, ceiling: 95 },
+    { label: "TV", color: "#3b82f6", t50: 7, spread: 10, ceiling: 98 },
+    { label: "PC", color: "#8b5cf6", t50: 22, spread: 20, ceiling: 90 },
+    { label: "휴대폰", color: "#06b6d4", t50: 15, spread: 15, ceiling: 97 },
+    { label: "인터넷", color: "#10b981", t50: 9, spread: 14, ceiling: 93 },
+    { label: "스마트폰", color: "#ef4444", t50: 6, spread: 10, ceiling: 90 },
+  ];
+  const BITCOIN_COLOR = "#f7931a";
+
+  // Estimated share of world population holding/owning bitcoin, by year
+  // since the Genesis Block (3 Jan 2009). Approximate — compiled from
+  // widely cited industry estimates (Statista, Chainalysis, Triple-A,
+  // CoinShares); methodologies vary a lot (on-chain address heuristics vs
+  // survey vs exchange-account counts), so treat this as illustrative.
+  const BITCOIN_ADOPTION_START_YEAR = 2009;
+  const BITCOIN_ADOPTION = [
+    { year: 2009, pct: 0.0001 },
+    { year: 2011, pct: 0.002 },
+    { year: 2013, pct: 0.02 },
+    { year: 2015, pct: 0.07 },
+    { year: 2017, pct: 0.35 },
+    { year: 2019, pct: 0.7 },
+    { year: 2021, pct: 2.3 },
+    { year: 2023, pct: 4.8 },
+    { year: 2025, pct: 5.6 },
+    { year: 2026, pct: 6.0 },
+  ];
+  const ADOPTION_MAX_YEARS = 30;
+
+  function logisticSeries(t50, spread, ceiling, maxYears){
+    const k = 4.394 / spread; // ln(9*9): ~10%->90% of ceiling over `spread` years
+    const points = [];
+    for(let t = 0; t <= maxYears; t++){
+      const frac = 1 / (1 + Math.exp(-k * (t - t50)));
+      points.push({ x: t, y: frac * ceiling });
+    }
+    return points;
+  }
+
+  function adoptionLegendItems(){
+    return [...TECH_ADOPTION.map(t => ({ color: t.color, label: t.label })), { color: BITCOIN_COLOR, label: "비트코인" }];
+  }
+
+  let adoptionHidden = new Set();
+
+  function renderAdoption(){
+    const seriesList = TECH_ADOPTION.map(t => ({
+      points: logisticSeries(t.t50, t.spread, t.ceiling, ADOPTION_MAX_YEARS),
+      color: t.color, label: t.label,
+    }));
+    seriesList.push({
+      points: BITCOIN_ADOPTION.map(p => ({ x: p.year - BITCOIN_ADOPTION_START_YEAR, y: p.pct })),
+      color: BITCOIN_COLOR, label: "비트코인", lineWidth: 2.5,
+    });
+
+    const visible = seriesList.filter(s => !adoptionHidden.has(s.label));
+    // Log scale on the y-axis: on a linear 0-100% axis, Bitcoin's ~6%
+    // current adoption is indistinguishable from zero next to technologies
+    // that reached 90%+ saturation — the log scale is what actually makes
+    // the early-stage trajectories comparable.
+    const yTicks = [0.001,0.01,0.1,1,10,100].map(v => ({ value: v, label: v+"%" }));
+    const xTicks = [0,10,20,30].map(v => ({ value: v, label: v+"년" }));
+    drawLineChart(document.getElementById("adoptionChart"), visible, {
+      logScale: true, yTicks, xTicks, padRight: 34
+    });
+  }
+
+  function toggleAdoption(label){
+    if(adoptionHidden.has(label)) adoptionHidden.delete(label);
+    else adoptionHidden.add(label);
+    renderLegend(document.getElementById("adoptionLegend"), adoptionLegendItems(),
+      { hiddenSet: adoptionHidden, onToggle: toggleAdoption });
+    renderAdoption();
+  }
+
+  function initAdoption(){
+    renderLegend(document.getElementById("adoptionLegend"), adoptionLegendItems(),
+      { hiddenSet: adoptionHidden, onToggle: toggleAdoption });
+    renderAdoption();
+
+    const latest = BITCOIN_ADOPTION[BITCOIN_ADOPTION.length - 1];
+    const yearsSinceGenesis = latest.year - BITCOIN_ADOPTION_START_YEAR;
+    document.getElementById("adoptionNote").innerHTML =
+      `<b>비트코인은 제네시스 블록 이후 ${yearsSinceGenesis}년째, 추정 전 세계 인구의 약 ${latest.pct}% 정도가 보유 중이야.</b> ` +
+      `단 Santostasi & Perrenod(2026)의 멱법칙 논문에 따르면 비트코인 주소 수는 N(t) ∝ t<sup>3.05</sup> 형태의 거듭제곱 성장(R²=0.977, 15년간 안정적)을 보여 — ` +
+      `이는 위 그래프의 다른 기술들이 따르는 로지스틱(S자형) 곡선과 달리 뚜렷한 상한(포화점)을 전제하지 않는 '전염병 확산(saturation wave)' 모델과 같은 형태야. ` +
+      `즉 다른 기술들처럼 조만간 성장이 꺾일 것이라는 근거는 아직 나타나지 않았어.`;
+  }
+
+  window.addEventListener("resize", () => { renderCycles(); renderMacro(); renderAdoption(); });
   attachMacroZoomPan();
   load();
+  initAdoption();
   setInterval(load, 60 * 60 * 1000);
 })();
 </script>
