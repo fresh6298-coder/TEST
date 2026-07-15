@@ -149,7 +149,7 @@
 
   <section class="panel">
     <h2>가격 멱법칙 모델</h2>
-    <div class="desc">Santostasi & Perrenod(2026) 논문의 멱법칙 P(t) ∝ t<sup>5.69</sup> (t = 제네시스 블록 이후 일수, R²=0.961)로 계산한 이론적 가격 추세선과 ±2σ 밴드(약 4배 범위)를, 실제 연도별 가격과 겹쳐서 비교해.</div>
+    <div class="desc">Santostasi & Perrenod(2026) 논문의 멱법칙 P(t) ∝ t<sup>5.69</sup> (t = 제네시스 블록 이후 일수, R²=0.961)로 계산한 이론적 가격 추세선과 ±2σ 밴드(약 4배 범위)를 2050년까지 연장해서, 실제 연도별 가격과 겹쳐서 비교해. (2050년까지는 순수 수식 추정치이지 예측이 아니야 — 먼 미래로 갈수록 오차가 커져.) 세로축은 달러 아래에 원화 환산 금액도 같이 표기했어.</div>
     <div class="chart-legend" id="priceLawLegend"></div>
     <canvas class="panel-chart" id="priceLawChart"></canvas>
   </section>
@@ -231,7 +231,20 @@
       if(y < -5 || y > h+5) return;
       ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
       ctx.textAlign = "left";
-      ctx.fillText(tick.label, plotW + 4, y + 3);
+      // A "\n" in the label draws a smaller second line underneath (e.g.
+      // a KRW-equivalent amount under a USD tick) — single-line labels
+      // render exactly as before.
+      const lines = String(tick.label).split("\n");
+      if(lines.length > 1){
+        ctx.fillText(lines[0], plotW + 4, y);
+        ctx.font = "8px ui-monospace, monospace";
+        ctx.fillStyle = "rgba(140,140,140,0.7)";
+        ctx.fillText(lines[1], plotW + 4, y + 9);
+        ctx.font = "9px ui-monospace, monospace";
+        ctx.fillStyle = "rgba(140,140,140,0.9)";
+      } else {
+        ctx.fillText(tick.label, plotW + 4, y + 3);
+      }
     });
     ctx.setLineDash([]);
 
@@ -408,21 +421,47 @@
   const PRICE_LAW_LOG_A = -16.509;
   const PRICE_LAW_BETA = 5.690;
   const PRICE_LAW_SIGMA_DEX = 0.302; // ±1σ; the shaded band below uses ±2σ
+  const PRICE_LAW_PROJECTION_END = Date.UTC(2050, 0, 1);
 
   function priceLawFit(ms){
     const t = daysSinceGenesis(ms);
     return Math.pow(10, PRICE_LAW_LOG_A + PRICE_LAW_BETA * Math.log10(t));
   }
 
+  // Monthly sampling is plenty smooth for a slowly-curving power law and
+  // keeps the 2010-2050 projection from generating tens of thousands of
+  // points.
+  function monthlyRange(startMs, endMs){
+    const points = [];
+    const d = new Date(startMs);
+    d.setUTCDate(1); d.setUTCHours(0,0,0,0);
+    while(d.getTime() <= endMs){
+      points.push(d.getTime());
+      d.setUTCMonth(d.getUTCMonth() + 1);
+    }
+    return points;
+  }
+
   function fmtUsdShort(n){
+    if(n >= 1e9) return "$" + (n/1e9).toFixed(1) + "B";
+    if(n >= 1e6) return "$" + (n/1e6).toFixed(1) + "M";
     if(n >= 1000) return "$" + (n/1000).toFixed(n >= 10000 ? 0 : 1) + "K";
     return "$" + n.toFixed(n < 1 ? 2 : 0);
+  }
+
+  function fmtKrwShort(usd, krwPerUsd){
+    if(!krwPerUsd) return "";
+    const krw = usd * krwPerUsd;
+    if(krw >= 1e12) return "₩" + (krw/1e12).toFixed(1) + "조";
+    if(krw >= 1e8) return "₩" + (krw/1e8).toFixed(1) + "억";
+    if(krw >= 1e4) return "₩" + Math.round(krw/1e4) + "만";
+    return "₩" + Math.round(krw).toLocaleString("ko-KR");
   }
 
   function yearlyXTicks(minMs, maxMs){
     const startYear = new Date(minMs).getUTCFullYear();
     const endYear = new Date(maxMs).getUTCFullYear();
-    const step = (endYear - startYear) > 10 ? 2 : 1;
+    const step = (endYear - startYear) > 16 ? 5 : (endYear - startYear) > 10 ? 2 : 1;
     const ticks = [];
     for(let y = startYear; y <= endYear; y += step){
       const ms = Date.UTC(y, 0, 1);
@@ -432,6 +471,17 @@
   }
 
   let priceLawSeriesList = null;
+  let priceLawFxRate = null; // KRW per USD, for the y-axis labels
+
+  async function fetchFxRate(){
+    try{
+      const res = await fetch("https://open.er-api.com/v6/latest/USD");
+      const data = await res.json();
+      return data?.rates?.KRW || null;
+    }catch{
+      return null;
+    }
+  }
 
   function renderPriceLaw(){
     if(!priceLawSeriesList) return;
@@ -439,22 +489,29 @@
     const allYs = priceLawSeriesList.flatMap(s => s.points.map(p => p.y));
     const minX = Math.min(...allXs), maxX = Math.max(...allXs);
     const minY = Math.min(...allYs), maxY = Math.max(...allYs);
-    const yTicks = [0.1,1,10,100,1000,10000,100000,1000000]
+    const yTicks = [0.1,1,10,100,1000,10000,100000,1000000,10000000,100000000]
       .filter(v => v >= minY * 0.5 && v <= maxY * 2)
-      .map(v => ({ value: v, label: fmtUsdShort(v) }));
+      .map(v => ({
+        value: v,
+        label: priceLawFxRate ? `${fmtUsdShort(v)}\n${fmtKrwShort(v, priceLawFxRate)}` : fmtUsdShort(v),
+      }));
     drawLineChart(document.getElementById("priceLawChart"), priceLawSeriesList, {
-      logScale: true, yTicks, xTicks: yearlyXTicks(minX, maxX), padRight: 40
+      logScale: true, yTicks, xTicks: yearlyXTicks(minX, maxX), padRight: 52
     });
   }
 
   async function loadPriceLaw(){
     try{
-      const dailyMap = await fetchBtcHistory();
+      const [dailyMap, fxRate] = await Promise.all([fetchBtcHistory(), fetchFxRate()]);
       const sortedDays = Object.keys(dailyMap).sort();
       if(!sortedDays.length) throw new Error("데이터 없음");
+      priceLawFxRate = fxRate;
 
       const actualPoints = sortedDays.map(d => ({ x: new Date(d).getTime(), y: dailyMap[d] }));
-      const fitPoints = actualPoints.map(p => ({ x: p.x, y: priceLawFit(p.x) }));
+      // The theoretical fit and its band extend past the real price data,
+      // out to 2050, as a projection under the paper's power law.
+      const fitPoints = monthlyRange(actualPoints[0].x, PRICE_LAW_PROJECTION_END)
+        .map(ms => ({ x: ms, y: priceLawFit(ms) }));
       const bandMult = Math.pow(10, 2 * PRICE_LAW_SIGMA_DEX);
 
       priceLawSeriesList = [
@@ -466,7 +523,7 @@
 
       renderLegend(document.getElementById("priceLawLegend"), [
         { color: "#f7931a", label: "실제 가격" },
-        { color: "#3b82f6", label: "멱법칙 예측 (P∝t^5.69)" },
+        { color: "#3b82f6", label: "멱법칙 예측 (2050년까지)" },
         { color: "rgba(100,116,139,0.6)", label: "±2σ 밴드" },
       ]);
       renderPriceLaw();
