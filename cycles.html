@@ -75,6 +75,8 @@
   .panel-chart{width:100%;height:180px;display:block;}
   #macroChart{touch-action:none;cursor:grab;}
   #macroChart:active{cursor:grabbing;}
+  #priceLawChart{touch-action:none;cursor:grab;}
+  #priceLawChart:active{cursor:grabbing;}
   .macro-zoom-bar{
     display:flex;justify-content:space-between;align-items:center;
     font-size:11px;color:var(--sub);margin-top:4px;
@@ -152,6 +154,10 @@
     <div class="desc">Santostasi & Perrenod(2026) 논문의 멱법칙 P(t) ∝ t<sup>5.69</sup> (t = 제네시스 블록 이후 일수, R²=0.961)로 계산한 이론적 가격 추세선과 ±2σ 밴드(약 4배 범위)를 2050년까지 연장해서, 실제 연도별 가격과 겹쳐서 비교해. (2050년까지는 순수 수식 추정치이지 예측이 아니야 — 먼 미래로 갈수록 오차가 커져.) 세로축은 달러 아래에 원화 환산 금액도 같이 표기했어.</div>
     <div class="chart-legend" id="priceLawLegend"></div>
     <canvas class="panel-chart" id="priceLawChart"></canvas>
+    <div class="macro-zoom-bar">
+      <span id="priceLawRangeLabel"></span>
+      <button id="priceLawResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
   </section>
 
   <section class="panel">
@@ -458,20 +464,30 @@
     return "₩" + Math.round(krw).toLocaleString("ko-KR");
   }
 
-  function yearlyXTicks(minMs, maxMs){
+  // Picks a "nice" year step (1/2/5/10/20/25/50) so the tick count stays
+  // reasonable — needed once zoom is in play, since a zoomed-in window
+  // spanning only a few years would otherwise still get whatever step was
+  // right for the full 2014-2050 range and the labels would overlap.
+  function yearlyXTicks(minMs, maxMs, targetCount){
+    targetCount = targetCount || 5;
     const startYear = new Date(minMs).getUTCFullYear();
     const endYear = new Date(maxMs).getUTCFullYear();
-    const step = (endYear - startYear) > 16 ? 5 : (endYear - startYear) > 10 ? 2 : 1;
+    const span = Math.max(1, endYear - startYear);
+    const rawStep = span / targetCount;
+    const step = [1,2,5,10,20,25,50].find(s => s >= rawStep) || 50;
     const ticks = [];
-    for(let y = startYear; y <= endYear; y += step){
+    for(let y = Math.ceil(startYear / step) * step; y <= endYear; y += step){
       const ms = Date.UTC(y, 0, 1);
       if(ms >= minMs && ms <= maxMs) ticks.push({ value: ms, label: String(y) });
     }
+    if(!ticks.length) ticks.push({ value: minMs, label: String(startYear) });
     return ticks;
   }
 
   let priceLawSeriesList = null;
   let priceLawFxRate = null; // KRW per USD, for the y-axis labels
+  let priceLawFullRange = null; // {min,max} in ms — full 2014ish-2050 span
+  let priceLawViewRange = null; // {min,max} in ms — zoomed window, null = full range
 
   async function fetchFxRate(){
     try{
@@ -484,10 +500,13 @@
   }
 
   function renderPriceLaw(){
-    if(!priceLawSeriesList) return;
-    const allXs = priceLawSeriesList.flatMap(s => s.points.map(p => p.x));
-    const allYs = priceLawSeriesList.flatMap(s => s.points.map(p => p.y));
-    const minX = Math.min(...allXs), maxX = Math.max(...allXs);
+    if(!priceLawSeriesList || !priceLawFullRange) return;
+    const range = priceLawViewRange || priceLawFullRange;
+    const visible = priceLawSeriesList
+      .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
+      .filter(s => s.points.length >= 2);
+
+    const allYs = visible.flatMap(s => s.points.map(p => p.y));
     const minY = Math.min(...allYs), maxY = Math.max(...allYs);
     const yTicks = [0.1,1,10,100,1000,10000,100000,1000000,10000000,100000000]
       .filter(v => v >= minY * 0.5 && v <= maxY * 2)
@@ -495,8 +514,101 @@
         value: v,
         label: priceLawFxRate ? `${fmtUsdShort(v)}\n${fmtKrwShort(v, priceLawFxRate)}` : fmtUsdShort(v),
       }));
-    drawLineChart(document.getElementById("priceLawChart"), priceLawSeriesList, {
-      logScale: true, yTicks, xTicks: yearlyXTicks(minX, maxX), padRight: 52
+    drawLineChart(document.getElementById("priceLawChart"), visible, {
+      logScale: true, yTicks, xTicks: yearlyXTicks(range.min, range.max), padRight: 52
+    });
+
+    document.getElementById("priceLawRangeLabel").textContent = fmtRangeLabel(range);
+    document.getElementById("priceLawResetZoom").style.display = priceLawViewRange ? "inline-block" : "none";
+  }
+
+  function zoomPriceLaw(factor, centerTs){
+    if(!priceLawFullRange) return;
+    const cur = priceLawViewRange || priceLawFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = priceLawFullRange.max - priceLawFullRange.min;
+    const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+    const ratio = (centerTs - cur.min) / width;
+    const min = centerTs - newWidth * ratio;
+    const next = clampRange({ min, max: min + newWidth }, priceLawFullRange);
+    priceLawViewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+    renderPriceLaw();
+  }
+
+  function panPriceLaw(deltaMs){
+    if(!priceLawFullRange) return;
+    const cur = priceLawViewRange || priceLawFullRange;
+    const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, priceLawFullRange);
+    priceLawViewRange = (next.max - next.min) >= (priceLawFullRange.max - priceLawFullRange.min) - 1000 ? null : next;
+    renderPriceLaw();
+  }
+
+  function attachPriceLawZoomPan(){
+    const canvas = document.getElementById("priceLawChart");
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        touchState = { mode: "pan", lastX: e.touches[0].clientX };
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState || !priceLawFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "pan" && e.touches.length === 1){
+        const dxPx = e.touches[0].clientX - touchState.lastX;
+        touchState.lastX = e.touches[0].clientX;
+        const range = priceLawViewRange || priceLawFullRange;
+        const msPerPx = (range.max - range.min) / rect.width;
+        panPriceLaw(-dxPx * msPerPx);
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const range = priceLawViewRange || priceLawFullRange;
+        const centerTs = range.min + (midX / rect.width) * (range.max - range.min);
+        zoomPriceLaw(touchState.lastDist / dist, centerTs);
+        touchState.lastDist = dist;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0) touchState = null;
+      else if(e.touches.length === 1) touchState = { mode: "pan", lastX: e.touches[0].clientX };
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!priceLawFullRange) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const range = priceLawViewRange || priceLawFullRange;
+      const centerTs = range.min + ((e.clientX - rect.left) / rect.width) * (range.max - range.min);
+      zoomPriceLaw(e.deltaY > 0 ? 1.2 : 1/1.2, centerTs);
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !priceLawFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = priceLawViewRange || priceLawFullRange;
+      const msPerPx = (range.max - range.min) / rect.width;
+      panPriceLaw(-dxPx * msPerPx);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    document.getElementById("priceLawResetZoom").addEventListener("click", () => {
+      priceLawViewRange = null;
+      renderPriceLaw();
     });
   }
 
@@ -526,6 +638,7 @@
         { color: "#3b82f6", label: "멱법칙 예측 (2050년까지)" },
         { color: "rgba(100,116,139,0.6)", label: "±2σ 밴드" },
       ]);
+      priceLawFullRange = { min: actualPoints[0].x, max: PRICE_LAW_PROJECTION_END };
       renderPriceLaw();
     }catch(e){
       setStatus("가격 멱법칙 모델 로드 실패: " + e.message);
@@ -941,6 +1054,7 @@
 
   window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderMacro(); renderAdoption(); });
   attachMacroZoomPan();
+  attachPriceLawZoomPan();
   load();
   initAdoption();
   setInterval(load, 60 * 60 * 1000);
