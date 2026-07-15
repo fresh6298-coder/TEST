@@ -148,6 +148,13 @@
   </section>
 
   <section class="panel">
+    <h2>가격 멱법칙 모델</h2>
+    <div class="desc">Santostasi & Perrenod(2026) 논문의 멱법칙 P(t) ∝ t<sup>5.69</sup> (t = 제네시스 블록 이후 일수, R²=0.961)로 계산한 이론적 가격 추세선과 ±2σ 밴드(약 4배 범위)를, 실제 연도별 가격과 겹쳐서 비교해.</div>
+    <div class="chart-legend" id="priceLawLegend"></div>
+    <canvas class="panel-chart" id="priceLawChart"></canvas>
+  </section>
+
+  <section class="panel">
     <h2>매크로 상관관계</h2>
     <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자·서울 아파트 매매가격지수를 각각 시작일=100으로 정규화해 비교해. (서울 지수는 REB 주간 통계 스냅샷으로, 실시간 갱신되지 않아.)</div>
     <div class="chart-legend" id="macroLegend"></div>
@@ -335,6 +342,12 @@
     return data.prices;
   }
 
+  // Shared with both the price power-law model and the technology
+  // adoption curve panels below.
+  const GENESIS_DATE = Date.UTC(2009, 0, 3);
+  const MS_PER_DAY = 86400000;
+  function daysSinceGenesis(ms){ return (ms - GENESIS_DATE) / MS_PER_DAY; }
+
   const HALVINGS = [
     { label: "2016 반감기", date: "2016-07-09" },
     { label: "2020 반감기", date: "2020-05-11" },
@@ -388,6 +401,77 @@
       renderCycles();
     }catch(e){
       setStatus("반감기 차트 로드 실패: " + e.message);
+    }
+  }
+
+  // ---- Price power law model (paper: log10 P(t) = -16.509 + 5.690·log10 t) ----
+  const PRICE_LAW_LOG_A = -16.509;
+  const PRICE_LAW_BETA = 5.690;
+  const PRICE_LAW_SIGMA_DEX = 0.302; // ±1σ; the shaded band below uses ±2σ
+
+  function priceLawFit(ms){
+    const t = daysSinceGenesis(ms);
+    return Math.pow(10, PRICE_LAW_LOG_A + PRICE_LAW_BETA * Math.log10(t));
+  }
+
+  function fmtUsdShort(n){
+    if(n >= 1000) return "$" + (n/1000).toFixed(n >= 10000 ? 0 : 1) + "K";
+    return "$" + n.toFixed(n < 1 ? 2 : 0);
+  }
+
+  function yearlyXTicks(minMs, maxMs){
+    const startYear = new Date(minMs).getUTCFullYear();
+    const endYear = new Date(maxMs).getUTCFullYear();
+    const step = (endYear - startYear) > 10 ? 2 : 1;
+    const ticks = [];
+    for(let y = startYear; y <= endYear; y += step){
+      const ms = Date.UTC(y, 0, 1);
+      if(ms >= minMs && ms <= maxMs) ticks.push({ value: ms, label: String(y) });
+    }
+    return ticks;
+  }
+
+  let priceLawSeriesList = null;
+
+  function renderPriceLaw(){
+    if(!priceLawSeriesList) return;
+    const allXs = priceLawSeriesList.flatMap(s => s.points.map(p => p.x));
+    const allYs = priceLawSeriesList.flatMap(s => s.points.map(p => p.y));
+    const minX = Math.min(...allXs), maxX = Math.max(...allXs);
+    const minY = Math.min(...allYs), maxY = Math.max(...allYs);
+    const yTicks = [0.1,1,10,100,1000,10000,100000,1000000]
+      .filter(v => v >= minY * 0.5 && v <= maxY * 2)
+      .map(v => ({ value: v, label: fmtUsdShort(v) }));
+    drawLineChart(document.getElementById("priceLawChart"), priceLawSeriesList, {
+      logScale: true, yTicks, xTicks: yearlyXTicks(minX, maxX), padRight: 40
+    });
+  }
+
+  async function loadPriceLaw(){
+    try{
+      const dailyMap = await fetchBtcHistory();
+      const sortedDays = Object.keys(dailyMap).sort();
+      if(!sortedDays.length) throw new Error("데이터 없음");
+
+      const actualPoints = sortedDays.map(d => ({ x: new Date(d).getTime(), y: dailyMap[d] }));
+      const fitPoints = actualPoints.map(p => ({ x: p.x, y: priceLawFit(p.x) }));
+      const bandMult = Math.pow(10, 2 * PRICE_LAW_SIGMA_DEX);
+
+      priceLawSeriesList = [
+        { points: fitPoints.map(p => ({ x: p.x, y: p.y * bandMult })), color: "rgba(100,116,139,0.4)", label: "±2σ 밴드", lineWidth: 1 },
+        { points: fitPoints.map(p => ({ x: p.x, y: p.y / bandMult })), color: "rgba(100,116,139,0.4)", label: "±2σ 밴드 하단", lineWidth: 1 },
+        { points: fitPoints, color: "#3b82f6", label: "멱법칙 예측", lineWidth: 1.5 },
+        { points: actualPoints, color: "#f7931a", label: "실제 가격", lineWidth: 2 },
+      ];
+
+      renderLegend(document.getElementById("priceLawLegend"), [
+        { color: "#f7931a", label: "실제 가격" },
+        { color: "#3b82f6", label: "멱법칙 예측 (P∝t^5.69)" },
+        { color: "rgba(100,116,139,0.6)", label: "±2σ 밴드" },
+      ]);
+      renderPriceLaw();
+    }catch(e){
+      setStatus("가격 멱법칙 모델 로드 실패: " + e.message);
     }
   }
 
@@ -664,7 +748,7 @@
 
   async function load(){
     document.getElementById("updatedLine").textContent = "갱신 중...";
-    await Promise.all([loadCycles(), loadMacro()]);
+    await Promise.all([loadCycles(), loadPriceLaw(), loadMacro()]);
     document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date().toLocaleString("ko-KR");
   }
 
@@ -719,11 +803,7 @@
   // raw address count understates real ownership by roughly an order of
   // magnitude because of exchange custodial concentration (addresses ≠
   // people), a limitation the paper itself notes.
-  const GENESIS_DATE = Date.UTC(2009, 0, 3);
   const ADOPTION_BETA_A = 3.046;
-  const MS_PER_DAY = 86400000;
-
-  function daysSinceGenesis(ms){ return (ms - GENESIS_DATE) / MS_PER_DAY; }
 
   function projectedAdoptionPct(nowMs){
     const tAnchor = daysSinceGenesis(ADOPTION_LAST_SURVEY_ANCHOR.date);
@@ -802,7 +882,7 @@
       `즉 다른 기술들처럼 조만간 성장이 꺾일 것이라는 근거는 아직 나타나지 않았어.`;
   }
 
-  window.addEventListener("resize", () => { renderCycles(); renderMacro(); renderAdoption(); });
+  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderMacro(); renderAdoption(); });
   attachMacroZoomPan();
   load();
   initAdoption();
