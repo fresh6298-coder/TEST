@@ -77,6 +77,15 @@
   #macroChart:active{cursor:grabbing;}
   #priceLawChart{touch-action:none;cursor:grab;}
   #priceLawChart:active{cursor:grabbing;}
+  .chart-canvas-wrap{position:relative;}
+  .pricelaw-tooltip{
+    position:absolute;top:4px;
+    padding:6px 10px;border:1px solid var(--track);border-radius:8px;
+    background:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,0.15);
+    font-size:11px;line-height:1.6;white-space:nowrap;
+    pointer-events:none;display:none;z-index:5;
+  }
+  .pricelaw-tooltip .label{color:var(--sub);}
   .macro-zoom-bar{
     display:flex;justify-content:space-between;align-items:center;
     font-size:11px;color:var(--sub);margin-top:4px;
@@ -151,9 +160,12 @@
 
   <section class="panel">
     <h2>가격 멱법칙 모델</h2>
-    <div class="desc">Santostasi & Perrenod(2026) 논문의 멱법칙 P(t) ∝ t<sup>5.69</sup> (t = 제네시스 블록 이후 일수, R²=0.961)로 계산한 이론적 가격 추세선과 ±2σ 밴드(약 4배 범위)를 2050년까지 연장해서, 실제 연도별 가격과 겹쳐서 비교해. (2050년까지는 순수 수식 추정치이지 예측이 아니야 — 먼 미래로 갈수록 오차가 커져.) 세로축은 달러 아래에 원화 환산 금액도 같이 표기했어.</div>
+    <div class="desc">Santostasi & Perrenod(2026) 논문의 멱법칙 P(t) ∝ t<sup>5.69</sup> (t = 제네시스 블록 이후 일수, R²=0.961)로 계산한 이론적 가격 추세선과 ±2σ 밴드(약 4배 범위)를 2050년까지 연장해서, 실제 연도별 가격과 겹쳐서 비교해. (2050년까지는 순수 수식 추정치이지 예측이 아니야 — 먼 미래로 갈수록 오차가 커져.) 세로축은 달러 아래에 원화 환산 금액도 같이 표기했어. 그래프를 탭/클릭하면 그 시점의 값을 보여줘.</div>
     <div class="chart-legend" id="priceLawLegend"></div>
-    <canvas class="panel-chart" id="priceLawChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="priceLawChart"></canvas>
+      <div class="pricelaw-tooltip" id="priceLawTooltip"></div>
+    </div>
     <div class="macro-zoom-bar">
       <span id="priceLawRangeLabel"></span>
       <button id="priceLawResetZoom" type="button" style="display:none;">전체 기간 보기</button>
@@ -261,6 +273,17 @@
       ctx.lineWidth = s.lineWidth || 1.5;
       ctx.stroke();
     });
+
+    if(opts.highlightX != null){
+      const hx = xAt(opts.highlightX);
+      if(hx >= -1 && hx <= plotW + 1){
+        ctx.beginPath();
+        ctx.moveTo(hx, 0); ctx.lineTo(hx, h);
+        ctx.strokeStyle = "rgba(100,100,100,0.5)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
 
     if(opts.xTicks){
       ctx.fillStyle = "rgba(140,140,140,0.9)";
@@ -464,6 +487,13 @@
     return "₩" + Math.round(krw).toLocaleString("ko-KR");
   }
 
+  // Full precision (not the K/M/B-rounded axis format) for the tooltip,
+  // where a tapped point's exact value matters more than compactness.
+  function fmtUsdPrecise(n){
+    if(n < 1) return "$" + n.toFixed(4);
+    return "$" + n.toLocaleString("en-US", { maximumFractionDigits: n < 1000 ? 2 : 0 });
+  }
+
   // Picks a "nice" year step (1/2/5/10/20/25/50) so the tick count stays
   // reasonable — needed once zoom is in play, since a zoomed-in window
   // spanning only a few years would otherwise still get whatever step was
@@ -485,9 +515,11 @@
   }
 
   let priceLawSeriesList = null;
+  let priceLawActualSorted = null; // [{t,v}] sorted by t — for the tooltip's "실제 가격" lookup
   let priceLawFxRate = null; // KRW per USD, for the y-axis labels
   let priceLawFullRange = null; // {min,max} in ms — full 2014ish-2050 span
   let priceLawViewRange = null; // {min,max} in ms — zoomed window, null = full range
+  let priceLawHighlightX = null; // ms of the currently tapped/hovered point, or null
 
   async function fetchFxRate(){
     try{
@@ -515,11 +547,58 @@
         label: priceLawFxRate ? `${fmtUsdShort(v)}\n${fmtKrwShort(v, priceLawFxRate)}` : fmtUsdShort(v),
       }));
     drawLineChart(document.getElementById("priceLawChart"), visible, {
-      logScale: true, yTicks, xTicks: yearlyXTicks(range.min, range.max), padRight: 52
+      logScale: true, yTicks, xTicks: yearlyXTicks(range.min, range.max), padRight: 52,
+      highlightX: priceLawHighlightX,
     });
 
     document.getElementById("priceLawRangeLabel").textContent = fmtRangeLabel(range);
     document.getElementById("priceLawResetZoom").style.display = priceLawViewRange ? "inline-block" : "none";
+  }
+
+  // Shows the actual/predicted/band values at a tapped or hovered point.
+  // Pass null to clear it. The fit/band values are recomputed directly
+  // from the formula (exact for any ms, no interpolation needed); the
+  // actual price is looked up from the real daily series and only shown
+  // if a data point exists at or before that date.
+  function updatePriceLawTooltip(ms){
+    priceLawHighlightX = ms;
+    renderPriceLaw();
+
+    const tooltip = document.getElementById("priceLawTooltip");
+    if(ms == null || !priceLawFullRange){ tooltip.style.display = "none"; return; }
+
+    const fmtBoth = usd => priceLawFxRate
+      ? `${fmtUsdShort(usd)} (${fmtKrwShort(usd, priceLawFxRate)})`
+      : fmtUsdShort(usd);
+
+    const fit = priceLawFit(ms);
+    const bandMult = Math.pow(10, 2 * PRICE_LAW_SIGMA_DEX);
+    // valueAtOrBefore would otherwise happily return the last known price
+    // for any future date too (it just means "no update since then") —
+    // only show "실제" when the tapped point is actually within the real
+    // data's range, not out in the projected-future part of the chart.
+    const lastActualT = priceLawActualSorted && priceLawActualSorted.length
+      ? priceLawActualSorted[priceLawActualSorted.length - 1].t : null;
+    const actual = (lastActualT != null && ms <= lastActualT)
+      ? valueAtOrBefore(priceLawActualSorted, ms) : null;
+
+    let html = `<div><b>${new Date(ms).toISOString().slice(0,10)}</b></div>`;
+    if(actual != null){
+      const actualKrw = priceLawFxRate ? ` (${fmtKrwShort(actual, priceLawFxRate)})` : "";
+      html += `<div><span class="label">실제:</span> <b>${fmtUsdPrecise(actual)}</b>${actualKrw}</div>`;
+    }
+    html += `<div><span class="label">예측:</span> ${fmtBoth(fit)}</div>`;
+    html += `<div><span class="label">±2σ:</span> ${fmtBoth(fit / bandMult)} ~ ${fmtBoth(fit * bandMult)}</div>`;
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+
+    const canvas = document.getElementById("priceLawChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = priceLawViewRange || priceLawFullRange;
+    const frac = (ms - range.min) / (range.max - range.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
   }
 
   function zoomPriceLaw(factor, centerTs){
@@ -543,14 +622,22 @@
     renderPriceLaw();
   }
 
+  function xToMs(canvas, clientX){
+    const rect = canvas.getBoundingClientRect();
+    const range = priceLawViewRange || priceLawFullRange;
+    return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+  }
+
   function attachPriceLawZoomPan(){
     const canvas = document.getElementById("priceLawChart");
     let touchState = null;
     let mouseDragging = false, lastMouseX = 0;
+    const TAP_SLOP = 8; // px of movement still counted as a tap, not a drag
 
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
-        touchState = { mode: "pan", lastX: e.touches[0].clientX };
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -562,12 +649,17 @@
       if(!touchState || !priceLawFullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "pan" && e.touches.length === 1){
-        const dxPx = e.touches[0].clientX - touchState.lastX;
-        touchState.lastX = e.touches[0].clientX;
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        const dxPx = x - touchState.lastX;
+        touchState.lastX = x;
+        if(Math.abs(x - touchState.startX) > TAP_SLOP || Math.abs(y - touchState.startY) > TAP_SLOP){
+          touchState.moved = true;
+        }
         const range = priceLawViewRange || priceLawFullRange;
         const msPerPx = (range.max - range.min) / rect.width;
         panPriceLaw(-dxPx * msPerPx);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        touchState.moved = true;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.hypot(dx, dy);
@@ -581,8 +673,16 @@
     }, { passive: false });
 
     canvas.addEventListener("touchend", e => {
+      // A tap (touch that didn't turn into a pan/pinch) shows the value at
+      // that point instead of just being a no-op end-of-drag.
+      if(touchState && touchState.mode === "pan" && !touchState.moved && priceLawFullRange){
+        updatePriceLawTooltip(xToMs(canvas, touchState.startX));
+      }
       if(e.touches.length === 0) touchState = null;
-      else if(e.touches.length === 1) touchState = { mode: "pan", lastX: e.touches[0].clientX };
+      else if(e.touches.length === 1){
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+      }
     });
 
     canvas.addEventListener("wheel", e => {
@@ -594,7 +694,10 @@
       zoomPriceLaw(e.deltaY > 0 ? 1.2 : 1/1.2, centerTs);
     }, { passive: false });
 
-    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; });
+    canvas.addEventListener("mousedown", e => {
+      mouseDragging = true; lastMouseX = e.clientX;
+      updatePriceLawTooltip(null);
+    });
     window.addEventListener("mousemove", e => {
       if(!mouseDragging || !priceLawFullRange) return;
       const rect = canvas.getBoundingClientRect();
@@ -605,6 +708,14 @@
       panPriceLaw(-dxPx * msPerPx);
     });
     window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    // Plain hover (no button held) shows the value under the cursor, like
+    // a desktop crosshair — separate from the click-drag pan above.
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !priceLawFullRange) return;
+      updatePriceLawTooltip(xToMs(canvas, e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updatePriceLawTooltip(null); });
 
     document.getElementById("priceLawResetZoom").addEventListener("click", () => {
       priceLawViewRange = null;
@@ -620,6 +731,7 @@
       priceLawFxRate = fxRate;
 
       const actualPoints = sortedDays.map(d => ({ x: new Date(d).getTime(), y: dailyMap[d] }));
+      priceLawActualSorted = actualPoints.map(p => ({ t: p.x, v: p.y }));
       // The theoretical fit and its band extend past the real price data,
       // out to 2050, as a projection under the paper's power law.
       const fitPoints = monthlyRange(actualPoints[0].x, PRICE_LAW_PROJECTION_END)
