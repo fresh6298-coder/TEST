@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Bitcoin News</title>
+<title>스크랩한 뉴스 - Bitcoin News</title>
 <style>
   :root{
     --orange:#f7931a;
@@ -49,14 +49,10 @@
     flex-shrink:0;
   }
   .topbar h1{
-    font-size:22px;margin:0;flex:1;font-weight:700;
+    font-size:19px;margin:0;flex:1;font-weight:700;
   }
-  .live-dot{
-    width:10px;height:10px;border-radius:50%;
-    background:var(--green);
-  }
-  .updated{
-    font-size:12px;color:var(--sub);margin-bottom:12px;
+  .sub-line{
+    font-size:12px;color:var(--sub);margin-bottom:16px;
   }
 
   .news-links{display:flex;gap:12px;align-items:baseline;margin-bottom:16px;}
@@ -91,42 +87,45 @@
   .sync-panel .status.saved{color:var(--green);}
   .sync-panel .status.err{color:var(--red);}
 
-  .news-list{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
-  .news-item{
+  .toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;}
+  .toolbar button{
+    background:transparent;border:1px solid var(--track);color:var(--sub);
+    border-radius:999px;padding:5px 12px;font-size:11.5px;cursor:pointer;font-family:inherit;
+  }
+  .toolbar button.danger{border-color:var(--red);color:var(--red);}
+
+  .scrap-list{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
+  .scrap-item{
     display:flex;gap:12px;
     border:1px solid var(--track);
     border-radius:10px;
     padding:12px;
-    text-decoration:none;
-    color:inherit;
     position:relative;
   }
-  .news-thumb{
+  .scrap-thumb{
     width:76px;height:76px;flex-shrink:0;
     border-radius:6px;object-fit:cover;
     background:var(--track);
   }
-  .news-body{min-width:0;display:flex;flex-direction:column;gap:4px;}
-  .news-title{font-size:14px;font-weight:700;line-height:1.35;padding-right:26px;
+  .scrap-link{display:flex;gap:12px;flex:1;min-width:0;text-decoration:none;color:inherit;}
+  .scrap-body{min-width:0;display:flex;flex-direction:column;gap:4px;}
+  .scrap-title{font-size:14px;font-weight:700;line-height:1.35;padding-right:32px;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
   }
-  .news-meta{font-size:11px;color:var(--sub);}
-  .news-source{color:var(--orange);font-weight:600;}
-  .news-link{display:flex;gap:12px;flex:1;min-width:0;text-decoration:none;color:inherit;}
-  .scrap-btn{
+  .scrap-meta{font-size:11px;color:var(--sub);}
+  .scrap-source{color:var(--orange);font-weight:600;}
+  .del-btn{
     position:absolute;top:8px;right:8px;
     background:var(--bg);border:none;cursor:pointer;border-radius:6px;
-    font-size:16px;line-height:1;padding:3px 5px;color:var(--sub);
+    font-size:11px;padding:3px 6px;color:var(--red);
   }
-  .scrap-btn.saved{color:var(--orange);}
+
+  .empty{color:var(--sub);font-size:13px;text-align:center;padding:60px 20px;}
+  .empty a{color:var(--orange);}
 
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
   }
-  .source-note{
-    text-align:center;font-size:11px;color:var(--sub);margin-top:24px;
-  }
-  .source-note a{color:inherit;}
   .bottom-nav{
     position:fixed;left:0;right:0;bottom:0;
     display:flex;
@@ -155,16 +154,15 @@
 <body>
 <div class="app">
   <header class="topbar">
-    <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
+    <a class="back-link" href="news.html" title="뉴스로 돌아가기">←</a>
     <div class="coin-icon">₿</div>
-    <h1>Bitcoin News</h1>
-    <span class="live-dot" title="자동 갱신"></span>
+    <h1>📌 스크랩한 뉴스</h1>
   </header>
-  <div class="updated" id="updatedLine">불러오는 중...</div>
+  <div class="sub-line" id="storageNote">이 스크랩은 이 브라우저(로컬 저장소)에만 저장됩니다. 다른 기기나 브라우저에서는 보이지 않으며, 브라우저 데이터를 지우면 함께 삭제됩니다.</div>
 
   <div class="news-links">
     <button type="button" id="syncToggle">🔗 동기화</button>
-    <a href="scraps.html">📌 스크랩한 뉴스</a>
+    <a href="news.html">📰 뉴스로</a>
   </div>
 
   <div class="sync-panel" id="syncPanel">
@@ -185,11 +183,14 @@
     <div class="status" id="syncStatus"></div>
   </div>
 
-  <div class="news-list" id="newsList"></div>
+  <div class="toolbar" id="toolbar" style="display:none;">
+    <button type="button" id="refreshBtn">↻ 새로고침</button>
+    <button type="button" class="danger" id="clearAll">전체 삭제</button>
+  </div>
+
+  <div id="list">불러오는 중...</div>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
-  <p class="source-note" id="rawApiNote" style="display:none;"><a href="/api/news" target="_blank" rel="noopener">raw API 응답 보기 →</a></p>
-  <p class="source-note">Data: CoinDesk, Cointelegraph, Bitcoin Magazine, Bitcoin.com (RSS) · Translated via Google Translate</p>
 </div>
 
 <nav class="bottom-nav">
@@ -207,27 +208,14 @@
 (function(){
   "use strict";
 
-  function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
-
-  function timeAgo(ms){
-    if(!ms) return "";
-    const diffMin = Math.max(0, Math.round((Date.now() - ms) / 60000));
-    if(diffMin < 60) return diffMin + "분 전";
-    const diffHr = Math.round(diffMin / 60);
-    if(diffHr < 24) return diffHr + "시간 전";
-    return Math.round(diffHr / 24) + "일 전";
-  }
-
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  }
-
-  // ---- Scrap sync (same "sync code" + Upstash Redis mechanism as the
-  // fiat/economics project's notes.html — no login, just a shared secret
-  // code entered on each device) ----
   const SCRAPS_KEY = "btc_saved_scraps";
   const SYNC_CODE_KEY = "btc_sync_code";
-  const MAX_SCRAPS = 300;
+
+  const list = document.getElementById("list");
+  const toolbar = document.getElementById("toolbar");
+  const clearAllBtn = document.getElementById("clearAll");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const storageNote = document.getElementById("storageNote");
 
   const syncToggle = document.getElementById("syncToggle");
   const syncPanel = document.getElementById("syncPanel");
@@ -237,6 +225,19 @@
   const syncCopyBtn = document.getElementById("syncCopyBtn");
   const syncDisconnectBtn = document.getElementById("syncDisconnectBtn");
   const syncStatus = document.getElementById("syncStatus");
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function timeAgo(ms){
+    if(!ms) return "";
+    const diffMin = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if(diffMin < 60) return diffMin + "분 전";
+    const diffHr = Math.round(diffMin / 60);
+    if(diffHr < 24) return diffHr + "시간 전";
+    return Math.round(diffHr / 24) + "일 전";
+  }
 
   function getSyncCode(){ return localStorage.getItem(SYNC_CODE_KEY) || ""; }
 
@@ -258,7 +259,9 @@
     const code = getSyncCode();
     syncCodeInput.value = code;
     syncToggle.textContent = code ? "🔗 동기화 중" : "🔗 동기화";
-    setSyncStatus(code ? "✅ 이 코드로 동기화되고 있습니다." : "", code ? "saved" : "");
+    storageNote.textContent = code
+      ? "동기화 코드로 서버에 저장된 스크랩을 불러오고 있습니다. 같은 코드를 입력한 다른 기기와 공유됩니다."
+      : "이 스크랩은 이 브라우저(로컬 저장소)에만 저장됩니다. 다른 기기나 브라우저에서는 보이지 않으며, 브라우저 데이터를 지우면 함께 삭제됩니다.";
   }
 
   syncToggle.addEventListener("click", () => syncPanel.classList.toggle("open"));
@@ -268,12 +271,15 @@
     if(!/^[a-z0-9-]{6,64}$/.test(code)){ setSyncStatus("코드 형식이 올바르지 않습니다.", "err"); return; }
     localStorage.setItem(SYNC_CODE_KEY, code);
     refreshSyncUI();
+    setSyncStatus("✅ 연결되었습니다.", "saved");
+    render();
   });
 
   syncNewBtn.addEventListener("click", () => {
     localStorage.setItem(SYNC_CODE_KEY, generateSyncCode());
     refreshSyncUI();
     setSyncStatus("✅ 새 코드가 생성되었습니다. 다른 기기에 이 코드를 입력해 연결하세요.", "saved");
+    render();
   });
 
   syncCopyBtn.addEventListener("click", async () => {
@@ -286,10 +292,9 @@
   syncDisconnectBtn.addEventListener("click", () => {
     localStorage.removeItem(SYNC_CODE_KEY);
     refreshSyncUI();
-    setSyncStatus("연결이 해제되었습니다. (기존 스크랩은 서버에 그대로 남아있고, 코드로 다시 연결하면 볼 수 있습니다.)", "");
+    setSyncStatus("연결이 해제되었습니다.", "");
+    render();
   });
-
-  refreshSyncUI();
 
   function loadLocalScraps(){
     try{
@@ -298,87 +303,107 @@
     }catch{ return []; }
   }
 
-  function saveScrapLocal(item){
-    const scraps = loadLocalScraps().filter(s => s.url !== item.url);
-    scraps.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2,8), ...item, savedAt: new Date().toISOString() });
-    localStorage.setItem(SCRAPS_KEY, JSON.stringify(scraps.slice(0, MAX_SCRAPS)));
+  function saveLocalScraps(scraps){
+    localStorage.setItem(SCRAPS_KEY, JSON.stringify(scraps));
   }
 
-  async function saveScrapRemote(code, item){
-    const res = await fetch("/api/scraps", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code, ...item }),
-    });
-    if(!res.ok) throw new Error("save failed");
+  function formatDate(iso){
+    try{
+      const d = new Date(iso);
+      return d.toLocaleString("ko-KR", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" });
+    }catch{ return ""; }
   }
 
-  function isScrapped(url){
-    return loadLocalScraps().some(s => s.url === url);
-  }
+  function renderList(scraps, onDelete){
+    list.innerHTML = "";
 
-  async function toggleScrap(btn, item){
-    btn.disabled = true;
-    saveScrapLocal(item);
-    const code = getSyncCode();
-    if(code){
-      try{ await saveScrapRemote(code, item); btn.title = "스크랩됨 (동기화됨)"; }
-      catch{ btn.title = "로컬에만 저장됨"; }
-    } else {
-      btn.title = "스크랩됨";
+    if(scraps.length === 0){
+      toolbar.style.display = "none";
+      const emptyEl = document.createElement("div");
+      emptyEl.className = "empty";
+      emptyEl.innerHTML = '아직 스크랩한 뉴스가 없습니다.<br><a href="news.html">뉴스 페이지</a>에서 마음에 드는 기사를 "📌"로 스크랩해보세요.';
+      list.appendChild(emptyEl);
+      return;
     }
-    btn.classList.add("saved");
-    btn.disabled = false;
-  }
 
-  function render(items){
-    const list = document.getElementById("newsList");
-    list.innerHTML = items.map((it, i) => {
-      const thumb = it.imageUrl
-        ? `<img class="news-thumb" src="${escapeHtml(it.imageUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
-        : `<div class="news-thumb"></div>`;
-      const scrapped = isScrapped(it.url);
-      return `<div class="news-item">
-        <a class="news-link" href="${escapeHtml(it.url)}" target="_blank" rel="noopener">
+    toolbar.style.display = "flex";
+    const wrap = document.createElement("div");
+    wrap.className = "scrap-list";
+    wrap.innerHTML = scraps.map((s, i) => {
+      const thumb = s.imageUrl
+        ? `<img class="scrap-thumb" src="${escapeHtml(s.imageUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+        : `<div class="scrap-thumb"></div>`;
+      return `<div class="scrap-item">
+        <a class="scrap-link" href="${escapeHtml(s.url)}" target="_blank" rel="noopener">
           ${thumb}
-          <div class="news-body">
-            <div class="news-title">${escapeHtml(it.titleKo || it.title)}</div>
-            <div class="news-meta"><span class="news-source">${escapeHtml(it.source)}</span> · ${timeAgo(it.publishedAt)}</div>
+          <div class="scrap-body">
+            <div class="scrap-title">${escapeHtml(s.titleKo || s.title)}</div>
+            <div class="scrap-meta"><span class="scrap-source">${escapeHtml(s.source || "")}</span> · ${s.publishedAt ? timeAgo(s.publishedAt) : formatDate(s.savedAt)}</div>
           </div>
         </a>
-        <button type="button" class="scrap-btn${scrapped ? " saved" : ""}" data-idx="${i}" title="${scrapped ? "스크랩됨" : "스크랩"}">${scrapped ? "🔖" : "📌"}</button>
+        <button type="button" class="del-btn" data-idx="${i}">삭제</button>
       </div>`;
     }).join("");
+    list.appendChild(wrap);
 
-    list.querySelectorAll(".scrap-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const it = items[Number(btn.dataset.idx)];
-        toggleScrap(btn, {
-          title: it.title, titleKo: it.titleKo || "", url: it.url,
-          source: it.source, imageUrl: it.imageUrl || "", publishedAt: it.publishedAt || null,
-        });
-      });
+    list.querySelectorAll(".del-btn").forEach(btn => {
+      btn.addEventListener("click", () => onDelete(scraps[Number(btn.dataset.idx)].id));
     });
   }
 
-  async function load(){
-    try{
-      setStatus("");
-      const res = await fetch("/api/news");
-      if(!res.ok) throw new Error("API " + res.status);
-      const data = await res.json();
-      if(!data.items || !data.items.length) throw new Error("데이터 없음");
+  async function render(){
+    const code = getSyncCode();
 
-      document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date(data.fetchedAt).toLocaleString("ko-KR");
-      render(data.items);
+    if(!code){
+      renderList(loadLocalScraps(), (id) => {
+        saveLocalScraps(loadLocalScraps().filter(s => s.id !== id));
+        render();
+      });
+      return;
+    }
+
+    list.innerHTML = "불러오는 중...";
+    try{
+      const res = await fetch("/api/scraps?code=" + encodeURIComponent(code));
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || "load failed");
+      renderList(data.scraps || [], async (id) => {
+        await fetch("/api/scraps", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code, id }),
+        });
+        render();
+      });
     }catch(e){
-      setStatus("데이터 로드 실패: " + e.message);
-      document.getElementById("rawApiNote").style.display = "block";
+      list.innerHTML = "";
+      const errEl = document.createElement("div");
+      errEl.className = "empty";
+      errEl.textContent = "동기화된 스크랩을 불러오지 못했습니다. 잠시 후 새로고침 버튼을 눌러 다시 시도해주세요.";
+      list.appendChild(errEl);
+      toolbar.style.display = "flex";
     }
   }
 
-  load();
-  setInterval(load, 10 * 60 * 1000);
+  clearAllBtn.addEventListener("click", async () => {
+    if(!confirm("스크랩한 뉴스를 모두 삭제할까요? 되돌릴 수 없습니다.")) return;
+    const code = getSyncCode();
+    if(code){
+      await fetch("/api/scraps", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+    } else {
+      saveLocalScraps([]);
+    }
+    render();
+  });
+
+  refreshBtn.addEventListener("click", render);
+
+  refreshSyncUI();
+  render();
 })();
 </script>
 </body>
