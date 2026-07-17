@@ -75,6 +75,8 @@
   .panel-chart{width:100%;height:180px;display:block;}
   #macroChart{touch-action:none;cursor:grab;}
   #macroChart:active{cursor:grabbing;}
+  #cycleChart{touch-action:none;cursor:grab;}
+  #cycleChart:active{cursor:grabbing;}
   #priceLawChart{touch-action:none;cursor:grab;}
   #priceLawChart:active{cursor:grabbing;}
   #goldRatioChart{touch-action:none;cursor:grab;}
@@ -161,7 +163,14 @@
     <h2>반감기 사이클 비교</h2>
     <div class="desc">각 반감기 당일 가격을 1배(x1)로 놓고, 이후 최대 4년(1460일)간 가격이 몇 배로 움직였는지 로그 스케일로 겹쳐서 비교해.</div>
     <div class="chart-legend" id="cycleLegend"></div>
-    <canvas class="panel-chart" id="cycleChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="cycleChart"></canvas>
+      <div class="pricelaw-tooltip" id="cycleTooltip"></div>
+    </div>
+    <div class="macro-zoom-bar">
+      <span id="cycleRangeLabel"></span>
+      <button id="cycleResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
   </section>
 
   <section class="panel">
@@ -438,13 +447,156 @@
   const MAX_START_GAP_DAYS = 30;
 
   let cycleSeriesList = null;
+  let cycleFullRange = null; // {min,max} in days-since-halving
+  let cycleViewRange = null;
+  let cycleHighlightX = null;
+  const MIN_ZOOM_DAYS = 30;
+
+  function cycleXTicks(range){
+    const tickXs = [range.min, range.min + (range.max-range.min)*0.33, range.min + (range.max-range.min)*0.66, range.max];
+    return tickXs.map(v => ({ value: v, label: v===0 ? "Day 0" : (v/365).toFixed(1)+"y" }));
+  }
 
   function renderCycles(){
-    if(!cycleSeriesList) return;
+    if(!cycleSeriesList || !cycleFullRange) return;
+    const range = cycleViewRange || cycleFullRange;
     const yTicks = [0.2,0.5,1,2,5,10,20,50,100,200].map(v => ({ value: v, label: "x"+v }));
-    const xTicks = [0,365,730,1095,1460].map(v => ({ value: v, label: v===0 ? "Day 0" : (v/365)+"y" }));
-    drawLineChart(document.getElementById("cycleChart"), cycleSeriesList, {
-      logScale: true, yTicks, xTicks, padRight: 30
+    const visible = cycleSeriesList
+      .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
+      .filter(s => s.points.length >= 2);
+    drawLineChart(document.getElementById("cycleChart"), visible, {
+      logScale: true, yTicks, xTicks: cycleXTicks(range), padRight: 30, highlightX: cycleHighlightX
+    });
+    document.getElementById("cycleRangeLabel").textContent =
+      `Day ${Math.round(range.min)} ~ Day ${Math.round(range.max)}`;
+    document.getElementById("cycleResetZoom").style.display = cycleViewRange ? "inline-block" : "none";
+  }
+
+  function updateCycleTooltip(x){
+    cycleHighlightX = x;
+    renderCycles();
+
+    const tooltip = document.getElementById("cycleTooltip");
+    if(x == null || !cycleSeriesList){ tooltip.style.display = "none"; return; }
+
+    const days = Math.round(x);
+    let html = `<div><b>Day ${days} (${(days/365).toFixed(2)}y)</b></div>`;
+    cycleSeriesList.forEach(s => {
+      const p = nearestSeriesPoint(s.points, x);
+      if(p) html += `<div><span style="color:${s.color}">●</span> ${s.label}: <b>x${p.y.toFixed(2)}</b></div>`;
+    });
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+
+    const canvas = document.getElementById("cycleChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = cycleViewRange || cycleFullRange;
+    const frac = (x - range.min) / (range.max - range.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function zoomCycle(factor, centerX){
+    if(!cycleFullRange) return;
+    const cur = cycleViewRange || cycleFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = cycleFullRange.max - cycleFullRange.min;
+    const newWidth = Math.max(MIN_ZOOM_DAYS, Math.min(fullWidth, width * factor));
+    const ratio = (centerX - cur.min) / width;
+    const min = centerX - newWidth * ratio;
+    const next = clampRange({ min, max: min + newWidth }, cycleFullRange);
+    cycleViewRange = (next.max - next.min) >= fullWidth - 1 ? null : next;
+    renderCycles();
+  }
+
+  function panCycle(deltaX){
+    if(!cycleFullRange) return;
+    const cur = cycleViewRange || cycleFullRange;
+    const next = clampRange({ min: cur.min + deltaX, max: cur.max + deltaX }, cycleFullRange);
+    cycleViewRange = (next.max - next.min) >= (cycleFullRange.max - cycleFullRange.min) - 1 ? null : next;
+    renderCycles();
+  }
+
+  function attachCycleZoomPan(){
+    const canvas = document.getElementById("cycleChart");
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+
+    const xToDay = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = cycleViewRange || cycleFullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+        updateCycleTooltip(xToDay(e.touches[0].clientX));
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState || !cycleFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateCycleTooltip(xToDay(e.touches[0].clientX));
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const range = cycleViewRange || cycleFullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panCycle(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomCycle(touchState.lastDist / dist, xToDay(midX));
+        touchState.lastDist = dist;
+        touchState.lastMidX = midX;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0){
+        touchState = null;
+        updateCycleTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!cycleFullRange) return;
+      e.preventDefault();
+      zoomCycle(e.deltaY > 0 ? 1.2 : 1/1.2, xToDay(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateCycleTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !cycleFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = cycleViewRange || cycleFullRange;
+      const pxPerDay = rect.width / (range.max - range.min);
+      panCycle(-dxPx / pxPerDay);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !cycleFullRange) return;
+      updateCycleTooltip(xToDay(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateCycleTooltip(null); });
+
+    document.getElementById("cycleResetZoom").addEventListener("click", () => {
+      cycleViewRange = null;
+      renderCycles();
     });
   }
 
@@ -472,6 +624,9 @@
         }
         return { points, color: colors[i % colors.length], label: h.label };
       }).filter(Boolean);
+
+      const maxX = Math.max(...cycleSeriesList.flatMap(s => s.points.map(p => p.x)));
+      cycleFullRange = { min: 0, max: maxX };
 
       renderLegend(document.getElementById("cycleLegend"),
         cycleSeriesList.map(s => ({ color: s.color, label: s.label })));
@@ -1490,6 +1645,7 @@
   attachMacroZoomPan();
   attachPriceLawZoomPan();
   attachGoldRatioZoomPan();
+  attachCycleZoomPan();
   load();
   initAdoption();
   setInterval(load, 60 * 60 * 1000);
