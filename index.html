@@ -95,6 +95,51 @@
   .stat{display:flex;flex-direction:column;gap:6px;}
   .stat-label{font-size:12px;color:var(--sub);}
   .stat-value{font-size:17px;font-weight:700;}
+  .stat-clickable{cursor:pointer;}
+  .stat-clickable .stat-value{text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;}
+
+  .fng-modal{
+    position:fixed;inset:0;background:rgba(0,0,0,0.5);
+    display:none;align-items:flex-end;justify-content:center;z-index:200;
+  }
+  .fng-modal.open{display:flex;}
+  .fng-modal-content{
+    background:var(--bg);width:100%;max-width:640px;
+    border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+    max-height:88vh;overflow-y:auto;
+    box-shadow:0 -4px 24px rgba(0,0,0,0.25);
+  }
+  .fng-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+  .fng-modal-header h2{font-size:16px;margin:0;font-weight:700;}
+  .fng-modal-header button{
+    background:none;border:none;font-size:16px;color:var(--sub);cursor:pointer;
+    padding:6px 8px;line-height:1;
+  }
+  .fng-modal-status{font-size:11px;color:var(--sub);min-height:14px;margin-bottom:6px;}
+  #fngChart{width:100%;height:220px;display:block;touch-action:none;}
+  .fng-tooltip{
+    position:absolute;top:4px;
+    padding:5px 9px;border:1px solid var(--track);border-radius:8px;
+    background:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,0.15);
+    font-size:11px;line-height:1.5;white-space:nowrap;
+    pointer-events:none;display:none;z-index:5;
+  }
+  .fng-gauge{margin-top:14px;}
+  .fng-gauge-bar{
+    position:relative;height:14px;border-radius:7px;
+    background:linear-gradient(to right,
+      #dc2626 0%, #dc2626 25%, #f97316 25%, #f97316 46%,
+      #eab308 46%, #eab308 54%, #84cc16 54%, #84cc16 75%,
+      #16a34a 75%, #16a34a 100%);
+  }
+  .fng-gauge-marker{
+    position:absolute;top:-4px;width:2px;height:22px;background:var(--text);
+    transform:translateX(-1px);
+  }
+  .fng-gauge-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--sub);margin-top:4px;}
+  .fng-now-row{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;}
+  #fngNow{font-size:14px;font-weight:700;}
+  .fng-updated{font-size:10px;color:var(--sub);}
 
   .chart-section{margin-bottom:28px;}
   .chart-canvas-wrap{position:relative;}
@@ -238,7 +283,7 @@
     <div class="stat"><span class="stat-label">BTC.D</span><span class="stat-value" id="statDominance">-</span></div>
     <div class="stat"><span class="stat-label">KRW/USD</span><span class="stat-value" id="statFx">-</span></div>
     <div class="stat"><span class="stat-label">Premium</span><span class="stat-value" id="statPremium">-</span></div>
-    <div class="stat"><span class="stat-label">F&G Index</span><span class="stat-value" id="statFng">-</span></div>
+    <div class="stat stat-clickable" id="statFngRow"><span class="stat-label">F&G Index</span><span class="stat-value" id="statFng">-</span></div>
   </section>
 
   <section class="chart-section">
@@ -285,6 +330,28 @@
 
   <p class="tagline">Stay humble and stack sats.</p>
   <p class="status-line" id="statusLine">&nbsp;</p>
+</div>
+
+<div class="fng-modal" id="fngModal">
+  <div class="fng-modal-content">
+    <div class="fng-modal-header">
+      <h2>Fear &amp; Greed Index</h2>
+      <button id="fngModalClose" type="button" aria-label="닫기">✕</button>
+    </div>
+    <div class="fng-modal-status" id="fngModalStatus">불러오는 중...</div>
+    <div class="chart-canvas-wrap">
+      <canvas id="fngChart"></canvas>
+      <div class="fng-tooltip" id="fngTooltip"></div>
+    </div>
+    <div class="fng-gauge">
+      <div class="fng-gauge-bar"><div class="fng-gauge-marker" id="fngGaugeMarker"></div></div>
+      <div class="fng-gauge-labels"><span>0</span><span>25</span><span>46</span><span>54</span><span>75</span><span>100</span></div>
+    </div>
+    <div class="fng-now-row">
+      <div id="fngNow">-</div>
+      <div class="fng-updated" id="fngUpdated"></div>
+    </div>
+  </div>
 </div>
 
 <nav class="bottom-nav">
@@ -553,6 +620,195 @@
       else color = "var(--green)";
       els.statFng.style.color = color;
     }catch(e){ /* keep previous */ }
+  }
+
+  // ---- F&G history modal: BTC price colored by daily Fear & Greed score ----
+  const FNG_LABELS_KO = {
+    "Extreme Fear": "극단적 공포",
+    "Fear": "공포",
+    "Neutral": "중립",
+    "Greed": "탐욕",
+    "Extreme Greed": "극단적 탐욕",
+  };
+
+  function fngColor(v){
+    // Continuous red (0) -> yellow (50) -> green (100), matching the
+    // reference chart's dot-color legend.
+    const hue = v <= 50 ? (v / 50) * 50 : 50 + ((v - 50) / 50) * 70;
+    return `hsl(${hue}, 75%, 42%)`;
+  }
+
+  let fngPoints = null; // cached [{t, price, fng, classification}] after first load
+  let fngHighlightIdx = null;
+
+  async function loadFngPoints(){
+    if(fngPoints) return fngPoints;
+    const [fngRes, btcRes] = await Promise.all([
+      fetchJson("https://api.alternative.me/fng/?limit=0&format=json"),
+      fetch("/api/btc-history").then(r => {
+        if(!r.ok) throw new Error("BTC 히스토리 API " + r.status);
+        return r.json();
+      }),
+    ]);
+    const btcMap = btcRes.prices || {};
+    const points = (fngRes.data || [])
+      .map(d => {
+        const date = new Date(parseInt(d.timestamp, 10) * 1000).toISOString().slice(0, 10);
+        const price = btcMap[date];
+        return price != null ? {
+          t: new Date(date).getTime(),
+          price,
+          fng: parseInt(d.value, 10),
+          classification: d.value_classification,
+        } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.t - b.t);
+    if(!points.length) throw new Error("데이터 없음");
+    fngPoints = points;
+    return points;
+  }
+
+  function drawFngChart(highlightIdx){
+    const canvas = document.getElementById("fngChart");
+    const points = fngPoints;
+    if(!points || !points.length) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight || 220;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const padRight = 40, padBottom = 16, padTop = 4;
+    const plotW = w - padRight, plotH = h - padBottom - padTop;
+
+    const logPrices = points.map(p => Math.log10(p.price));
+    const minY = Math.min(...logPrices), maxY = Math.max(...logPrices);
+    const rangeY = (maxY - minY) || 1;
+    const minX = points[0].t, maxX = points[points.length - 1].t;
+    const rangeX = (maxX - minX) || 1;
+
+    const xAt = t => ((t - minX) / rangeX) * plotW;
+    const yAt = price => padTop + plotH - ((Math.log10(price) - minY) / rangeY) * plotH;
+
+    ctx.strokeStyle = "rgba(150,150,150,0.25)";
+    ctx.setLineDash([3,3]);
+    ctx.lineWidth = 1;
+    ctx.font = "9px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    [100,1000,10000,100000,1000000]
+      .filter(v => Math.log10(v) >= minY - 0.4 && Math.log10(v) <= maxY + 0.4)
+      .forEach(v => {
+        const y = yAt(v);
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
+        ctx.textAlign = "left";
+        ctx.fillText(v >= 1000 ? "$" + (v/1000) + "K" : "$" + v, plotW + 4, y + 3);
+      });
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(p.t), yAt(p.price)) : ctx.lineTo(xAt(p.t), yAt(p.price)));
+    ctx.strokeStyle = "rgba(140,140,140,0.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    points.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(xAt(p.t), yAt(p.price), 1.6, 0, Math.PI*2);
+      ctx.fillStyle = fngColor(p.fng);
+      ctx.fill();
+    });
+
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.font = "9px ui-monospace, monospace";
+    const yearTicks = [];
+    let curYear = new Date(minX).getUTCFullYear();
+    const maxYear = new Date(maxX).getUTCFullYear();
+    while(curYear <= maxYear){
+      const ms = Date.UTC(curYear, 0, 1);
+      if(ms >= minX && ms <= maxX) yearTicks.push(ms);
+      curYear += Math.max(1, Math.round((maxYear - new Date(minX).getUTCFullYear()) / 5));
+    }
+    yearTicks.forEach((ms, i) => {
+      const x = xAt(ms);
+      ctx.textAlign = i === 0 ? "left" : i === yearTicks.length-1 ? "right" : "center";
+      const cx = i === 0 ? Math.max(2,x) : i === yearTicks.length-1 ? Math.min(plotW-2,x) : x;
+      ctx.fillText(String(new Date(ms).getUTCFullYear()), cx, h - 4);
+    });
+
+    if(highlightIdx != null){
+      const p = points[highlightIdx];
+      const x = xAt(p.t);
+      ctx.beginPath();
+      ctx.moveTo(x, padTop); ctx.lineTo(x, padTop+plotH);
+      ctx.strokeStyle = "rgba(100,100,100,0.5)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  function updateFngTooltip(idx){
+    fngHighlightIdx = idx;
+    drawFngChart(idx);
+
+    const tooltip = document.getElementById("fngTooltip");
+    if(idx == null || !fngPoints){ tooltip.style.display = "none"; return; }
+    const p = fngPoints[idx];
+    const dateStr = new Date(p.t).toISOString().slice(0,10);
+    const label = FNG_LABELS_KO[p.classification] || p.classification;
+    tooltip.innerHTML = `<div><b>${dateStr}</b></div><div>$${fmtUsd(p.price)}</div><div style="color:${fngColor(p.fng)}"><b>${p.fng}</b> · ${label}</div>`;
+    tooltip.style.display = "block";
+
+    const canvas = document.getElementById("fngChart");
+    const rect = canvas.getBoundingClientRect();
+    const frac = (p.t - fngPoints[0].t) / (fngPoints[fngPoints.length-1].t - fngPoints[0].t);
+    let left = frac * rect.width - tooltip.offsetWidth/2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function updateFngGauge(latest){
+    document.getElementById("fngGaugeMarker").style.left = latest.fng + "%";
+    const label = FNG_LABELS_KO[latest.classification] || latest.classification;
+    document.getElementById("fngNow").innerHTML = `Now: <span style="color:${fngColor(latest.fng)}">${label}</span> (${latest.fng})`;
+    document.getElementById("fngUpdated").textContent = "최근: " + new Date(latest.t).toISOString().slice(0,10);
+  }
+
+  function attachFngChartInteraction(){
+    const canvas = document.getElementById("fngChart");
+    function handle(clientX){
+      if(!fngPoints || !fngPoints.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      updateFngTooltip(Math.round(frac * (fngPoints.length - 1)));
+    }
+    canvas.addEventListener("mousemove", e => handle(e.clientX));
+    canvas.addEventListener("mouseleave", () => updateFngTooltip(null));
+    canvas.addEventListener("touchstart", e => { if(e.touches.length===1) handle(e.touches[0].clientX); }, {passive:true});
+    canvas.addEventListener("touchmove", e => { if(e.touches.length===1) handle(e.touches[0].clientX); }, {passive:true});
+    canvas.addEventListener("touchend", () => updateFngTooltip(null));
+  }
+
+  async function openFngModal(){
+    const modal = document.getElementById("fngModal");
+    modal.classList.add("open");
+    const status = document.getElementById("fngModalStatus");
+    status.textContent = fngPoints ? "" : "불러오는 중...";
+    try{
+      const points = await loadFngPoints();
+      status.textContent = "";
+      fngHighlightIdx = null;
+      drawFngChart(null);
+      updateFngGauge(points[points.length - 1]);
+    }catch(e){
+      status.textContent = "로드 실패: " + e.message;
+    }
+  }
+
+  function closeFngModal(){
+    document.getElementById("fngModal").classList.remove("open");
+    updateFngTooltip(null);
   }
 
   // ---- Halving ----
@@ -980,11 +1236,18 @@
     });
   }
 
-  window.addEventListener("resize", () => { drawChart(); drawRsi(); drawSparkline.lastCandles && drawSparkline(drawSparkline.lastCandles); });
+  window.addEventListener("resize", () => {
+    drawChart(); drawRsi(); drawSparkline.lastCandles && drawSparkline(drawSparkline.lastCandles);
+    if(document.getElementById("fngModal").classList.contains("open")) drawFngChart(fngHighlightIdx);
+  });
 
   function init(){
     attachChartInteraction();
     attachRangeTabs();
+    attachFngChartInteraction();
+    document.getElementById("statFngRow").addEventListener("click", openFngModal);
+    document.getElementById("fngModalClose").addEventListener("click", closeFngModal);
+    document.getElementById("fngModal").addEventListener("click", e => { if(e.target.id === "fngModal") closeFngModal(); });
 
     updatePrice();
     updateSparkline();
