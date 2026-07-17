@@ -118,6 +118,8 @@
   .fng-modal-status{font-size:11px;color:var(--sub);min-height:14px;margin-bottom:6px;}
   #fngChart{width:100%;height:220px;display:block;touch-action:none;cursor:grab;}
   #fngChart:active{cursor:grabbing;}
+  #fxChart, #premiumChart{width:100%;height:200px;display:block;touch-action:none;cursor:grab;}
+  #fxChart:active, #premiumChart:active{cursor:grabbing;}
   .fng-tooltip{
     position:absolute;top:4px;
     padding:5px 9px;border:1px solid var(--track);border-radius:8px;
@@ -282,8 +284,8 @@
 
   <section class="stats-grid">
     <div class="stat"><span class="stat-label">BTC.D</span><span class="stat-value" id="statDominance">-</span></div>
-    <div class="stat"><span class="stat-label">KRW/USD</span><span class="stat-value" id="statFx">-</span></div>
-    <div class="stat"><span class="stat-label">Premium</span><span class="stat-value" id="statPremium">-</span></div>
+    <div class="stat stat-clickable" id="statFxRow"><span class="stat-label">KRW/USD</span><span class="stat-value" id="statFx">-</span></div>
+    <div class="stat stat-clickable" id="statPremiumRow"><span class="stat-label">Premium</span><span class="stat-value" id="statPremium">-</span></div>
     <div class="stat stat-clickable" id="statFngRow"><span class="stat-label">F&G Index</span><span class="stat-value" id="statFng">-</span></div>
   </section>
 
@@ -356,6 +358,44 @@
       <div id="fngNow">-</div>
       <div class="fng-updated" id="fngUpdated"></div>
     </div>
+  </div>
+</div>
+
+<div class="fng-modal" id="fxModal">
+  <div class="fng-modal-content">
+    <div class="fng-modal-header">
+      <h2>KRW/USD 환율</h2>
+      <button id="fxModalClose" type="button" aria-label="닫기">✕</button>
+    </div>
+    <div class="fng-modal-status" id="fxModalStatus">불러오는 중...</div>
+    <div class="chart-canvas-wrap">
+      <canvas id="fxChart"></canvas>
+      <div class="fng-tooltip" id="fxTooltip"></div>
+    </div>
+    <div class="chart-zoom-bar">
+      <span id="fxRangeLabel"></span>
+      <button id="fxResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
+    <p class="source-note">Data: frankfurter.app (ECB 환율)</p>
+  </div>
+</div>
+
+<div class="fng-modal" id="premiumModal">
+  <div class="fng-modal-content">
+    <div class="fng-modal-header">
+      <h2>김치 프리미엄</h2>
+      <button id="premiumModalClose" type="button" aria-label="닫기">✕</button>
+    </div>
+    <div class="fng-modal-status" id="premiumModalStatus">불러오는 중...</div>
+    <div class="chart-canvas-wrap">
+      <canvas id="premiumChart"></canvas>
+      <div class="fng-tooltip" id="premiumTooltip"></div>
+    </div>
+    <div class="chart-zoom-bar">
+      <span id="premiumRangeLabel"></span>
+      <button id="premiumResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
+    <p class="source-note">Data: Upbit(KRW), Yahoo Finance(USD), frankfurter.app(환율)로 계산</p>
   </div>
 </div>
 
@@ -966,6 +1006,357 @@
     updateFngTooltip(null);
   }
 
+  // ---- Generic zoomable/pannable single-line time-series modal chart ----
+  // Shared by the KRW/USD and Kimchi premium modals below (unlike the F&G
+  // chart, which overlays colored dots on a price line and stays bespoke).
+  function niceStepIdx(rawStep){
+    if(!rawStep || !isFinite(rawStep)) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const norm = rawStep / mag;
+    return (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+  }
+  function makeNiceYTicks(minY, maxY, targetCount){
+    const range = (maxY - minY) || 1;
+    const step = niceStepIdx(range / (targetCount || 5));
+    const start = Math.ceil(minY / step) * step;
+    const ticks = [];
+    for(let v = start; v <= maxY + step*1e-6; v += step) ticks.push(v);
+    return ticks;
+  }
+
+  function createTimeSeriesModalChart(cfg){
+    const state = { points: null, fullRange: null, viewRange: null, highlightT: null };
+
+    function clampRange(range, full){
+      const width = Math.min(range.max - range.min, full.max - full.min);
+      let min = range.min, max = min + width;
+      if(min < full.min){ min = full.min; max = min + width; }
+      if(max > full.max){ max = full.max; min = max - width; }
+      return { min, max };
+    }
+
+    function xTicks(minMs, maxMs){
+      const spanDays = (maxMs - minMs) / 86400000;
+      const ticks = [];
+      if(spanDays > 720){
+        const startYear = new Date(minMs).getUTCFullYear(), endYear = new Date(maxMs).getUTCFullYear();
+        const step = Math.max(1, Math.round((endYear - startYear) / 5));
+        for(let y = startYear; y <= endYear; y += step){
+          const ms = Date.UTC(y, 0, 1);
+          if(ms >= minMs && ms <= maxMs) ticks.push({ value: ms, label: String(y) });
+        }
+      } else {
+        for(let i=0; i<=4; i++){
+          const ms = minMs + (maxMs - minMs) * (i/4);
+          const d = new Date(ms);
+          ticks.push({ value: ms, label: (d.getUTCMonth()+1) + "/" + d.getUTCDate() });
+        }
+      }
+      if(!ticks.length) ticks.push({ value: minMs, label: String(new Date(minMs).getUTCFullYear()) });
+      return ticks;
+    }
+
+    function fmtRangeLabel(range){
+      const f = t => new Date(t).toISOString().slice(0,10);
+      return f(range.min) + " ~ " + f(range.max);
+    }
+
+    function draw(){
+      const canvas = document.getElementById(cfg.canvasId);
+      if(!state.points || !state.points.length || !state.fullRange) return;
+      const range = state.viewRange || state.fullRange;
+      const points = state.points.filter(p => p.t >= range.min && p.t <= range.max);
+      if(points.length < 2) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight || 200;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const padRight = 44, padBottom = 16, padTop = 4;
+      const plotW = w - padRight, plotH = h - padBottom - padTop;
+
+      const vals = points.map(p => p.v);
+      let minY = Math.min(...vals), maxY = Math.max(...vals);
+      if(cfg.zeroLine){ minY = Math.min(minY, 0); maxY = Math.max(maxY, 0); }
+      const rangeY = (maxY - minY) || 1;
+      const minX = range.min, maxX = range.max, rangeX = (maxX - minX) || 1;
+
+      const xAt = t => ((t - minX) / rangeX) * plotW;
+      const yAt = v => padTop + plotH - ((v - minY) / rangeY) * plotH;
+
+      ctx.strokeStyle = "rgba(150,150,150,0.25)";
+      ctx.setLineDash([3,3]);
+      ctx.lineWidth = 1;
+      ctx.font = "9px ui-monospace, monospace";
+      ctx.fillStyle = "rgba(140,140,140,0.9)";
+      makeNiceYTicks(minY, maxY).forEach(v => {
+        const y = yAt(v);
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
+        ctx.textAlign = "left";
+        ctx.fillText(cfg.formatValue(v), plotW + 4, y + 3);
+      });
+      ctx.setLineDash([]);
+
+      if(cfg.zeroLine){
+        const y0 = yAt(0);
+        ctx.strokeStyle = "rgba(140,140,140,0.6)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0,y0); ctx.lineTo(plotW,y0); ctx.stroke();
+      }
+
+      ctx.beginPath();
+      points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(p.t), yAt(p.v)) : ctx.lineTo(xAt(p.t), yAt(p.v)));
+      ctx.strokeStyle = cfg.lineColor;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(140,140,140,0.9)";
+      ctx.font = "9px ui-monospace, monospace";
+      const ticks = xTicks(minX, maxX);
+      ticks.forEach((tick, i) => {
+        const x = xAt(tick.value);
+        ctx.textAlign = i === 0 ? "left" : i === ticks.length-1 ? "right" : "center";
+        const cx = i === 0 ? Math.max(2,x) : i === ticks.length-1 ? Math.min(plotW-2,x) : x;
+        ctx.fillText(tick.label, cx, h - 4);
+      });
+
+      if(state.highlightT != null && state.highlightT >= minX && state.highlightT <= maxX){
+        const x = xAt(state.highlightT);
+        ctx.beginPath();
+        ctx.moveTo(x, padTop); ctx.lineTo(x, padTop+plotH);
+        ctx.strokeStyle = "rgba(100,100,100,0.5)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      document.getElementById(cfg.rangeLabelId).textContent = fmtRangeLabel(range);
+      document.getElementById(cfg.resetBtnId).style.display = state.viewRange ? "inline-block" : "none";
+    }
+
+    function pointAt(ms){
+      const pts = state.points;
+      if(!pts || !pts.length) return null;
+      if(ms <= pts[0].t) return pts[0];
+      if(ms >= pts[pts.length-1].t) return pts[pts.length-1];
+      let lo = 0, hi = pts.length - 1;
+      while(lo < hi){
+        const mid = (lo + hi) >> 1;
+        if(pts[mid].t < ms) lo = mid + 1; else hi = mid;
+      }
+      const a = pts[lo-1], b = pts[lo];
+      if(!a) return b;
+      return (ms - a.t) <= (b.t - ms) ? a : b;
+    }
+
+    function updateTooltip(ms){
+      state.highlightT = ms;
+      draw();
+      const tooltip = document.getElementById(cfg.tooltipId);
+      const p = ms != null ? pointAt(ms) : null;
+      if(ms == null || !p){ tooltip.style.display = "none"; return; }
+      tooltip.innerHTML = cfg.formatTooltip(p);
+      tooltip.style.display = "block";
+      const canvas = document.getElementById(cfg.canvasId);
+      const rect = canvas.getBoundingClientRect();
+      const range = state.viewRange || state.fullRange;
+      const frac = (p.t - range.min) / (range.max - range.min);
+      let left = frac * rect.width - tooltip.offsetWidth / 2;
+      left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+      tooltip.style.left = left + "px";
+    }
+
+    function zoom(factor, centerTs){
+      if(!state.fullRange) return;
+      const cur = state.viewRange || state.fullRange;
+      const width = cur.max - cur.min;
+      const fullWidth = state.fullRange.max - state.fullRange.min;
+      const newWidth = Math.max(cfg.minZoomMs, Math.min(fullWidth, width * factor));
+      const ratio = (centerTs - cur.min) / width;
+      const min = centerTs - newWidth * ratio;
+      const next = clampRange({ min, max: min + newWidth }, state.fullRange);
+      state.viewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+      draw();
+    }
+
+    function pan(deltaMs){
+      if(!state.fullRange) return;
+      const cur = state.viewRange || state.fullRange;
+      const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, state.fullRange);
+      state.viewRange = (next.max - next.min) >= (state.fullRange.max - state.fullRange.min) - 1000 ? null : next;
+      draw();
+    }
+
+    function attachInteraction(){
+      const canvas = document.getElementById(cfg.canvasId);
+      let touchState = null;
+      let mouseDragging = false, lastMouseX = 0;
+
+      const xToMs = clientX => {
+        const rect = canvas.getBoundingClientRect();
+        const range = state.viewRange || state.fullRange;
+        return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+      };
+
+      canvas.addEventListener("touchstart", e => {
+        if(e.touches.length === 1){
+          touchState = { mode: "scrub" };
+          updateTooltip(xToMs(e.touches[0].clientX));
+        } else if(e.touches.length === 2){
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+        }
+      }, { passive: true });
+
+      canvas.addEventListener("touchmove", e => {
+        if(!touchState || !state.fullRange) return;
+        if(touchState.mode === "scrub" && e.touches.length === 1){
+          updateTooltip(xToMs(e.touches[0].clientX));
+        } else if(touchState.mode === "pinch" && e.touches.length === 2){
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const rect = canvas.getBoundingClientRect();
+          const range = state.viewRange || state.fullRange;
+          const dxPx = midX - touchState.lastMidX;
+          if(dxPx !== 0) pan(-dxPx * (range.max - range.min) / rect.width);
+          if(dist !== touchState.lastDist) zoom(touchState.lastDist / dist, xToMs(midX));
+          touchState.lastDist = dist;
+          touchState.lastMidX = midX;
+        }
+        e.preventDefault();
+      }, { passive: false });
+
+      canvas.addEventListener("touchend", e => {
+        if(e.touches.length === 0){ touchState = null; updateTooltip(null); }
+        else if(e.touches.length === 1) touchState = { mode: "scrub" };
+      });
+
+      canvas.addEventListener("wheel", e => {
+        if(!state.fullRange) return;
+        e.preventDefault();
+        zoom(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+      }, { passive: false });
+
+      canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateTooltip(null); });
+      window.addEventListener("mousemove", e => {
+        if(!mouseDragging || !state.fullRange) return;
+        const rect = canvas.getBoundingClientRect();
+        const dxPx = e.clientX - lastMouseX;
+        lastMouseX = e.clientX;
+        const range = state.viewRange || state.fullRange;
+        pan(-dxPx * (range.max - range.min) / rect.width);
+      });
+      window.addEventListener("mouseup", () => { mouseDragging = false; });
+      canvas.addEventListener("mousemove", e => {
+        if(mouseDragging || !state.fullRange) return;
+        updateTooltip(xToMs(e.clientX));
+      });
+      canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
+
+      document.getElementById(cfg.resetBtnId).addEventListener("click", () => {
+        state.viewRange = null;
+        draw();
+      });
+    }
+
+    attachInteraction();
+
+    return {
+      setPoints(pts){
+        if(!pts || !pts.length) return;
+        state.points = pts.slice().sort((a,b) => a.t - b.t);
+        state.fullRange = { min: state.points[0].t, max: state.points[state.points.length-1].t };
+        state.viewRange = null;
+        state.highlightT = null;
+        draw();
+      },
+      redraw: draw,
+    };
+  }
+
+  // ---- KRW/USD exchange rate modal ----
+  const fxChart = createTimeSeriesModalChart({
+    canvasId: "fxChart", tooltipId: "fxTooltip", rangeLabelId: "fxRangeLabel", resetBtnId: "fxResetZoom",
+    minZoomMs: 14 * 86400000, lineColor: "#3b82f6",
+    formatValue: v => Math.round(v).toLocaleString("en-US"),
+    formatTooltip: p => `<div><b>${new Date(p.t).toISOString().slice(0,10)}</b></div><div><b>₩${Math.round(p.v).toLocaleString("ko-KR")}</b></div>`,
+  });
+
+  let fxPointsCache = null;
+  async function loadFxPoints(){
+    if(fxPointsCache) return fxPointsCache;
+    const res = await fetch("https://api.frankfurter.app/2014-01-01..?from=USD&to=KRW");
+    if(!res.ok) throw new Error("환율 API " + res.status);
+    const data = await res.json();
+    const points = Object.entries(data.rates || {}).map(([date, v]) => ({ t: new Date(date).getTime(), v: v.KRW }));
+    if(!points.length) throw new Error("데이터 없음");
+    fxPointsCache = points;
+    return points;
+  }
+
+  async function openFxModal(){
+    const modal = document.getElementById("fxModal");
+    modal.classList.add("open");
+    const status = document.getElementById("fxModalStatus");
+    status.textContent = fxPointsCache ? "" : "불러오는 중...";
+    try{
+      const points = await loadFxPoints();
+      status.textContent = "";
+      fxChart.setPoints(points);
+    }catch(e){
+      status.textContent = "로드 실패: " + e.message;
+    }
+  }
+
+  function closeFxModal(){
+    document.getElementById("fxModal").classList.remove("open");
+  }
+
+  // ---- Kimchi premium modal ----
+  const premiumChart = createTimeSeriesModalChart({
+    canvasId: "premiumChart", tooltipId: "premiumTooltip", rangeLabelId: "premiumRangeLabel", resetBtnId: "premiumResetZoom",
+    minZoomMs: 14 * 86400000, lineColor: "#8b5cf6", zeroLine: true,
+    formatValue: v => (v >= 0 ? "+" : "") + v.toFixed(1) + "%",
+    formatTooltip: p => `<div><b>${new Date(p.t).toISOString().slice(0,10)}</b></div><div style="color:${p.v >= 0 ? "var(--green)" : "var(--red)"}"><b>${(p.v >= 0 ? "+" : "") + p.v.toFixed(2)}%</b></div>`,
+  });
+
+  let premiumPointsCache = null;
+  async function loadPremiumPoints(){
+    if(premiumPointsCache) return premiumPointsCache;
+    const res = await fetch("/api/kimchi-premium-history");
+    if(!res.ok) throw new Error("API " + res.status);
+    const data = await res.json();
+    const premiums = data.premiums || {};
+    const points = Object.entries(premiums).map(([date, v]) => ({ t: new Date(date).getTime(), v }));
+    if(!points.length) throw new Error("데이터 없음");
+    premiumPointsCache = points;
+    return points;
+  }
+
+  async function openPremiumModal(){
+    const modal = document.getElementById("premiumModal");
+    modal.classList.add("open");
+    const status = document.getElementById("premiumModalStatus");
+    status.textContent = premiumPointsCache ? "" : "불러오는 중...";
+    try{
+      const points = await loadPremiumPoints();
+      status.textContent = "";
+      premiumChart.setPoints(points);
+    }catch(e){
+      status.textContent = "로드 실패: " + e.message;
+    }
+  }
+
+  function closePremiumModal(){
+    document.getElementById("premiumModal").classList.remove("open");
+  }
+
   // ---- Halving ----
   async function updateHalving(){
     try{
@@ -1394,6 +1785,8 @@
   window.addEventListener("resize", () => {
     drawChart(); drawRsi(); drawSparkline.lastCandles && drawSparkline(drawSparkline.lastCandles);
     if(document.getElementById("fngModal").classList.contains("open")) drawFngChart(fngHighlightT);
+    if(document.getElementById("fxModal").classList.contains("open")) fxChart.redraw();
+    if(document.getElementById("premiumModal").classList.contains("open")) premiumChart.redraw();
   });
 
   function init(){
@@ -1403,6 +1796,14 @@
     document.getElementById("statFngRow").addEventListener("click", openFngModal);
     document.getElementById("fngModalClose").addEventListener("click", closeFngModal);
     document.getElementById("fngModal").addEventListener("click", e => { if(e.target.id === "fngModal") closeFngModal(); });
+
+    document.getElementById("statFxRow").addEventListener("click", openFxModal);
+    document.getElementById("fxModalClose").addEventListener("click", closeFxModal);
+    document.getElementById("fxModal").addEventListener("click", e => { if(e.target.id === "fxModal") closeFxModal(); });
+
+    document.getElementById("statPremiumRow").addEventListener("click", openPremiumModal);
+    document.getElementById("premiumModalClose").addEventListener("click", closePremiumModal);
+    document.getElementById("premiumModal").addEventListener("click", e => { if(e.target.id === "premiumModal") closePremiumModal(); });
 
     updatePrice();
     updateSparkline();
