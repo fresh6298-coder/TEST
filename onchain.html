@@ -72,8 +72,26 @@
   .metric-value{font-size:24px;font-weight:700;}
   .metric-zone{font-size:12px;margin-bottom:10px;}
   .metric-desc{font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.5;}
-  .metric-chart{width:100%;height:100px;display:block;}
+  .metric-chart{width:100%;height:100px;display:block;touch-action:none;cursor:grab;}
+  .metric-chart:active{cursor:grabbing;}
   .metric-range{font-size:10px;color:var(--sub);text-align:right;margin-top:2px;}
+  .chart-canvas-wrap{position:relative;}
+  .chart-tooltip{
+    position:absolute;top:4px;
+    padding:6px 10px;border:1px solid var(--track);border-radius:8px;
+    background:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,0.15);
+    font-size:11px;line-height:1.6;white-space:nowrap;
+    pointer-events:none;display:none;z-index:5;
+  }
+  .zoom-bar{
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:11px;color:var(--sub);margin-top:4px;
+  }
+  .zoom-bar button{
+    font-family:inherit;font-size:11px;color:var(--orange);
+    background:none;border:1px solid var(--orange);border-radius:12px;
+    padding:3px 10px;cursor:pointer;
+  }
 
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
@@ -121,7 +139,14 @@
     <div class="metric-head"><span class="metric-name">MVRV Z-Score</span><span class="metric-value" id="mvrvValue">-</span></div>
     <div class="metric-zone" id="mvrvZone">-</div>
     <div class="metric-desc">시가총액과 실현시가총액의 괴리를 표준편차로 정규화한 지표. 역사적으로 7 이상이면 과열(사이클 고점권), 0 이하면 저평가(사이클 저점권) 구간으로 해석돼.</div>
-    <canvas class="metric-chart" id="mvrvChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="metric-chart" id="mvrvChart"></canvas>
+      <div class="chart-tooltip" id="mvrvTooltip"></div>
+    </div>
+    <div class="zoom-bar">
+      <span id="mvrvRangeLabel"></span>
+      <button id="mvrvResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
     <div class="metric-range" id="mvrvRange"></div>
   </div>
 
@@ -129,7 +154,14 @@
     <div class="metric-head"><span class="metric-name">NUPL</span><span class="metric-value" id="nuplValue">-</span></div>
     <div class="metric-zone" id="nuplZone">-</div>
     <div class="metric-desc">보유자 전체의 미실현 손익 비율. 0 이하 항복(Capitulation), 0.5~0.75 확신(Belief), 0.75 이상 도취(Euphoria) 구간으로 해석돼.</div>
-    <canvas class="metric-chart" id="nuplChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="metric-chart" id="nuplChart"></canvas>
+      <div class="chart-tooltip" id="nuplTooltip"></div>
+    </div>
+    <div class="zoom-bar">
+      <span id="nuplRangeLabel"></span>
+      <button id="nuplResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
     <div class="metric-range" id="nuplRange"></div>
   </div>
 
@@ -137,7 +169,14 @@
     <div class="metric-head"><span class="metric-name">Puell Multiple</span><span class="metric-value" id="puellValue">-</span></div>
     <div class="metric-zone" id="puellZone">-</div>
     <div class="metric-desc">일일 채굴 발행가치를 365일 평균과 비교한 지표. 4 이상이면 채굴자 수익성 과열(고점권), 0.5 이하면 저평가(저점권) 구간으로 해석돼.</div>
-    <canvas class="metric-chart" id="puellChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="metric-chart" id="puellChart"></canvas>
+      <div class="chart-tooltip" id="puellTooltip"></div>
+    </div>
+    <div class="zoom-bar">
+      <span id="puellRangeLabel"></span>
+      <button id="puellResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
     <div class="metric-range" id="puellRange"></div>
   </div>
 
@@ -169,25 +208,27 @@
     return dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
   }
 
-  function drawSeries(canvas, history, bands){
+  // points: [{x: ms, y: value}], sorted ascending by x.
+  function drawSeriesTS(canvas, points, bands, range, highlightX){
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 100;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = w * dpr; canvas.height = hTotal * dpr;
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,w,hTotal);
-    if(!history.length) return;
+    if(!points.length) return;
 
     const padRight = 30, padBottom = 14;
     const plotW = w - padRight;
     const h = hTotal - padBottom;
 
-    const values = history.map(p => p.value);
+    const values = points.map(p => p.y);
     const max = Math.max(...values, ...(bands||[]).map(b=>b.at));
     const min = Math.min(...values, ...(bands||[]).map(b=>b.at));
-    const range = (max - min) || 1;
-    const xAt = i => (i/(history.length-1)) * plotW;
-    const yAt = v => h - ((v-min)/range) * h;
+    const valRange = (max - min) || 1;
+    const rangeX = (range.max - range.min) || 1;
+    const xAt = x => ((x - range.min) / rangeX) * plotW;
+    const yAt = v => h - ((v-min)/valRange) * h;
 
     (bands||[]).forEach(b => {
       const y = yAt(b.at);
@@ -203,26 +244,206 @@
     });
 
     ctx.beginPath();
-    history.forEach((p,i) => i===0 ? ctx.moveTo(xAt(i), yAt(p.value)) : ctx.lineTo(xAt(i), yAt(p.value)));
+    points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(p.x), yAt(p.y)) : ctx.lineTo(xAt(p.x), yAt(p.y)));
     ctx.strokeStyle = "#f7931a";
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    const tickCount = Math.min(4, history.length);
-    const tickIdx = new Set();
-    for(let i=0;i<tickCount;i++){
-      tickIdx.add(Math.round(i * (history.length - 1) / (tickCount - 1 || 1)));
+    if(highlightX != null){
+      const hx = xAt(highlightX);
+      if(hx >= -1 && hx <= plotW + 1){
+        ctx.beginPath();
+        ctx.moveTo(hx, 0); ctx.lineTo(hx, h);
+        ctx.strokeStyle = "rgba(100,100,100,0.5)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
-    const sortedTicks = [...tickIdx].sort((a,b) => a-b);
+
+    const tickXs = [range.min, range.min + rangeX*0.33, range.min + rangeX*0.66, range.max];
     ctx.fillStyle = "rgba(140,140,140,0.9)";
     ctx.font = "9px ui-monospace, monospace";
-    sortedTicks.forEach((i, idx) => {
-      const x = xAt(i);
-      ctx.textAlign = idx === 0 ? "left" : idx === sortedTicks.length - 1 ? "right" : "center";
-      const clampedX = idx === 0 ? Math.max(2, x) : idx === sortedTicks.length - 1 ? Math.min(plotW - 2, x) : x;
-      ctx.fillText(shortDate(history[i].date), clampedX, hTotal - 2);
+    tickXs.forEach((tx, idx) => {
+      const x = xAt(tx);
+      ctx.textAlign = idx === 0 ? "left" : idx === tickXs.length - 1 ? "right" : "center";
+      const clampedX = idx === 0 ? Math.max(2, x) : idx === tickXs.length - 1 ? Math.min(plotW - 2, x) : x;
+      ctx.fillText(shortDate(tx), clampedX, hTotal - 2);
     });
   }
+
+  function clampRange(range, full){
+    const width = Math.min(range.max - range.min, full.max - full.min);
+    let min = range.min, max = min + width;
+    if(min < full.min){ min = full.min; max = min + width; }
+    if(max > full.max){ max = full.max; min = max - width; }
+    return { min, max };
+  }
+
+  function nearestPoint(points, ms){
+    if(!points.length) return null;
+    if(ms <= points[0].x) return points[0];
+    if(ms >= points[points.length-1].x) return points[points.length-1];
+    let lo = 0, hi = points.length - 1;
+    while(lo < hi){
+      const mid = (lo + hi) >> 1;
+      if(points[mid].x < ms) lo = mid + 1; else hi = mid;
+    }
+    const a = points[lo-1], b = points[lo];
+    if(!a) return b;
+    return (ms - a.x) <= (b.x - ms) ? a : b;
+  }
+
+  const MIN_ZOOM_MS = 30 * 86400000; // don't zoom in past ~1 month
+
+  // Reusable scrub + two-finger pinch-zoom/pan chart, same interaction
+  // model used throughout index.html and cycles.html.
+  function createMetricChart(cfg){
+    const canvas = document.getElementById(cfg.canvasId);
+    const tooltip = document.getElementById(cfg.tooltipId);
+    const rangeLabel = document.getElementById(cfg.rangeLabelId);
+    const resetBtn = document.getElementById(cfg.resetBtnId);
+
+    let points = [], bands = [];
+    let fullRange = null, viewRange = null, highlightX = null;
+
+    function render(){
+      if(!fullRange) return;
+      const range = viewRange || fullRange;
+      const visible = points.filter(p => p.x >= range.min && p.x <= range.max);
+      drawSeriesTS(canvas, visible, bands, range, highlightX);
+      rangeLabel.textContent = new Date(range.min).toISOString().slice(0,10) + " ~ " + new Date(range.max).toISOString().slice(0,10);
+      resetBtn.style.display = viewRange ? "inline-block" : "none";
+    }
+
+    function updateTooltip(ms){
+      highlightX = ms;
+      render();
+      if(ms == null || !points.length){ tooltip.style.display = "none"; return; }
+      const p = nearestPoint(points, ms);
+      tooltip.innerHTML = `<div><b>${new Date(p.x).toISOString().slice(0,10)}</b></div><div>${cfg.formatValue(p.y)}</div>`;
+      tooltip.style.display = "block";
+      const rect = canvas.getBoundingClientRect();
+      const range = viewRange || fullRange;
+      const frac = (ms - range.min) / (range.max - range.min);
+      let left = frac * rect.width - tooltip.offsetWidth / 2;
+      left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+      tooltip.style.left = left + "px";
+    }
+
+    function zoom(factor, centerMs){
+      if(!fullRange) return;
+      const cur = viewRange || fullRange;
+      const width = cur.max - cur.min;
+      const fullWidth = fullRange.max - fullRange.min;
+      const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+      const ratio = width ? (centerMs - cur.min) / width : 0.5;
+      const min = centerMs - newWidth * ratio;
+      const next = clampRange({ min, max: min + newWidth }, fullRange);
+      viewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+      render();
+    }
+
+    function pan(deltaMs){
+      if(!fullRange) return;
+      const cur = viewRange || fullRange;
+      const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, fullRange);
+      viewRange = (next.max - next.min) >= (fullRange.max - fullRange.min) - 1000 ? null : next;
+      render();
+    }
+
+    const xToMs = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = viewRange || fullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
+    let touchState = null, mouseDragging = false, lastMouseX = 0;
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+        updateTooltip(xToMs(e.touches[0].clientX));
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState || !fullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateTooltip(xToMs(e.touches[0].clientX));
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const range = viewRange || fullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) pan(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoom(touchState.lastDist / dist, xToMs(midX));
+        touchState.lastDist = dist;
+        touchState.lastMidX = midX;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0){
+        touchState = null;
+        updateTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!fullRange) return;
+      e.preventDefault();
+      zoom(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !fullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = viewRange || fullRange;
+      const msPerPx = (range.max - range.min) / rect.width;
+      pan(-dxPx * msPerPx);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !fullRange) return;
+      updateTooltip(xToMs(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
+
+    resetBtn.addEventListener("click", () => { viewRange = null; render(); });
+
+    return {
+      setData(history, bandsArg){
+        points = history.map(p => ({ x: new Date(p.date).getTime(), y: p.value }));
+        bands = bandsArg || [];
+        if(!points.length) return;
+        fullRange = { min: points[0].x, max: points[points.length-1].x };
+        viewRange = null; highlightX = null;
+        render();
+      },
+      redraw: render,
+    };
+  }
+
+  const mvrvChart = createMetricChart({ canvasId: "mvrvChart", tooltipId: "mvrvTooltip", rangeLabelId: "mvrvRangeLabel", resetBtnId: "mvrvResetZoom", formatValue: v => v.toFixed(2) });
+  const nuplChart = createMetricChart({ canvasId: "nuplChart", tooltipId: "nuplTooltip", rangeLabelId: "nuplRangeLabel", resetBtnId: "nuplResetZoom", formatValue: v => v.toFixed(2) });
+  const puellChart = createMetricChart({ canvasId: "puellChart", tooltipId: "puellTooltip", rangeLabelId: "puellRangeLabel", resetBtnId: "puellResetZoom", formatValue: v => v.toFixed(2) });
+
+  window.addEventListener("resize", () => { mvrvChart.redraw(); nuplChart.redraw(); puellChart.redraw(); });
 
   function setZone(el, label, color){
     el.textContent = label;
@@ -266,21 +487,21 @@
         document.getElementById("mvrvValue").textContent = m.mvrvZscore.current.value.toFixed(2);
         const [label, color] = mvrvZone(m.mvrvZscore.current.value);
         setZone(document.getElementById("mvrvZone"), label, color);
-        drawSeries(document.getElementById("mvrvChart"), m.mvrvZscore.history, [{at:7,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
+        mvrvChart.setData(m.mvrvZscore.history, [{at:7,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
         setRange(document.getElementById("mvrvRange"), m.mvrvZscore);
       }
       if(m.nupl){
         document.getElementById("nuplValue").textContent = m.nupl.current.value.toFixed(2);
         const [label, color] = nuplZone(m.nupl.current.value);
         setZone(document.getElementById("nuplZone"), label, color);
-        drawSeries(document.getElementById("nuplChart"), m.nupl.history, [{at:0.75,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
+        nuplChart.setData(m.nupl.history, [{at:0.75,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
         setRange(document.getElementById("nuplRange"), m.nupl);
       }
       if(m.puellMultiple){
         document.getElementById("puellValue").textContent = m.puellMultiple.current.value.toFixed(2);
         const [label, color] = puellZone(m.puellMultiple.current.value);
         setZone(document.getElementById("puellZone"), label, color);
-        drawSeries(document.getElementById("puellChart"), m.puellMultiple.history, [{at:4,color:"rgba(239,68,68,0.5)"},{at:0.5,color:"rgba(22,163,74,0.5)"}]);
+        puellChart.setData(m.puellMultiple.history, [{at:4,color:"rgba(239,68,68,0.5)"},{at:0.5,color:"rgba(22,163,74,0.5)"}]);
         setRange(document.getElementById("puellRange"), m.puellMultiple);
       }
 
