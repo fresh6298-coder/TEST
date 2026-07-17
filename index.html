@@ -1587,20 +1587,36 @@
     panChart(-dxPx * pointsPerPixel);
   }
 
+  // Shows the value under a point via a crosshair, used both by one-finger
+  // touch scrub and by desktop mouse hover.
+  function scrubChart(clientX){
+    const rect = chartCanvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const points = visibleSlice(state.chartPoints);
+    if(!points || !points.length) return;
+    const idx = Math.round((x / rect.width) * (points.length - 1));
+    const clamped = Math.max(0, Math.min(points.length - 1, idx));
+    drawChart(clamped);
+    drawRsi(clamped);
+  }
+
   function attachChartZoomPan(){
     const canvas = chartCanvas;
     let touchState = null;
     let mouseDragging = false, lastMouseX = 0;
 
-    // One-finger drag pans left/right (same gesture as the macro correlation
-    // chart on the Cycles page); two-finger pinch zooms in/out.
+    // One-finger touch scrubs the crosshair (touch down shows the value,
+    // dragging moves it); two-finger distance change zooms and midpoint
+    // movement pans, tracked as independent per-frame deltas.
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
-        touchState = { mode: "pan", lastX: e.touches[0].clientX };
+        touchState = { mode: "scrub" };
+        scrubChart(e.touches[0].clientX);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
       } else {
         touchState = null;
       }
@@ -1609,27 +1625,34 @@
     canvas.addEventListener("touchmove", e => {
       if(!touchState || !state.chartPoints.length) return;
       const rect = canvas.getBoundingClientRect();
-      if(touchState.mode === "pan" && e.touches.length === 1){
-        const dxPx = e.touches[0].clientX - touchState.lastX;
-        touchState.lastX = e.touches[0].clientX;
-        panChartByPixels(dxPx, rect.width);
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        scrubChart(e.touches[0].clientX);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.hypot(dx, dy);
-        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-        const points = visibleSlice(state.chartPoints);
-        const cur = state.viewRange || { start: 0, end: state.chartPoints.length - 1 };
-        const centerIdx = cur.start + (midX / rect.width) * (points.length - 1);
-        zoomChart(touchState.lastDist / dist, centerIdx);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panChartByPixels(dxPx, rect.width);
+        if(dist !== touchState.lastDist){
+          const points = visibleSlice(state.chartPoints);
+          const cur = state.viewRange || { start: 0, end: state.chartPoints.length - 1 };
+          const centerIdx = cur.start + ((midX - rect.left) / rect.width) * (points.length - 1);
+          zoomChart(touchState.lastDist / dist, centerIdx);
+        }
         touchState.lastDist = dist;
+        touchState.lastMidX = midX;
       }
       e.preventDefault();
     }, { passive: false });
 
     canvas.addEventListener("touchend", e => {
-      if(e.touches.length === 0) touchState = null;
-      else if(e.touches.length === 1) touchState = { mode: "pan", lastX: e.touches[0].clientX };
+      if(e.touches.length === 0){
+        touchState = null;
+        drawChart(); drawRsi();
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
     });
 
     canvas.addEventListener("wheel", e => {
@@ -1642,8 +1665,8 @@
       zoomChart(e.deltaY > 0 ? 1.2 : 1/1.2, centerIdx);
     }, { passive: false });
 
-    // Desktop: click-drag pans (mirrors touch pan); plain hover (no button
-    // held) still scrubs the crosshair tooltip via attachChartInteraction.
+    // Desktop: click-drag pans; plain hover (no button held) scrubs the
+    // crosshair tooltip via attachChartInteraction.
     canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; });
     window.addEventListener("mousemove", e => {
       if(!mouseDragging || !state.chartPoints.length) return;
@@ -1840,22 +1863,12 @@
   }
 
   function attachChartInteraction(){
-    function handle(clientX){
-      const rect = chartCanvas.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const points = visibleSlice(state.chartPoints);
-      if(!points || !points.length) return;
-      const idx = Math.round((x / rect.width) * (points.length - 1));
-      const clamped = Math.max(0, Math.min(points.length - 1, idx));
-      drawChart(clamped);
-      drawRsi(clamped);
-    }
-    // Touch is handled entirely by attachChartZoomPan (one-finger pan,
-    // two-finger pinch-zoom) below. On desktop, plain mouse hover still
+    // Touch is handled entirely by attachChartZoomPan (one-finger scrub,
+    // two-finger pinch-zoom + pan) below. On desktop, plain mouse hover still
     // scrubs the crosshair tooltip; click-drag pans instead (see
     // attachChartZoomPan's mousedown/mousemove handlers).
     const zoomPan = attachChartZoomPan();
-    chartCanvas.addEventListener("mousemove", e => { if(!zoomPan.isDragging()) handle(e.clientX); });
+    chartCanvas.addEventListener("mousemove", e => { if(!zoomPan.isDragging()) scrubChart(e.clientX); });
     chartCanvas.addEventListener("mouseleave", () => { if(!zoomPan.isDragging()){ drawChart(); drawRsi(); } });
   }
 
