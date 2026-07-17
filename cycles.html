@@ -77,6 +77,8 @@
   #macroChart:active{cursor:grabbing;}
   #cycleChart{touch-action:none;cursor:grab;}
   #cycleChart:active{cursor:grabbing;}
+  #adoptionChart{touch-action:none;cursor:grab;}
+  #adoptionChart:active{cursor:grabbing;}
   #priceLawChart{touch-action:none;cursor:grab;}
   #priceLawChart:active{cursor:grabbing;}
   #goldRatioChart{touch-action:none;cursor:grab;}
@@ -220,7 +222,14 @@
     <h2>기술 도입 곡선 비교</h2>
     <div class="desc">전기·전화·라디오·TV·PC·휴대폰·인터넷·스마트폰이 등장 후 몇 년 만에 얼마나 보급됐는지와, 비트코인의 전 세계 인구 대비 추정 보유율을 도입 후 경과 연수 기준으로 겹쳐서 비교해. (비트코인 외 곡선은 여러 문헌에서 자주 인용되는 근사치를 바탕으로 재구성한 참고용 곡선이고, 비트코인 보유율도 출처별로 추정치가 갈려.)</div>
     <div class="chart-legend toggleable" id="adoptionLegend"></div>
-    <canvas class="panel-chart" id="adoptionChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="adoptionChart"></canvas>
+      <div class="pricelaw-tooltip" id="adoptionTooltip"></div>
+    </div>
+    <div class="macro-zoom-bar">
+      <span id="adoptionRangeLabel"></span>
+      <button id="adoptionResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
     <div class="info-box" id="adoptionNote"></div>
   </section>
 
@@ -1593,9 +1602,19 @@
   }
 
   let adoptionHidden = new Set();
+  let adoptionSeriesList = null;
+  let adoptionFullRange = { min: 0, max: ADOPTION_MAX_YEARS };
+  let adoptionViewRange = null;
+  let adoptionHighlightX = null;
+  const MIN_ZOOM_YEARS = 2;
+
+  function adoptionXTicks(range){
+    const tickXs = [range.min, range.min + (range.max-range.min)*0.33, range.min + (range.max-range.min)*0.66, range.max];
+    return tickXs.map(v => ({ value: v, label: v.toFixed(1)+"년" }));
+  }
 
   function renderAdoption(){
-    const seriesList = TECH_ADOPTION.map(t => ({
+    adoptionSeriesList = TECH_ADOPTION.map(t => ({
       points: logisticSeries(t.t50, t.spread, t.ceiling, ADOPTION_MAX_YEARS),
       color: t.color, label: t.label,
     }));
@@ -1604,16 +1623,148 @@
     const anchorYears = daysSinceGenesis(ADOPTION_LAST_SURVEY_ANCHOR.date) / 365.25;
     bitcoinPoints.push({ x: anchorYears, y: ADOPTION_LAST_SURVEY_ANCHOR.pct });
     bitcoinPoints.push({ x: daysSinceGenesis(now) / 365.25, y: projectedAdoptionPct(now) });
-    seriesList.push({ points: bitcoinPoints, color: BITCOIN_COLOR, label: "비트코인", lineWidth: 2.5 });
+    adoptionSeriesList.push({ points: bitcoinPoints, color: BITCOIN_COLOR, label: "비트코인", lineWidth: 2.5 });
 
-    const visible = seriesList.filter(s => !adoptionHidden.has(s.label));
+    const range = adoptionViewRange || adoptionFullRange;
+    const visible = adoptionSeriesList
+      .filter(s => !adoptionHidden.has(s.label))
+      .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
+      .filter(s => s.points.length >= 2);
     // Linear 0-100% axis, all curves anchored at (0, 0%) — Bitcoin's ~6%
     // current adoption is deliberately tiny next to technologies that
     // reached 90%+ saturation; that's the point of the comparison.
     const yTicks = [0,20,40,60,80,100].map(v => ({ value: v, label: v+"%" }));
-    const xTicks = [0,10,20,30].map(v => ({ value: v, label: v+"년" }));
     drawLineChart(document.getElementById("adoptionChart"), visible, {
-      logScale: false, yTicks, xTicks, padRight: 30
+      logScale: false, yTicks, xTicks: adoptionXTicks(range), padRight: 30, highlightX: adoptionHighlightX
+    });
+
+    document.getElementById("adoptionRangeLabel").textContent =
+      `${range.min.toFixed(1)}년 ~ ${range.max.toFixed(1)}년`;
+    document.getElementById("adoptionResetZoom").style.display = adoptionViewRange ? "inline-block" : "none";
+  }
+
+  function updateAdoptionTooltip(x){
+    adoptionHighlightX = x;
+    renderAdoption();
+
+    const tooltip = document.getElementById("adoptionTooltip");
+    const visible = adoptionSeriesList ? adoptionSeriesList.filter(s => !adoptionHidden.has(s.label)) : [];
+    if(x == null || !visible.length){ tooltip.style.display = "none"; return; }
+
+    let html = `<div><b>${x.toFixed(1)}년차</b></div>`;
+    visible.forEach(s => {
+      const p = nearestSeriesPoint(s.points, x);
+      if(p) html += `<div><span style="color:${s.color}">●</span> ${s.label}: <b>${p.y.toFixed(1)}%</b></div>`;
+    });
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+
+    const canvas = document.getElementById("adoptionChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = adoptionViewRange || adoptionFullRange;
+    const frac = (x - range.min) / (range.max - range.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function zoomAdoption(factor, centerX){
+    const cur = adoptionViewRange || adoptionFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = adoptionFullRange.max - adoptionFullRange.min;
+    const newWidth = Math.max(MIN_ZOOM_YEARS, Math.min(fullWidth, width * factor));
+    const ratio = (centerX - cur.min) / width;
+    const min = centerX - newWidth * ratio;
+    const next = clampRange({ min, max: min + newWidth }, adoptionFullRange);
+    adoptionViewRange = (next.max - next.min) >= fullWidth - 0.01 ? null : next;
+    renderAdoption();
+  }
+
+  function panAdoption(deltaX){
+    const cur = adoptionViewRange || adoptionFullRange;
+    const next = clampRange({ min: cur.min + deltaX, max: cur.max + deltaX }, adoptionFullRange);
+    adoptionViewRange = (next.max - next.min) >= (adoptionFullRange.max - adoptionFullRange.min) - 0.01 ? null : next;
+    renderAdoption();
+  }
+
+  function attachAdoptionZoomPan(){
+    const canvas = document.getElementById("adoptionChart");
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+
+    const xToYears = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = adoptionViewRange || adoptionFullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+        updateAdoptionTooltip(xToYears(e.touches[0].clientX));
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateAdoptionTooltip(xToYears(e.touches[0].clientX));
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const range = adoptionViewRange || adoptionFullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panAdoption(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomAdoption(touchState.lastDist / dist, xToYears(midX));
+        touchState.lastDist = dist;
+        touchState.lastMidX = midX;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0){
+        touchState = null;
+        updateAdoptionTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      e.preventDefault();
+      zoomAdoption(e.deltaY > 0 ? 1.2 : 1/1.2, xToYears(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateAdoptionTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = adoptionViewRange || adoptionFullRange;
+      const pxPerYear = rect.width / (range.max - range.min);
+      panAdoption(-dxPx / pxPerYear);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging) return;
+      updateAdoptionTooltip(xToYears(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateAdoptionTooltip(null); });
+
+    document.getElementById("adoptionResetZoom").addEventListener("click", () => {
+      adoptionViewRange = null;
+      renderAdoption();
     });
   }
 
@@ -1646,6 +1797,7 @@
   attachPriceLawZoomPan();
   attachGoldRatioZoomPan();
   attachCycleZoomPan();
+  attachAdoptionZoomPan();
   load();
   initAdoption();
   setInterval(load, 60 * 60 * 1000);
