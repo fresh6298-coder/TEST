@@ -77,7 +77,13 @@
   #macroChart:active{cursor:grabbing;}
   #priceLawChart{touch-action:none;cursor:grab;}
   #priceLawChart:active{cursor:grabbing;}
+  #goldRatioChart{touch-action:none;cursor:grab;}
+  #goldRatioChart:active{cursor:grabbing;}
   .chart-canvas-wrap{position:relative;}
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;}
+  .stats-row .stat-box{border:1px solid var(--track);border-radius:8px;padding:6px 4px;text-align:center;}
+  .stats-row .stat-box .label{font-size:9px;color:var(--sub);}
+  .stats-row .stat-box .value{font-size:13px;font-weight:700;margin-top:2px;}
   .pricelaw-tooltip{
     position:absolute;top:4px;
     padding:6px 10px;border:1px solid var(--track);border-radius:8px;
@@ -169,6 +175,20 @@
     <div class="macro-zoom-bar">
       <span id="priceLawRangeLabel"></span>
       <button id="priceLawResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>비트코인 4년 이동평균 (금 기준)</h2>
+    <div class="desc">비트코인 가격을 금 온스로 환산한 뒤(BTC/XAU), 1460일(4년) 추세 이동평균을 그려. 반감기 사이클의 등락을 평활화해서 장기 추세만 보여줘. (Yahoo Finance의 비트코인 일봉이 2014년 9월부터 시작이라, 이동평균이 꽉 채워지는 시점부터만 표시돼 — 원본 참고 차트의 2016년보다 늦게 시작해.)</div>
+    <div id="goldRatioStats" class="stats-row"></div>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="goldRatioChart"></canvas>
+      <div class="pricelaw-tooltip" id="goldRatioTooltip"></div>
+    </div>
+    <div class="macro-zoom-bar">
+      <span id="goldRatioRangeLabel"></span>
+      <button id="goldRatioResetZoom" type="button" style="display:none;">전체 기간 보기</button>
     </div>
   </section>
 
@@ -265,6 +285,18 @@
       }
     });
     ctx.setLineDash([]);
+
+    seriesList.forEach(s => {
+      if(s.fill && s.points.length){
+        ctx.beginPath();
+        ctx.moveTo(xAt(s.points[0].x), h);
+        s.points.forEach(p => ctx.lineTo(xAt(p.x), yAt(p.y)));
+        ctx.lineTo(xAt(s.points[s.points.length-1].x), h);
+        ctx.closePath();
+        ctx.fillStyle = s.fillColor || s.color;
+        ctx.fill();
+      }
+    });
 
     seriesList.forEach(s => {
       ctx.beginPath();
@@ -757,6 +789,248 @@
     }
   }
 
+  // ---- Bitcoin priced in gold: 4-year (1460-day) trailing moving average ----
+  const GOLD_MA_WINDOW_DAYS = 1460;
+
+  // Two-pointer trailing time-window average over [{t,v}] sorted by t.
+  // Only emits a point once `windowMs` worth of history actually exists
+  // before it — otherwise the early part of the line would be a
+  // misleadingly low average over a partially-filled window.
+  function computeTrailingAverage(sortedPoints, windowMs){
+    const out = [];
+    if(!sortedPoints.length) return out;
+    const t0 = sortedPoints[0].t;
+    let lo = 0, sum = 0;
+    for(let hi = 0; hi < sortedPoints.length; hi++){
+      sum += sortedPoints[hi].v;
+      while(sortedPoints[lo].t < sortedPoints[hi].t - windowMs){
+        sum -= sortedPoints[lo].v;
+        lo++;
+      }
+      if(sortedPoints[hi].t - t0 >= windowMs){
+        out.push({ t: sortedPoints[hi].t, v: sum / (hi - lo + 1) });
+      }
+    }
+    return out;
+  }
+
+  let goldRatioMaSorted = null; // [{t,v}] the plotted 4-year MA
+  let goldRatioFullRange = null;
+  let goldRatioViewRange = null;
+  let goldRatioHighlightX = null;
+
+  function renderGoldRatioStats(maPoints){
+    const latest = maPoints[maPoints.length - 1];
+    const first = maPoints[0];
+    const peak = maPoints.reduce((a, b) => (b.v > a.v ? b : a), first);
+    const yearMs = 365 * MS_PER_DAY;
+    const yoyBase = valueAtOrBefore(maPoints, latest.t - yearMs);
+    const yoyPct = yoyBase != null ? (latest.v / yoyBase - 1) * 100 : null;
+    const spanYears = (latest.t - first.t) / (365.25 * MS_PER_DAY);
+    const multiple = first.v > 0 ? latest.v / first.v : null;
+    const cagr = (multiple != null && spanYears > 0.5) ? (Math.pow(multiple, 1 / spanYears) - 1) * 100 : null;
+
+    const fmtOz = v => v.toFixed(2) + " oz";
+    const fmtPct = v => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+    const pctColor = v => v == null ? "inherit" : (v >= 0 ? "var(--green)" : "var(--red)");
+
+    document.getElementById("goldRatioStats").innerHTML = `
+      <div class="stat-box">
+        <div class="label">현재</div><div class="value">${fmtOz(latest.v)}</div>
+        ${yoyPct != null ? `<div class="label" style="color:${pctColor(yoyPct)}">${fmtPct(yoyPct)} YoY</div>` : ""}
+      </div>
+      <div class="stat-box"><div class="label">전고점</div><div class="value">${fmtOz(peak.v)}</div></div>
+      <div class="stat-box"><div class="label">${spanYears.toFixed(0)}년 배수</div><div class="value">${multiple != null ? multiple.toFixed(1) + "×" : "-"}</div></div>
+      <div class="stat-box"><div class="label">연환산</div><div class="value" style="color:${pctColor(cagr)}">${cagr != null ? fmtPct(cagr) : "-"}</div></div>
+    `;
+  }
+
+  function renderGoldRatio(){
+    if(!goldRatioMaSorted || !goldRatioFullRange) return;
+    const range = goldRatioViewRange || goldRatioFullRange;
+    const points = goldRatioMaSorted
+      .filter(p => p.t >= range.min && p.t <= range.max)
+      .map(p => ({ x: p.t, y: p.v }));
+    if(points.length < 2) return;
+
+    const allYs = points.map(p => p.y);
+    const yTicks = makeYTicks(Math.min(...allYs), Math.max(...allYs))
+      .map(t => ({ value: t.value, label: t.label + " oz" }));
+    drawLineChart(document.getElementById("goldRatioChart"), [
+      { points, color: "#f7931a", fill: true, fillColor: "rgba(247,147,26,0.15)", lineWidth: 2 },
+    ], {
+      logScale: false, yTicks, xTicks: yearlyXTicks(range.min, range.max), padRight: 34,
+      highlightX: goldRatioHighlightX,
+    });
+
+    document.getElementById("goldRatioRangeLabel").textContent = fmtRangeLabel(range);
+    document.getElementById("goldRatioResetZoom").style.display = goldRatioViewRange ? "inline-block" : "none";
+  }
+
+  function zoomGoldRatio(factor, centerTs){
+    if(!goldRatioFullRange) return;
+    const cur = goldRatioViewRange || goldRatioFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = goldRatioFullRange.max - goldRatioFullRange.min;
+    const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+    const ratio = (centerTs - cur.min) / width;
+    const min = centerTs - newWidth * ratio;
+    const next = clampRange({ min, max: min + newWidth }, goldRatioFullRange);
+    goldRatioViewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+    renderGoldRatio();
+  }
+
+  function panGoldRatio(deltaMs){
+    if(!goldRatioFullRange) return;
+    const cur = goldRatioViewRange || goldRatioFullRange;
+    const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, goldRatioFullRange);
+    goldRatioViewRange = (next.max - next.min) >= (goldRatioFullRange.max - goldRatioFullRange.min) - 1000 ? null : next;
+    renderGoldRatio();
+  }
+
+  // Mirrors the reference chart's own annotation style ("21.52 OZ -1.95%
+  // YoY") rather than a multi-row breakdown, since there's only one series.
+  function updateGoldRatioTooltip(ms){
+    goldRatioHighlightX = ms;
+    renderGoldRatio();
+
+    const tooltip = document.getElementById("goldRatioTooltip");
+    const v = (ms != null && goldRatioMaSorted) ? valueAtOrBefore(goldRatioMaSorted, ms) : null;
+    if(ms == null || v == null){ tooltip.style.display = "none"; return; }
+
+    const yearMs = 365 * MS_PER_DAY;
+    const yoyBase = valueAtOrBefore(goldRatioMaSorted, ms - yearMs);
+    const yoyPct = yoyBase != null ? (v / yoyBase - 1) * 100 : null;
+
+    let html = `<div><b>${new Date(ms).toISOString().slice(0,10)}</b></div><div><b>${v.toFixed(2)} oz</b>`;
+    if(yoyPct != null){
+      html += ` <span style="color:${yoyPct >= 0 ? "var(--green)" : "var(--red)"}">${(yoyPct >= 0 ? "+" : "") + yoyPct.toFixed(1)}% YoY</span>`;
+    }
+    tooltip.innerHTML = html + "</div>";
+    tooltip.style.display = "block";
+
+    const canvas = document.getElementById("goldRatioChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = goldRatioViewRange || goldRatioFullRange;
+    const frac = (ms - range.min) / (range.max - range.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function attachGoldRatioZoomPan(){
+    const canvas = document.getElementById("goldRatioChart");
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+    const TAP_SLOP = 8;
+
+    const xToMs = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = goldRatioViewRange || goldRatioFullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState || !goldRatioFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "pan" && e.touches.length === 1){
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        const dxPx = x - touchState.lastX;
+        touchState.lastX = x;
+        if(Math.abs(x - touchState.startX) > TAP_SLOP || Math.abs(y - touchState.startY) > TAP_SLOP) touchState.moved = true;
+        const range = goldRatioViewRange || goldRatioFullRange;
+        panGoldRatio(-dxPx * (range.max - range.min) / rect.width);
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        touchState.moved = true;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        zoomGoldRatio(touchState.lastDist / dist, xToMs(midX));
+        touchState.lastDist = dist;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(touchState && touchState.mode === "pan" && !touchState.moved && goldRatioFullRange){
+        updateGoldRatioTooltip(xToMs(touchState.startX));
+      }
+      if(e.touches.length === 0) touchState = null;
+      else if(e.touches.length === 1){
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!goldRatioFullRange) return;
+      e.preventDefault();
+      zoomGoldRatio(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateGoldRatioTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !goldRatioFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = goldRatioViewRange || goldRatioFullRange;
+      panGoldRatio(-dxPx * (range.max - range.min) / rect.width);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !goldRatioFullRange) return;
+      updateGoldRatioTooltip(xToMs(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateGoldRatioTooltip(null); });
+
+    document.getElementById("goldRatioResetZoom").addEventListener("click", () => {
+      goldRatioViewRange = null;
+      renderGoldRatio();
+    });
+  }
+
+  async function loadGoldRatio(){
+    try{
+      const [btcMap, macroRes] = await Promise.all([
+        fetchBtcHistory(),
+        fetch("/api/macro-correlation").then(r => {
+          if(!r.ok) throw new Error("API " + r.status);
+          return r.json();
+        }),
+      ]);
+      const goldMap = macroRes.assets && macroRes.assets["Gold (Futures)"];
+      if(!goldMap) throw new Error("금 가격 데이터 없음");
+
+      const commonDates = Object.keys(btcMap).filter(d => goldMap[d] != null).sort();
+      const ratioPoints = commonDates.map(d => ({ t: new Date(d).getTime(), v: btcMap[d] / goldMap[d] }));
+
+      const windowMs = GOLD_MA_WINDOW_DAYS * MS_PER_DAY;
+      const maPoints = computeTrailingAverage(ratioPoints, windowMs);
+      if(maPoints.length < 2) throw new Error("이동평균에 필요한 4년치 데이터가 아직 안 채워짐");
+
+      goldRatioMaSorted = maPoints;
+      goldRatioFullRange = { min: maPoints[0].t, max: maPoints[maPoints.length - 1].t };
+      renderGoldRatioStats(maPoints);
+      renderGoldRatio();
+    }catch(e){
+      setStatus("금 기준 이동평균 로드 실패: " + e.message);
+    }
+  }
+
   function renderCorrGrid(){
     if(!macroCorrelations) return;
     const grid = document.getElementById("corrGrid");
@@ -1030,7 +1304,7 @@
 
   async function load(){
     document.getElementById("updatedLine").textContent = "갱신 중...";
-    await Promise.all([loadCycles(), loadPriceLaw(), loadMacro()]);
+    await Promise.all([loadCycles(), loadPriceLaw(), loadGoldRatio(), loadMacro()]);
     document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date().toLocaleString("ko-KR");
   }
 
@@ -1164,9 +1438,10 @@
       `즉 다른 기술들처럼 조만간 성장이 꺾일 것이라는 근거는 아직 나타나지 않았어.`;
   }
 
-  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderMacro(); renderAdoption(); });
+  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); });
   attachMacroZoomPan();
   attachPriceLawZoomPan();
+  attachGoldRatioZoomPan();
   load();
   initAdoption();
   setInterval(load, 60 * 60 * 1000);

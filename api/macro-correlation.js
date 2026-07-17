@@ -30,8 +30,11 @@ function snippet(text) {
 async function fetchYahooCloses(symbol) {
   // range=max makes Yahoo silently downgrade to monthly candles for these
   // long-history symbols even with interval=1d requested; an explicit range
-  // long enough to cover BTC's full history (since Aug 2017) keeps it daily.
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=10y&interval=1d`;
+  // long enough to cover BTC's full Yahoo history (BTC-USD starts ~Sept
+  // 2014, same 12y range as api/btc-history.js) keeps it daily and lets
+  // the gold/BTC 4-year moving-average chart compute a full trailing
+  // window as far back as the data allows.
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=12y&interval=1d`;
   const res = await fetch(url, { headers: HEADERS });
   const text = await res.text();
   if (!res.ok) throw new Error(`${symbol}: upstream responded ${res.status}, got ${snippet(text)}`);
