@@ -90,7 +90,16 @@
   .chart-legend{display:flex;gap:12px;font-size:11px;color:var(--sub);margin:16px 0 6px;}
   .chart-legend .item{display:flex;align-items:center;gap:4px;}
   .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
-  .dca-chart{width:100%;height:180px;display:block;}
+  .dca-chart{width:100%;height:180px;display:block;touch-action:none;}
+  .chart-canvas-wrap{position:relative;}
+  .chart-tooltip{
+    position:absolute;top:4px;
+    padding:6px 10px;border:1px solid var(--track);border-radius:8px;
+    background:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,0.15);
+    font-size:11px;line-height:1.6;white-space:nowrap;
+    pointer-events:none;display:none;z-index:5;
+  }
+  .chart-tooltip .label{color:var(--sub);}
 
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
@@ -170,7 +179,10 @@
       <span class="item"><span class="swatch" style="background:#9ca3af;"></span>누적 투자금</span>
       <span class="item"><span class="swatch" style="background:#f7931a;"></span>평가금액</span>
     </div>
-    <canvas class="dca-chart" id="dcaChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="dca-chart" id="dcaChart"></canvas>
+      <div class="chart-tooltip" id="dcaTooltip"></div>
+    </div>
   </section>
 
   <p class="source-note" id="rawSourceNote" style="display:none;"></p>
@@ -279,7 +291,9 @@
     throw new Error(errors.join(" / "));
   }
 
-  function drawDcaChart(canvas, dates, invested, value){
+  let dcaChartData = null; // {dates, invested, value}
+
+  function drawDcaChart(canvas, dates, invested, value, highlightIndex){
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 180;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = w * dpr; canvas.height = hTotal * dpr;
@@ -293,7 +307,7 @@
     const allVals = invested.concat(value);
     const max = Math.max(...allVals), min = Math.min(0, ...allVals);
     const range = (max - min) || 1;
-    const xAt = i => (i/(dates.length-1)) * w;
+    const xAt = i => dates.length > 1 ? (i/(dates.length-1)) * w : w/2;
     const yAt = v => h - ((v-min)/range) * h;
 
     ctx.strokeStyle = "rgba(150,150,150,0.25)";
@@ -313,12 +327,68 @@
     stroke(invested, "#9ca3af", 1.5);
     stroke(value, "#f7931a", 2);
 
+    if(highlightIndex != null){
+      const hx = xAt(highlightIndex);
+      ctx.beginPath();
+      ctx.moveTo(hx, 0); ctx.lineTo(hx, h);
+      ctx.strokeStyle = "rgba(100,100,100,0.5)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      [[invested[highlightIndex], "#9ca3af"], [value[highlightIndex], "#f7931a"]].forEach(([v, color]) => {
+        ctx.beginPath();
+        ctx.arc(hx, yAt(v), 3.5, 0, Math.PI*2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      });
+    }
+
     ctx.fillStyle = "rgba(140,140,140,0.9)";
     ctx.font = "9px ui-monospace, monospace";
     [0, dates.length-1].forEach((i, idx) => {
       ctx.textAlign = idx === 0 ? "left" : "right";
       ctx.fillText(dates[i], idx === 0 ? 2 : w-2, hTotal - 3);
     });
+  }
+
+  function updateDcaTooltip(clientX){
+    const canvas = document.getElementById("dcaChart");
+    const tooltip = document.getElementById("dcaTooltip");
+    if(!dcaChartData || !dcaChartData.dates.length){ tooltip.style.display = "none"; return; }
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const idx = Math.max(0, Math.min(dcaChartData.dates.length - 1,
+      Math.round((x / rect.width) * (dcaChartData.dates.length - 1))));
+
+    drawDcaChart(canvas, dcaChartData.dates, dcaChartData.invested, dcaChartData.value, idx);
+
+    tooltip.innerHTML =
+      `<div><b>${dcaChartData.dates[idx]}</b></div>` +
+      `<div><span class="label">누적 투자금:</span> ${fmtKrw(dcaChartData.invested[idx])}</div>` +
+      `<div><span class="label">평가금액:</span> ${fmtKrw(dcaChartData.value[idx])}</div>`;
+    tooltip.style.display = "block";
+    const frac = dcaChartData.dates.length > 1 ? idx / (dcaChartData.dates.length - 1) : 0.5;
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function clearDcaTooltip(){
+    document.getElementById("dcaTooltip").style.display = "none";
+    if(dcaChartData) drawDcaChart(document.getElementById("dcaChart"), dcaChartData.dates, dcaChartData.invested, dcaChartData.value);
+  }
+
+  function attachDcaTooltip(){
+    const canvas = document.getElementById("dcaChart");
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1) updateDcaTooltip(e.touches[0].clientX);
+    }, { passive: true });
+    canvas.addEventListener("touchmove", e => {
+      if(e.touches.length === 1) updateDcaTooltip(e.touches[0].clientX);
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener("touchend", () => clearDcaTooltip());
+    canvas.addEventListener("mousemove", e => updateDcaTooltip(e.clientX));
+    canvas.addEventListener("mouseleave", () => clearDcaTooltip());
   }
 
   async function runSimulation(){
@@ -378,6 +448,7 @@
 
       document.getElementById("dcaResults").style.display = "grid";
       document.getElementById("dcaLegend").style.display = "flex";
+      dcaChartData = { dates: chartDates, invested: chartInvested, value: chartValue };
       drawDcaChart(document.getElementById("dcaChart"), chartDates, chartInvested, chartValue);
 
       setStatus(source.includes("근사") ? `참고: ${source} 기준으로 계산됨 (실제 원화 이력과 다를 수 있음)` : `${source} 기준 ${chartDates.length}회 매수 시뮬레이션`);
@@ -390,13 +461,10 @@
 
   document.getElementById("dcaRun").addEventListener("click", runSimulation);
   window.addEventListener("resize", () => {
-    const canvas = document.getElementById("dcaChart");
-    if(document.getElementById("dcaResults").style.display === "grid"){
-      // redraw isn't cached separately here; simplest is to re-run silently is overkill,
-      // so just leave the chart as-is on resize (rare on a form-driven page).
-    }
+    if(dcaChartData) drawDcaChart(document.getElementById("dcaChart"), dcaChartData.dates, dcaChartData.invested, dcaChartData.value);
   });
 
+  attachDcaTooltip();
   runSimulation();
 })();
 </script>
