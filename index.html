@@ -85,8 +85,8 @@
 
   .stats-grid{
     display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:8px;
+    grid-template-columns:repeat(3,1fr);
+    gap:12px 8px;
     padding:16px 0;
     border-top:1px solid var(--track);
     border-bottom:1px solid var(--track);
@@ -118,8 +118,8 @@
   .fng-modal-status{font-size:11px;color:var(--sub);min-height:14px;margin-bottom:6px;}
   #fngChart{width:100%;height:220px;display:block;touch-action:none;cursor:grab;}
   #fngChart:active{cursor:grabbing;}
-  #fxChart, #premiumChart{width:100%;height:200px;display:block;touch-action:none;cursor:grab;}
-  #fxChart:active, #premiumChart:active{cursor:grabbing;}
+  #fxChart, #premiumChart, #btcGoldChart{width:100%;height:200px;display:block;touch-action:none;cursor:grab;}
+  #fxChart:active, #premiumChart:active, #btcGoldChart:active{cursor:grabbing;}
   .fng-tooltip{
     position:absolute;top:4px;
     padding:5px 9px;border:1px solid var(--track);border-radius:8px;
@@ -284,6 +284,7 @@
 
   <section class="stats-grid">
     <div class="stat"><span class="stat-label">BTC.D</span><span class="stat-value" id="statDominance">-</span></div>
+    <div class="stat stat-clickable" id="statBtcGoldRow"><span class="stat-label">BTC/Gold</span><span class="stat-value" id="statBtcGold">-</span></div>
     <div class="stat stat-clickable" id="statFxRow"><span class="stat-label">KRW/USD</span><span class="stat-value" id="statFx">-</span></div>
     <div class="stat stat-clickable" id="statPremiumRow"><span class="stat-label">Premium</span><span class="stat-value" id="statPremium">-</span></div>
     <div class="stat stat-clickable" id="statFngRow"><span class="stat-label">F&G Index</span><span class="stat-value" id="statFng">-</span></div>
@@ -399,6 +400,25 @@
   </div>
 </div>
 
+<div class="fng-modal" id="btcGoldModal">
+  <div class="fng-modal-content">
+    <div class="fng-modal-header">
+      <h2>비트코인/금</h2>
+      <button id="btcGoldModalClose" type="button" aria-label="닫기">✕</button>
+    </div>
+    <div class="fng-modal-status" id="btcGoldModalStatus">불러오는 중...</div>
+    <div class="chart-canvas-wrap">
+      <canvas id="btcGoldChart"></canvas>
+      <div class="fng-tooltip" id="btcGoldTooltip"></div>
+    </div>
+    <div class="chart-zoom-bar">
+      <span id="btcGoldRangeLabel"></span>
+      <button id="btcGoldResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
+    <p class="source-note">Data: Yahoo Finance (BTC-USD, Gold Futures)로 계산 — 비트코인 1개가 금 몇 온스(oz)와 같은지</p>
+  </div>
+</div>
+
 <nav class="bottom-nav">
   <a href="index.html" class="active"><span class="icon">₿</span>Home</a>
   <a href="etf.html"><span class="icon">💰</span>ETF</a>
@@ -450,6 +470,7 @@
     changeKrw: document.getElementById("changeKrw"),
     changeUsd: document.getElementById("changeUsd"),
     statDominance: document.getElementById("statDominance"),
+    statBtcGold: document.getElementById("statBtcGold"),
     statFx: document.getElementById("statFx"),
     statPremium: document.getElementById("statPremium"),
     statFng: document.getElementById("statFng"),
@@ -600,6 +621,7 @@
     }
 
     updatePremium();
+    updateBtcGoldStat();
     setStatus(failures.length ? "일부 가격 실패: " + failures.join(" / ") : "");
   }
 
@@ -1357,6 +1379,73 @@
     document.getElementById("premiumModal").classList.remove("open");
   }
 
+  // ---- BTC/Gold ratio (ounces of gold per bitcoin) ----
+  const btcGoldChart = createTimeSeriesModalChart({
+    canvasId: "btcGoldChart", tooltipId: "btcGoldTooltip", rangeLabelId: "btcGoldRangeLabel", resetBtnId: "btcGoldResetZoom",
+    minZoomMs: 14 * 86400000, lineColor: "#eab308",
+    formatValue: v => v.toFixed(1) + " oz",
+    formatTooltip: p => `<div><b>${new Date(p.t).toISOString().slice(0,10)}</b></div><div><b>${p.v.toFixed(2)} oz</b></div>`,
+  });
+
+  let btcGoldPointsCache = null;
+  let latestGoldClose = null; // {date, price} — for the live stats-grid number
+
+  async function loadBtcGoldPoints(){
+    if(btcGoldPointsCache) return btcGoldPointsCache;
+    const [btcRes, macroRes] = await Promise.all([
+      fetch("/api/btc-history").then(r => { if(!r.ok) throw new Error("BTC 히스토리 API " + r.status); return r.json(); }),
+      fetch("/api/macro-correlation").then(r => { if(!r.ok) throw new Error("금 가격 API " + r.status); return r.json(); }),
+    ]);
+    const btcMap = btcRes.prices || {};
+    const goldMap = (macroRes.assets && macroRes.assets["Gold (Futures)"]) || {};
+    const dates = Object.keys(btcMap).filter(d => goldMap[d] != null).sort();
+    if(!dates.length) throw new Error("데이터 없음");
+    const points = dates.map(d => ({ t: new Date(d).getTime(), v: btcMap[d] / goldMap[d] }));
+    const lastDate = dates[dates.length - 1];
+    latestGoldClose = { date: lastDate, price: goldMap[lastDate] };
+    btcGoldPointsCache = points;
+    return points;
+  }
+
+  async function openBtcGoldModal(){
+    const modal = document.getElementById("btcGoldModal");
+    modal.classList.add("open");
+    const status = document.getElementById("btcGoldModalStatus");
+    status.textContent = btcGoldPointsCache ? "" : "불러오는 중...";
+    try{
+      const points = await loadBtcGoldPoints();
+      status.textContent = "";
+      btcGoldChart.setPoints(points);
+      updateBtcGoldStat();
+    }catch(e){
+      status.textContent = "로드 실패: " + e.message;
+    }
+  }
+
+  function closeBtcGoldModal(){
+    document.getElementById("btcGoldModal").classList.remove("open");
+  }
+
+  // Keeps the stats-grid number live between BTC's own price ticks, using
+  // gold's latest available daily close (gold itself isn't fetched every
+  // few seconds — only BTC moves that fast here).
+  function updateBtcGoldStat(){
+    if(!latestGoldClose || state.usdPrice == null) return;
+    const ratio = state.usdPrice / latestGoldClose.price;
+    els.statBtcGold.textContent = ratio.toFixed(1) + " oz";
+  }
+
+  async function updateBtcGoldLatestGold(){
+    try{
+      if(!latestGoldClose){
+        // Cheap enough to just reuse the full loader — it's cached after
+        // the first call and also warms up the modal's chart data.
+        await loadBtcGoldPoints();
+      }
+      updateBtcGoldStat();
+    }catch(e){ /* keep previous */ }
+  }
+
   // ---- Halving ----
   async function updateHalving(){
     try{
@@ -1787,6 +1876,7 @@
     if(document.getElementById("fngModal").classList.contains("open")) drawFngChart(fngHighlightT);
     if(document.getElementById("fxModal").classList.contains("open")) fxChart.redraw();
     if(document.getElementById("premiumModal").classList.contains("open")) premiumChart.redraw();
+    if(document.getElementById("btcGoldModal").classList.contains("open")) btcGoldChart.redraw();
   });
 
   function init(){
@@ -1805,6 +1895,10 @@
     document.getElementById("premiumModalClose").addEventListener("click", closePremiumModal);
     document.getElementById("premiumModal").addEventListener("click", e => { if(e.target.id === "premiumModal") closePremiumModal(); });
 
+    document.getElementById("statBtcGoldRow").addEventListener("click", openBtcGoldModal);
+    document.getElementById("btcGoldModalClose").addEventListener("click", closeBtcGoldModal);
+    document.getElementById("btcGoldModal").addEventListener("click", e => { if(e.target.id === "btcGoldModal") closeBtcGoldModal(); });
+
     updatePrice();
     updateSparkline();
     updateDominance();
@@ -1812,6 +1906,7 @@
     updateFng();
     updateHalving();
     updateLongTermMAs();
+    updateBtcGoldLatestGold();
     updateChart(state.range);
 
     setInterval(updatePrice, 5000);
@@ -1821,6 +1916,7 @@
     setInterval(updateFng, 600000);
     setInterval(updateHalving, 60000);
     setInterval(updateLongTermMAs, 30 * 60000);
+    setInterval(updateBtcGoldLatestGold, 600000);
     setInterval(() => updateChart(state.range), 60000);
   }
 
