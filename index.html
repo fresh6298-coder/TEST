@@ -173,6 +173,7 @@
     display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin-bottom:4px;
   }
   .tooltip-date{font-weight:600;color:var(--sub);font-size:11px;}
+  .tooltip-etf{font-weight:600;font-size:11px;margin-top:2px;}
   .chart-legend .item{display:flex;align-items:center;gap:4px;}
   .chart-legend .item.dimmed{opacity:0.35;}
   .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
@@ -295,6 +296,7 @@
       <span class="item"><span class="swatch" style="background:#f7931a;"></span>Price</span>
       <span class="item" id="legendMa200d"><span class="swatch" style="background:#3b82f6;"></span>MA 200D</span>
       <span class="item" id="legendMa200w"><span class="swatch" style="background:#14b8a6;"></span>MA 200W</span>
+      <span class="item" id="legendEtfFlow"><span class="swatch" style="background:#16a34a;"></span>ETF 순유입</span>
     </div>
     <div class="chart-canvas-wrap">
       <div class="chart-tooltip" id="chartTooltip"></div>
@@ -458,6 +460,7 @@
     chartPoints: [],
     ma200d: [],
     ma200w: [],
+    etfFlow: [], // [{t, v}] daily net ETF flow, US$M
     rsiPoints: [],
     viewRange: null // {start,end} indices into chartPoints/rsiPoints; null = full range
   };
@@ -1487,6 +1490,20 @@
     }catch(e){ /* keep previous */ }
   }
 
+  // US spot BTC ETF daily net flow (US$M), independent of the range tabs
+  // like the moving averages above — fetched once and filtered to
+  // whatever window is currently visible when drawing.
+  async function fetchEtfFlow(){
+    try{
+      const data = await fetchJson("/api/etf-flow");
+      state.etfFlow = (data.rows || [])
+        .map(r => ({ t: new Date(r.date).getTime(), v: r.total }))
+        .filter(p => !Number.isNaN(p.t) && p.v != null)
+        .sort((a,b) => a.t - b.t);
+      drawChart();
+    }catch(e){ /* keep previous (empty = no overlay) */ }
+  }
+
   // Step-function lookup: latest value in `series` at or before time `t`.
   function valueAtOrBefore(series, t){
     if(!series.length || t < series[0].t) return null;
@@ -1724,6 +1741,37 @@
     }
     ctx.setLineDash([]);
 
+    // US spot ETF net flow bars, on their own scale (zero-centered, not
+    // shared with price) so a run of large inflows/outflows doesn't
+    // distort the price line. Skipped on 1D: the data is daily, so an
+    // intraday view would show at most one sliver of a bar.
+    const showEtf = state.range !== "1D" && state.etfFlow.length > 0;
+    document.getElementById("legendEtfFlow").classList.toggle("dimmed", !showEtf);
+    if(showEtf){
+      const tMin = points[0].t, tMax = points[points.length-1].t;
+      const visibleEtf = state.etfFlow.filter(p => p.t >= tMin && p.t <= tMax);
+      if(visibleEtf.length){
+        const flowVals = visibleEtf.map(p => p.v);
+        const flowMin = Math.min(0, ...flowVals), flowMax = Math.max(0, ...flowVals);
+        const flowRange = (flowMax - flowMin) || 1;
+        // Bars are confined to the bottom half of the plot so a volatile
+        // flow day never competes with the price line for attention —
+        // price stays the primary series, flow is a supporting overlay.
+        const flowBandH = plotH * 0.5;
+        const flowBaseY = padTop + plotH;
+        const flowYAt = v => flowBaseY - ((v - flowMin)/flowRange) * flowBandH;
+        const flowZeroY = flowYAt(0);
+        const tSpan = (tMax - tMin) || 1;
+        const barW = Math.max(1.5, (w / visibleEtf.length) * 0.7);
+        visibleEtf.forEach(p => {
+          const x = ((p.t - tMin) / tSpan) * w;
+          const y = flowYAt(p.v);
+          ctx.fillStyle = p.v >= 0 ? "rgba(22,163,74,0.45)" : "rgba(239,68,68,0.45)";
+          ctx.fillRect(x - barW/2, Math.min(y, flowZeroY), barW, Math.max(Math.abs(y - flowZeroY), 1));
+        });
+      }
+    }
+
     // area fill
     const grad = ctx.createLinearGradient(0,padTop,0,h);
     grad.addColorStop(0, "rgba(247,147,26,0.35)");
@@ -1760,6 +1808,17 @@
     strokeMaLine(ma200dLine, "#3b82f6");
     strokeMaLine(ma200wLine, "#14b8a6");
 
+    // Most recent ETF flow at-or-before time `t` — the series only has
+    // trading days, so this is "that day's flow" for any timestamp.
+    function etfFlowLine(t){
+      if(!showEtf) return "";
+      const v = valueAtOrBefore(state.etfFlow, t);
+      if(v == null) return "";
+      const sign = v >= 0 ? "+" : "";
+      const color = v >= 0 ? "var(--green)" : "var(--red)";
+      return `<div class="tooltip-etf" style="color:${color}">ETF ${sign}${fmtUsd(v)}M</div>`;
+    }
+
     // date ticks along the bottom axis
     const tickCount = Math.min(5, points.length);
     const tickIdx = new Set();
@@ -1785,7 +1844,7 @@
     ctx.fill();
 
     els.tooltip.style.display = "block";
-    els.tooltip.innerHTML = "$" + fmtUsd(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>`;
+    els.tooltip.innerHTML = "$" + fmtUsd(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>` + etfFlowLine(points[peakIdx].t);
     let peakX = xAt(peakIdx) - els.tooltip.offsetWidth/2;
     peakX = Math.max(0, Math.min(w - els.tooltip.offsetWidth, peakX));
     els.tooltip.style.left = peakX + "px";
@@ -1802,7 +1861,7 @@
       ctx.arc(xAt(highlightIndex), yAt(p.v), 4, 0, Math.PI*2);
       ctx.fillStyle = "#111";
       ctx.fill();
-      els.tooltip.innerHTML = "$" + fmtUsd(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>`;
+      els.tooltip.innerHTML = "$" + fmtUsd(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>` + etfFlowLine(p.t);
       let hx = xAt(highlightIndex) - els.tooltip.offsetWidth/2;
       hx = Math.max(0, Math.min(w - els.tooltip.offsetWidth, hx));
       els.tooltip.style.left = hx + "px";
@@ -1920,6 +1979,7 @@
     updateHalving();
     updateLongTermMAs();
     updateBtcGoldLatestGold();
+    fetchEtfFlow();
     updateChart(state.range);
 
     setInterval(updatePrice, 5000);
@@ -1930,6 +1990,7 @@
     setInterval(updateHalving, 60000);
     setInterval(updateLongTermMAs, 30 * 60000);
     setInterval(updateBtcGoldLatestGold, 600000);
+    setInterval(fetchEtfFlow, 30 * 60000);
     setInterval(() => updateChart(state.range), 60000);
   }
 
