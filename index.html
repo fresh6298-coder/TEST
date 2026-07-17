@@ -866,8 +866,11 @@
     // One-finger touch scrubs the crosshair — touch down shows the value
     // at that point, and dragging left/right moves the crosshair with
     // your finger (the chart itself doesn't pan on a single finger).
-    // Two-finger pinch zooms; two fingers moving together also pans, via
-    // zoomFng re-anchoring to wherever the pinch midpoint currently is.
+    // Two-finger: distance change zooms, midpoint movement pans — tracked
+    // as two independent per-frame deltas so a two-finger drag with the
+    // fingers held a fixed distance apart pans cleanly (recomputing the
+    // zoom anchor from the current range alone, without an explicit pan
+    // step, is a no-op when the fingers translate together).
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
@@ -875,7 +878,8 @@
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
       }
     }, { passive: true });
 
@@ -888,8 +892,15 @@
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.hypot(dx, dy);
         const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        zoomFng(touchState.lastDist / dist, xToMs(midX));
+
+        const rect = canvas.getBoundingClientRect();
+        const range = fngViewRange || fngFullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panFng(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomFng(touchState.lastDist / dist, xToMs(midX));
+
         touchState.lastDist = dist;
+        touchState.lastMidX = midX;
       }
       e.preventDefault();
     }, { passive: false });
