@@ -1291,10 +1291,10 @@
   let fxPointsCache = null;
   async function loadFxPoints(){
     if(fxPointsCache) return fxPointsCache;
-    const res = await fetch("https://api.frankfurter.app/2014-01-01..?from=USD&to=KRW");
+    const res = await fetch("/api/fx-history");
     if(!res.ok) throw new Error("환율 API " + res.status);
     const data = await res.json();
-    const points = Object.entries(data.rates || {}).map(([date, v]) => ({ t: new Date(date).getTime(), v: v.KRW }));
+    const points = Object.entries(data.rates || {}).map(([date, v]) => ({ t: new Date(date).getTime(), v }));
     if(!points.length) throw new Error("데이터 없음");
     fxPointsCache = points;
     return points;
