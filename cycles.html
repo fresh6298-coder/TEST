@@ -196,7 +196,10 @@
     <h2>매크로 상관관계</h2>
     <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자·서울 아파트 매매가격지수를 각각 시작일=100으로 정규화해 비교해. (서울 지수는 REB 주간 통계 스냅샷으로, 실시간 갱신되지 않아.)</div>
     <div class="chart-legend" id="macroLegend"></div>
-    <canvas class="panel-chart" id="macroChart"></canvas>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="macroChart"></canvas>
+      <div class="pricelaw-tooltip" id="macroTooltip"></div>
+    </div>
     <div class="macro-zoom-bar">
       <span id="macroRangeLabel"></span>
       <button id="macroResetZoom" type="button" style="display:none;">전체 기간 보기</button>
@@ -664,56 +667,48 @@
     const canvas = document.getElementById("priceLawChart");
     let touchState = null;
     let mouseDragging = false, lastMouseX = 0;
-    const TAP_SLOP = 8; // px of movement still counted as a tap, not a drag
 
+    // One-finger touch scrubs the crosshair (touch down shows the value,
+    // dragging moves it); two-finger distance change zooms and midpoint
+    // movement pans, tracked as independent per-frame deltas.
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
-        const x = e.touches[0].clientX, y = e.touches[0].clientY;
-        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+        touchState = { mode: "scrub" };
+        updatePriceLawTooltip(xToMs(canvas, e.touches[0].clientX));
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
       }
     }, { passive: true });
 
     canvas.addEventListener("touchmove", e => {
       if(!touchState || !priceLawFullRange) return;
       const rect = canvas.getBoundingClientRect();
-      if(touchState.mode === "pan" && e.touches.length === 1){
-        const x = e.touches[0].clientX, y = e.touches[0].clientY;
-        const dxPx = x - touchState.lastX;
-        touchState.lastX = x;
-        if(Math.abs(x - touchState.startX) > TAP_SLOP || Math.abs(y - touchState.startY) > TAP_SLOP){
-          touchState.moved = true;
-        }
-        const range = priceLawViewRange || priceLawFullRange;
-        const msPerPx = (range.max - range.min) / rect.width;
-        panPriceLaw(-dxPx * msPerPx);
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updatePriceLawTooltip(xToMs(canvas, e.touches[0].clientX));
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
-        touchState.moved = true;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.hypot(dx, dy);
-        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const range = priceLawViewRange || priceLawFullRange;
-        const centerTs = range.min + (midX / rect.width) * (range.max - range.min);
-        zoomPriceLaw(touchState.lastDist / dist, centerTs);
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panPriceLaw(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomPriceLaw(touchState.lastDist / dist, xToMs(canvas, midX));
         touchState.lastDist = dist;
+        touchState.lastMidX = midX;
       }
       e.preventDefault();
     }, { passive: false });
 
     canvas.addEventListener("touchend", e => {
-      // A tap (touch that didn't turn into a pan/pinch) shows the value at
-      // that point instead of just being a no-op end-of-drag.
-      if(touchState && touchState.mode === "pan" && !touchState.moved && priceLawFullRange){
-        updatePriceLawTooltip(xToMs(canvas, touchState.startX));
-      }
-      if(e.touches.length === 0) touchState = null;
-      else if(e.touches.length === 1){
-        const x = e.touches[0].clientX, y = e.touches[0].clientY;
-        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+      if(e.touches.length === 0){
+        touchState = null;
+        updatePriceLawTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
       }
     });
 
@@ -922,7 +917,6 @@
     const canvas = document.getElementById("goldRatioChart");
     let touchState = null;
     let mouseDragging = false, lastMouseX = 0;
-    const TAP_SLOP = 8;
 
     const xToMs = clientX => {
       const rect = canvas.getBoundingClientRect();
@@ -932,45 +926,42 @@
 
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
-        const x = e.touches[0].clientX, y = e.touches[0].clientY;
-        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+        touchState = { mode: "scrub" };
+        updateGoldRatioTooltip(xToMs(e.touches[0].clientX));
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
       }
     }, { passive: true });
 
     canvas.addEventListener("touchmove", e => {
       if(!touchState || !goldRatioFullRange) return;
       const rect = canvas.getBoundingClientRect();
-      if(touchState.mode === "pan" && e.touches.length === 1){
-        const x = e.touches[0].clientX, y = e.touches[0].clientY;
-        const dxPx = x - touchState.lastX;
-        touchState.lastX = x;
-        if(Math.abs(x - touchState.startX) > TAP_SLOP || Math.abs(y - touchState.startY) > TAP_SLOP) touchState.moved = true;
-        const range = goldRatioViewRange || goldRatioFullRange;
-        panGoldRatio(-dxPx * (range.max - range.min) / rect.width);
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateGoldRatioTooltip(xToMs(e.touches[0].clientX));
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
-        touchState.moved = true;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.hypot(dx, dy);
         const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        zoomGoldRatio(touchState.lastDist / dist, xToMs(midX));
+        const range = goldRatioViewRange || goldRatioFullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panGoldRatio(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomGoldRatio(touchState.lastDist / dist, xToMs(midX));
         touchState.lastDist = dist;
+        touchState.lastMidX = midX;
       }
       e.preventDefault();
     }, { passive: false });
 
     canvas.addEventListener("touchend", e => {
-      if(touchState && touchState.mode === "pan" && !touchState.moved && goldRatioFullRange){
-        updateGoldRatioTooltip(xToMs(touchState.startX));
-      }
-      if(e.touches.length === 0) touchState = null;
-      else if(e.touches.length === 1){
-        const x = e.touches[0].clientX, y = e.touches[0].clientY;
-        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+      if(e.touches.length === 0){
+        touchState = null;
+        updateGoldRatioTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
       }
     });
 
@@ -1071,6 +1062,50 @@
   let macroViewRange = null; // {min,max} in ms — currently zoomed window, null = full range
   let macroHidden = new Set(); // labels the user has toggled off via the legend
   let macroCorrelations = null; // { label: r } from the last successful load
+  let macroHighlightX = null; // ms of the currently tapped/hovered point, or null
+
+  // Nearest point by x in a series sorted ascending — series can have
+  // different date sets (e.g. the weekly Seoul index vs daily assets), so
+  // each series is looked up independently rather than assuming a shared
+  // date array.
+  function nearestSeriesPoint(points, ms){
+    if(!points.length) return null;
+    if(ms <= points[0].x) return points[0];
+    if(ms >= points[points.length-1].x) return points[points.length-1];
+    let lo = 0, hi = points.length - 1;
+    while(lo < hi){
+      const mid = (lo + hi) >> 1;
+      if(points[mid].x < ms) lo = mid + 1; else hi = mid;
+    }
+    const a = points[lo-1], b = points[lo];
+    if(!a) return b;
+    return (ms - a.x) <= (b.x - ms) ? a : b;
+  }
+
+  function updateMacroTooltip(ms){
+    macroHighlightX = ms;
+    renderMacro();
+
+    const tooltip = document.getElementById("macroTooltip");
+    const visible = macroSeriesList ? macroSeriesList.filter(s => !macroHidden.has(s.label)) : [];
+    if(ms == null || !visible.length){ tooltip.style.display = "none"; return; }
+
+    let html = `<div><b>${new Date(ms).toISOString().slice(0,10)}</b></div>`;
+    visible.forEach(s => {
+      const p = nearestSeriesPoint(s.points, ms);
+      if(p) html += `<div><span style="color:${s.color}">●</span> ${s.label}: <b>${p.y.toFixed(1)}</b></div>`;
+    });
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+
+    const canvas = document.getElementById("macroChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = macroViewRange || macroFullRange;
+    const frac = (ms - range.min) / (range.max - range.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
 
   function makeXTicks(range){
     const tickTs = [range.min, range.min + (range.max-range.min)*0.33, range.min + (range.max-range.min)*0.66, range.max];
@@ -1096,7 +1131,7 @@
       : [];
 
     drawLineChart(document.getElementById("macroChart"), visible, {
-      logScale: false, xTicks: makeXTicks(range), yTicks, padRight: 30
+      logScale: false, xTicks: makeXTicks(range), yTicks, padRight: 30, highlightX: macroHighlightX
     });
 
     document.getElementById("macroRangeLabel").textContent = fmtRangeLabel(range);
@@ -1139,53 +1174,60 @@
     let touchState = null;
     let mouseDragging = false, lastMouseX = 0;
 
+    const xToMs = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = macroViewRange || macroFullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
-        touchState = { mode: "pan", lastX: e.touches[0].clientX };
+        touchState = { mode: "scrub" };
+        updateMacroTooltip(xToMs(e.touches[0].clientX));
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
       }
     }, { passive: true });
 
     canvas.addEventListener("touchmove", e => {
       if(!touchState || !macroFullRange) return;
       const rect = canvas.getBoundingClientRect();
-      if(touchState.mode === "pan" && e.touches.length === 1){
-        const dxPx = e.touches[0].clientX - touchState.lastX;
-        touchState.lastX = e.touches[0].clientX;
-        const range = macroViewRange || macroFullRange;
-        const msPerPx = (range.max - range.min) / rect.width;
-        panMacro(-dxPx * msPerPx);
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateMacroTooltip(xToMs(e.touches[0].clientX));
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.hypot(dx, dy);
-        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const range = macroViewRange || macroFullRange;
-        const centerTs = range.min + (midX / rect.width) * (range.max - range.min);
-        zoomMacro(touchState.lastDist / dist, centerTs);
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panMacro(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomMacro(touchState.lastDist / dist, xToMs(midX));
         touchState.lastDist = dist;
+        touchState.lastMidX = midX;
       }
       e.preventDefault();
     }, { passive: false });
 
     canvas.addEventListener("touchend", e => {
-      if(e.touches.length === 0) touchState = null;
-      else if(e.touches.length === 1) touchState = { mode: "pan", lastX: e.touches[0].clientX };
+      if(e.touches.length === 0){
+        touchState = null;
+        updateMacroTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
     });
 
     canvas.addEventListener("wheel", e => {
       if(!macroFullRange) return;
       e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const range = macroViewRange || macroFullRange;
-      const centerTs = range.min + ((e.clientX - rect.left) / rect.width) * (range.max - range.min);
-      zoomMacro(e.deltaY > 0 ? 1.2 : 1/1.2, centerTs);
+      zoomMacro(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
     }, { passive: false });
 
-    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; });
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateMacroTooltip(null); });
     window.addEventListener("mousemove", e => {
       if(!mouseDragging || !macroFullRange) return;
       const rect = canvas.getBoundingClientRect();
@@ -1196,6 +1238,12 @@
       panMacro(-dxPx * msPerPx);
     });
     window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !macroFullRange) return;
+      updateMacroTooltip(xToMs(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateMacroTooltip(null); });
 
     document.getElementById("macroResetZoom").addEventListener("click", () => {
       macroViewRange = null;
