@@ -116,7 +116,8 @@
     padding:6px 8px;line-height:1;
   }
   .fng-modal-status{font-size:11px;color:var(--sub);min-height:14px;margin-bottom:6px;}
-  #fngChart{width:100%;height:220px;display:block;touch-action:none;}
+  #fngChart{width:100%;height:220px;display:block;touch-action:none;cursor:grab;}
+  #fngChart:active{cursor:grabbing;}
   .fng-tooltip{
     position:absolute;top:4px;
     padding:5px 9px;border:1px solid var(--track);border-radius:8px;
@@ -342,6 +343,10 @@
     <div class="chart-canvas-wrap">
       <canvas id="fngChart"></canvas>
       <div class="fng-tooltip" id="fngTooltip"></div>
+    </div>
+    <div class="chart-zoom-bar">
+      <span id="fngRangeLabel"></span>
+      <button id="fngResetZoom" type="button" style="display:none;">전체 기간 보기</button>
     </div>
     <div class="fng-gauge">
       <div class="fng-gauge-bar"><div class="fng-gauge-marker" id="fngGaugeMarker"></div></div>
@@ -639,7 +644,10 @@
   }
 
   let fngPoints = null; // cached [{t, price, fng, classification}] after first load
-  let fngHighlightIdx = null;
+  let fngFullRange = null; // {min,max} in ms — the entire dataset's span
+  let fngViewRange = null; // {min,max} in ms — zoomed window, null = full range
+  let fngHighlightT = null; // ms of the currently tapped/hovered point, or null
+  const FNG_MIN_ZOOM_MS = 14 * 86400000; // don't zoom in past ~2 weeks
 
   async function loadFngPoints(){
     if(fngPoints) return fngPoints;
@@ -669,10 +677,54 @@
     return points;
   }
 
-  function drawFngChart(highlightIdx){
+  function fngPointAt(ms){
+    if(!fngPoints || !fngPoints.length) return null;
+    if(ms <= fngPoints[0].t) return fngPoints[0];
+    if(ms >= fngPoints[fngPoints.length-1].t) return fngPoints[fngPoints.length-1];
+    let lo = 0, hi = fngPoints.length - 1;
+    while(lo < hi){
+      const mid = (lo + hi) >> 1;
+      if(fngPoints[mid].t < ms) lo = mid + 1; else hi = mid;
+    }
+    const a = fngPoints[lo-1], b = fngPoints[lo];
+    if(!a) return b;
+    return (ms - a.t) <= (b.t - ms) ? a : b;
+  }
+
+  function fngXTicks(minMs, maxMs){
+    const spanDays = (maxMs - minMs) / 86400000;
+    const ticks = [];
+    if(spanDays > 720){
+      const startYear = new Date(minMs).getUTCFullYear();
+      const endYear = new Date(maxMs).getUTCFullYear();
+      const step = Math.max(1, Math.round((endYear - startYear) / 5));
+      for(let y = startYear; y <= endYear; y += step){
+        const ms = Date.UTC(y, 0, 1);
+        if(ms >= minMs && ms <= maxMs) ticks.push({ value: ms, label: String(y) });
+      }
+    } else {
+      for(let i=0; i<=4; i++){
+        const ms = minMs + (maxMs - minMs) * (i/4);
+        const d = new Date(ms);
+        ticks.push({ value: ms, label: (d.getUTCMonth()+1) + "/" + d.getUTCDate() });
+      }
+    }
+    if(!ticks.length) ticks.push({ value: minMs, label: String(new Date(minMs).getUTCFullYear()) });
+    return ticks;
+  }
+
+  function fmtFngRangeLabel(range){
+    const f = t => new Date(t).toISOString().slice(0,10);
+    return f(range.min) + " ~ " + f(range.max);
+  }
+
+  function drawFngChart(highlightT){
     const canvas = document.getElementById("fngChart");
-    const points = fngPoints;
-    if(!points || !points.length) return;
+    if(!fngPoints || !fngPoints.length || !fngFullRange) return;
+    const range = fngViewRange || fngFullRange;
+    const points = fngPoints.filter(p => p.t >= range.min && p.t <= range.max);
+    if(points.length < 2) return;
+
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth, h = canvas.clientHeight || 220;
     canvas.width = w * dpr; canvas.height = h * dpr;
@@ -686,7 +738,7 @@
     const logPrices = points.map(p => Math.log10(p.price));
     const minY = Math.min(...logPrices), maxY = Math.max(...logPrices);
     const rangeY = (maxY - minY) || 1;
-    const minX = points[0].t, maxX = points[points.length - 1].t;
+    const minX = range.min, maxX = range.max;
     const rangeX = (maxX - minX) || 1;
 
     const xAt = t => ((t - minX) / rangeX) * plotW;
@@ -722,39 +774,34 @@
 
     ctx.fillStyle = "rgba(140,140,140,0.9)";
     ctx.font = "9px ui-monospace, monospace";
-    const yearTicks = [];
-    let curYear = new Date(minX).getUTCFullYear();
-    const maxYear = new Date(maxX).getUTCFullYear();
-    while(curYear <= maxYear){
-      const ms = Date.UTC(curYear, 0, 1);
-      if(ms >= minX && ms <= maxX) yearTicks.push(ms);
-      curYear += Math.max(1, Math.round((maxYear - new Date(minX).getUTCFullYear()) / 5));
-    }
-    yearTicks.forEach((ms, i) => {
-      const x = xAt(ms);
-      ctx.textAlign = i === 0 ? "left" : i === yearTicks.length-1 ? "right" : "center";
-      const cx = i === 0 ? Math.max(2,x) : i === yearTicks.length-1 ? Math.min(plotW-2,x) : x;
-      ctx.fillText(String(new Date(ms).getUTCFullYear()), cx, h - 4);
+    const xTicks = fngXTicks(minX, maxX);
+    xTicks.forEach((tick, i) => {
+      const x = xAt(tick.value);
+      ctx.textAlign = i === 0 ? "left" : i === xTicks.length-1 ? "right" : "center";
+      const cx = i === 0 ? Math.max(2,x) : i === xTicks.length-1 ? Math.min(plotW-2,x) : x;
+      ctx.fillText(tick.label, cx, h - 4);
     });
 
-    if(highlightIdx != null){
-      const p = points[highlightIdx];
-      const x = xAt(p.t);
+    if(highlightT != null && highlightT >= minX && highlightT <= maxX){
+      const x = xAt(highlightT);
       ctx.beginPath();
       ctx.moveTo(x, padTop); ctx.lineTo(x, padTop+plotH);
       ctx.strokeStyle = "rgba(100,100,100,0.5)";
       ctx.lineWidth = 1;
       ctx.stroke();
     }
+
+    document.getElementById("fngRangeLabel").textContent = fmtFngRangeLabel(range);
+    document.getElementById("fngResetZoom").style.display = fngViewRange ? "inline-block" : "none";
   }
 
-  function updateFngTooltip(idx){
-    fngHighlightIdx = idx;
-    drawFngChart(idx);
+  function updateFngTooltip(ms){
+    fngHighlightT = ms;
+    drawFngChart(ms);
 
     const tooltip = document.getElementById("fngTooltip");
-    if(idx == null || !fngPoints){ tooltip.style.display = "none"; return; }
-    const p = fngPoints[idx];
+    const p = ms != null ? fngPointAt(ms) : null;
+    if(ms == null || !p){ tooltip.style.display = "none"; return; }
     const dateStr = new Date(p.t).toISOString().slice(0,10);
     const label = FNG_LABELS_KO[p.classification] || p.classification;
     tooltip.innerHTML = `<div><b>${dateStr}</b></div><div>$${fmtUsd(p.price)}</div><div style="color:${fngColor(p.fng)}"><b>${p.fng}</b> · ${label}</div>`;
@@ -762,7 +809,8 @@
 
     const canvas = document.getElementById("fngChart");
     const rect = canvas.getBoundingClientRect();
-    const frac = (p.t - fngPoints[0].t) / (fngPoints[fngPoints.length-1].t - fngPoints[0].t);
+    const range = fngViewRange || fngFullRange;
+    const frac = (p.t - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth/2;
     left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
     tooltip.style.left = left + "px";
@@ -775,19 +823,118 @@
     document.getElementById("fngUpdated").textContent = "최근: " + new Date(latest.t).toISOString().slice(0,10);
   }
 
+  function clampFngRange(range, full){
+    const width = Math.min(range.max - range.min, full.max - full.min);
+    let min = range.min, max = min + width;
+    if(min < full.min){ min = full.min; max = min + width; }
+    if(max > full.max){ max = full.max; min = max - width; }
+    return { min, max };
+  }
+
+  function zoomFng(factor, centerTs){
+    if(!fngFullRange) return;
+    const cur = fngViewRange || fngFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = fngFullRange.max - fngFullRange.min;
+    const newWidth = Math.max(FNG_MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+    const ratio = (centerTs - cur.min) / width;
+    const min = centerTs - newWidth * ratio;
+    const next = clampFngRange({ min, max: min + newWidth }, fngFullRange);
+    fngViewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+    drawFngChart(fngHighlightT);
+  }
+
+  function panFng(deltaMs){
+    if(!fngFullRange) return;
+    const cur = fngViewRange || fngFullRange;
+    const next = clampFngRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, fngFullRange);
+    fngViewRange = (next.max - next.min) >= (fngFullRange.max - fngFullRange.min) - 1000 ? null : next;
+    drawFngChart(fngHighlightT);
+  }
+
   function attachFngChartInteraction(){
     const canvas = document.getElementById("fngChart");
-    function handle(clientX){
-      if(!fngPoints || !fngPoints.length) return;
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+    const TAP_SLOP = 8;
+
+    const xToMs = clientX => {
       const rect = canvas.getBoundingClientRect();
-      const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      updateFngTooltip(Math.round(frac * (fngPoints.length - 1)));
-    }
-    canvas.addEventListener("mousemove", e => handle(e.clientX));
-    canvas.addEventListener("mouseleave", () => updateFngTooltip(null));
-    canvas.addEventListener("touchstart", e => { if(e.touches.length===1) handle(e.touches[0].clientX); }, {passive:true});
-    canvas.addEventListener("touchmove", e => { if(e.touches.length===1) handle(e.touches[0].clientX); }, {passive:true});
-    canvas.addEventListener("touchend", () => updateFngTooltip(null));
+      const range = fngViewRange || fngFullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy) };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState || !fngFullRange) return;
+      if(touchState.mode === "pan" && e.touches.length === 1){
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        const dxPx = x - touchState.lastX;
+        touchState.lastX = x;
+        if(Math.abs(x - touchState.startX) > TAP_SLOP || Math.abs(y - touchState.startY) > TAP_SLOP) touchState.moved = true;
+        const rect = canvas.getBoundingClientRect();
+        const range = fngViewRange || fngFullRange;
+        panFng(-dxPx * (range.max - range.min) / rect.width);
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        touchState.moved = true;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        zoomFng(touchState.lastDist / dist, xToMs(midX));
+        touchState.lastDist = dist;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(touchState && touchState.mode === "pan" && !touchState.moved && fngFullRange){
+        updateFngTooltip(xToMs(touchState.startX));
+      }
+      if(e.touches.length === 0) touchState = null;
+      else if(e.touches.length === 1){
+        const x = e.touches[0].clientX, y = e.touches[0].clientY;
+        touchState = { mode: "pan", lastX: x, startX: x, startY: y, moved: false };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!fngFullRange) return;
+      e.preventDefault();
+      zoomFng(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateFngTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !fngFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = fngViewRange || fngFullRange;
+      panFng(-dxPx * (range.max - range.min) / rect.width);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !fngFullRange) return;
+      updateFngTooltip(xToMs(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateFngTooltip(null); });
+
+    document.getElementById("fngResetZoom").addEventListener("click", () => {
+      fngViewRange = null;
+      drawFngChart(null);
+    });
   }
 
   async function openFngModal(){
@@ -798,7 +945,9 @@
     try{
       const points = await loadFngPoints();
       status.textContent = "";
-      fngHighlightIdx = null;
+      fngFullRange = { min: points[0].t, max: points[points.length-1].t };
+      fngViewRange = null;
+      fngHighlightT = null;
       drawFngChart(null);
       updateFngGauge(points[points.length - 1]);
     }catch(e){
@@ -1238,7 +1387,7 @@
 
   window.addEventListener("resize", () => {
     drawChart(); drawRsi(); drawSparkline.lastCandles && drawSparkline(drawSparkline.lastCandles);
-    if(document.getElementById("fngModal").classList.contains("open")) drawFngChart(fngHighlightIdx);
+    if(document.getElementById("fngModal").classList.contains("open")) drawFngChart(fngHighlightT);
   });
 
   function init(){
