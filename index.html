@@ -1497,8 +1497,8 @@
     try{
       const data = await fetchJson("/api/etf-flow");
       state.etfFlow = (data.rows || [])
-        .map(r => ({ t: new Date(r.date).getTime(), v: r.total }))
-        .filter(p => !Number.isNaN(p.t) && p.v != null)
+        .map(r => ({ t: r.dateMs, v: r.total }))
+        .filter(p => p.t != null && !Number.isNaN(p.t) && p.v != null)
         .sort((a,b) => a.t - b.t);
       drawChart();
     }catch(e){ /* keep previous (empty = no overlay) */ }
