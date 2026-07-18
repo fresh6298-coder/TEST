@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Ask bitdash</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:640px;
+    margin:0 auto;
+    padding:20px 20px 0;
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+    padding-bottom:56px;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .back-link{
+    color:var(--sub);
+    text-decoration:none;
+    font-size:20px;
+    padding:4px 8px;
+  }
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;
+    flex-shrink:0;
+  }
+  .topbar h1{
+    font-size:18px;margin:0;flex:1;font-weight:700;
+  }
+  .live-dot{
+    width:10px;height:10px;border-radius:50%;
+    background:var(--green);
+  }
+  .sub-note{
+    font-size:11px;color:var(--sub);line-height:1.5;
+    border:1px solid var(--track);border-radius:10px;
+    padding:8px 12px;margin-bottom:14px;
+  }
+
+  .chat{
+    flex:1;overflow-y:auto;
+    display:flex;flex-direction:column;gap:10px;
+    padding:2px 2px 14px;
+  }
+  .msg{
+    max-width:86%;padding:10px 13px;border-radius:12px;
+    font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;
+  }
+  .msg.user{
+    align-self:flex-end;background:var(--orange);color:#fff;
+    border-bottom-right-radius:3px;
+  }
+  .msg.ai{
+    align-self:flex-start;background:var(--bg);border:1px solid var(--track);
+    color:var(--text);border-bottom-left-radius:3px;
+  }
+  .msg.error{
+    align-self:flex-start;background:var(--bg);border:1px solid var(--red);
+    color:var(--red);border-bottom-left-radius:3px;
+  }
+  .msg.pending{color:var(--sub);font-style:italic;}
+
+  .empty{color:var(--sub);font-size:12.5px;text-align:center;padding:36px 16px;}
+  .empty .ex{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
+  .empty .ex button{
+    font-family:inherit;font-size:11.5px;color:var(--orange);
+    background:none;border:1px solid var(--orange);border-radius:14px;
+    padding:6px 12px;cursor:pointer;
+  }
+
+  form.composer{
+    position:sticky;bottom:54px;background:var(--bg);
+    padding:10px 0;
+    display:flex;gap:8px;border-top:1px solid var(--track);
+  }
+  form.composer textarea{
+    flex:1;resize:none;border:1px solid var(--track);border-radius:10px;
+    padding:9px 11px;font-size:13px;font-family:inherit;
+    background:var(--bg);color:var(--text);max-height:110px;line-height:1.4;
+  }
+  form.composer textarea:focus{outline:1px solid var(--orange);outline-offset:-1px;}
+  form.composer button{
+    font-family:inherit;background:var(--orange);color:#fff;border:none;
+    border-radius:10px;padding:0 16px;font-size:13px;font-weight:700;
+    cursor:pointer;flex-shrink:0;
+  }
+  form.composer button:disabled{opacity:.5;cursor:not-allowed;}
+
+  .bottom-nav{
+    position:fixed;left:0;right:0;bottom:0;
+    display:flex;
+    background:var(--bg);
+    border-top:1px solid var(--track);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom));
+    z-index:100;
+  }
+  .bottom-nav a{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    color:var(--sub);text-decoration:none;font-size:7px;padding:4px 1px;
+  }
+  .bottom-nav a .icon{font-size:15px;line-height:1;}
+  .bottom-nav a.active{color:var(--orange);}
+
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f0f0f;
+      --text:#f2f2f2;
+      --sub:#8f8f8f;
+      --track:#2a2a2a;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
+    <div class="coin-icon">💬</div>
+    <h1>Ask bitdash</h1>
+    <span class="live-dot" title="실시간 데이터 반영"></span>
+  </header>
+  <div class="sub-note">On-Chain·ETF·Cycles 지표 개념과 방금 서버에서 가져온 실시간 수치를 바탕으로 AI가 답변해. 투자 조언이 아니라 지표 해석 참고용이야.</div>
+
+  <div class="chat" id="chat">
+    <div class="empty" id="empty">
+      궁금한 걸 자유롭게 물어보세요.
+      <div class="ex">
+        <button type="button" data-q="지금 MVRV Z-Score 얼마야?">지금 MVRV 얼마야?</button>
+        <button type="button" data-q="최근 ETF 순유입 흐름이 어때?">ETF 순유입 흐름</button>
+        <button type="button" data-q="HODL Waves가 뭘 보여주는 거야?">HODL Waves 설명</button>
+        <button type="button" data-q="Stock-to-Flow 비율이 뭐야?">S2F 비율 설명</button>
+      </div>
+    </div>
+  </div>
+
+  <form class="composer" id="composer">
+    <textarea id="input" rows="1" placeholder="질문을 입력하세요… (Shift+Enter로 줄바꿈)" maxlength="800"></textarea>
+    <button type="submit" id="send">전송</button>
+  </form>
+</div>
+
+<nav class="bottom-nav">
+  <a href="index.html"><span class="icon">₿</span>Home</a>
+  <a href="etf.html"><span class="icon">💰</span>ETF</a>
+  <a href="assets.html"><span class="icon">🌐</span>Assets</a>
+  <a href="onchain.html"><span class="icon">⛓️</span>On-Chain</a>
+  <a href="news.html"><span class="icon">📰</span>News</a>
+  <a href="university.html"><span class="icon">📚</span>University</a>
+  <a href="cycles.html"><span class="icon">🔄</span>Cycles</a>
+  <a href="dca.html"><span class="icon">🐷</span>DCA</a>
+  <a href="ask.html" class="active"><span class="icon">💬</span>Ask</a>
+</nav>
+
+<script>
+(function(){
+  "use strict";
+
+  const chat = document.getElementById("chat");
+  const empty = document.getElementById("empty");
+  const form = document.getElementById("composer");
+  const input = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+  const history = [];
+
+  function scrollToBottom(){ chat.scrollTop = chat.scrollHeight; }
+
+  function addMessage(role, text, extraClass){
+    if(empty.parentNode) empty.remove();
+    const div = document.createElement("div");
+    div.className = "msg " + role + (extraClass ? " " + extraClass : "");
+    div.textContent = text;
+    chat.appendChild(div);
+    scrollToBottom();
+    return div;
+  }
+
+  async function ask(question){
+    addMessage("user", question);
+    history.push({ role: "user", content: question });
+    const pending = addMessage("ai", "생각하는 중…", "pending");
+    sendBtn.disabled = true;
+
+    try{
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question, history: history.slice(0, -1) }),
+      });
+      const data = await res.json();
+      if(!res.ok){
+        pending.textContent = data.error || "오류가 발생했습니다.";
+        pending.className = "msg error";
+      }else{
+        pending.textContent = data.answer;
+        pending.className = "msg ai";
+        history.push({ role: "assistant", content: data.answer });
+      }
+    }catch(e){
+      pending.textContent = "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+      pending.className = "msg error";
+    }finally{
+      sendBtn.disabled = false;
+      scrollToBottom();
+    }
+  }
+
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if(!q) return;
+    input.value = "";
+    input.style.height = "auto";
+    ask(q);
+  });
+
+  input.addEventListener("keydown", e => {
+    if(e.key === "Enter" && !e.shiftKey){
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 110) + "px";
+  });
+
+  document.querySelectorAll(".empty .ex button").forEach(btn => {
+    btn.addEventListener("click", () => ask(btn.dataset.q));
+  });
+})();
+</script>
+</body>
+</html>
