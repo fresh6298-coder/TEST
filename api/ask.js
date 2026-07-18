@@ -99,13 +99,38 @@ async function buildLiveSnapshot(host) {
   return liveCache.text;
 }
 
-function buildSystemPrompt(liveText) {
+// University column full text changes far less often than price/on-chain
+// data, so this gets its own longer-lived cache. api/university-news.js
+// backfills at most one new article's full text per call (bounded
+// latency), so the archive it returns grows over time regardless of
+// whether ask.js or university.html triggered that particular call.
+const ARTICLES_TTL_MS = 30 * 60 * 1000;
+let articlesCache = { text: "", builtAt: 0 };
+
+async function buildUniversityArticlesText(host) {
+  if (articlesCache.text && Date.now() - articlesCache.builtAt < ARTICLES_TTL_MS) return articlesCache.text;
+
+  const data = await fetchJsonSafe(`https://${host}/api/university-news`);
+  const articles = (data && Array.isArray(data.fullArticles) ? data.fullArticles : []).slice(0, 5);
+
+  const text = articles.length
+    ? articles
+        .map((a) => `[${a.title}]\n${a.body.slice(0, 1200)}`)
+        .join("\n\n")
+    : "(아직 저장된 칼럼 본문이 없습니다.)";
+
+  articlesCache = { text, builtAt: Date.now() };
+  return text;
+}
+
+function buildSystemPrompt(liveText, articlesText) {
   return `당신은 "bitdash" 비트코인 실시간 대시보드의 질의응답 도우미입니다.
 
 아래 (1) 이 사이트가 다루는 지표·모델에 대한 개념 설명 자료와 (2) 방금 서버에서 가져온 실시간 데이터 스냅샷을 참고해서, 사용자의 질문에 한국어로 답변하세요.
 
 규칙:
 - 실시간 데이터 스냅샷의 수치는 최신 값으로 취급해 인용해도 되지만, 최대 10분 전 값일 수 있다는 점을 필요하면 언급하세요.
+- University 칼럼 본문에 있는 주장이나 분석을 물어보면, 그 글의 논지를 요약·설명하는 방식으로 답변하세요. 다만 이건 "김대영 비트코인 저널리스트" 개인의 칼럼 의견이지 이 대시보드의 공식 입장이 아니라는 걸 필요하면 밝히세요.
 - 이 자료에 없는 내용(개별 알트코인, 특정 종목, 확정적인 매수/매도 추천 등)은 "이 대시보드 자료로는 답하기 어렵습니다"라고 솔직히 말하고 추측을 최소화하세요.
 - 답변할 때 관련된 지표나 페이지 이름을 함께 언급하면 좋습니다 (예: "On-Chain 탭의 MVRV Z-Score 참고").
 - 투자 손익에 대한 확정적 예측이나 매수/매도 추천은 하지 말고, 지표가 역사적으로 어떻게 해석되어 왔는지 설명하는 방식으로 답변하세요.
@@ -115,7 +140,10 @@ function buildSystemPrompt(liveText) {
 ${buildKbText()}
 
 === 실시간 데이터 스냅샷 ===
-${liveText}`;
+${liveText}
+
+=== University 최근 칼럼 본문 (일부 발췌) ===
+${articlesText}`;
 }
 
 export default async function handler(req, res) {
@@ -163,14 +191,17 @@ export default async function handler(req, res) {
   const contents = [...trimmedHistory, { role: "user", parts: [{ text: question }] }];
 
   try {
-    const liveText = await buildLiveSnapshot(req.headers.host);
+    const [liveText, articlesText] = await Promise.all([
+      buildLiveSnapshot(req.headers.host),
+      buildUniversityArticlesText(req.headers.host),
+    ]);
     const upstream = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          system_instruction: { parts: [{ text: buildSystemPrompt(liveText) }] },
+          system_instruction: { parts: [{ text: buildSystemPrompt(liveText, articlesText) }] },
           contents,
           generationConfig: {
             maxOutputTokens: 2048,
