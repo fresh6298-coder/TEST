@@ -400,7 +400,7 @@
     return `hsl(${hue}, 70%, 50%)`;
   }
 
-  function drawHodlWaves(canvas, rows, bandKeys, colors, range, highlightX){
+  function drawHodlWaves(canvas, rows, bandKeys, colors, range, highlightX, priceSeries){
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 160;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = w * dpr; canvas.height = hTotal * dpr;
@@ -436,6 +436,26 @@
       rows.forEach((r,i) => { cumBelow[i] += (r.bands[key] || 0); });
     });
 
+    // BTC price overlay, on its own log scale independent of the band
+    // stacking below — drawn with a dark halo behind a white line so it
+    // stays readable against every band color underneath, in both themes.
+    if(priceSeries && priceSeries.length){
+      const visible = priceSeries.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0);
+      if(visible.length >= 2){
+        const logVals = visible.map(p => Math.log10(p.y));
+        const pMin = Math.min(...logVals), pMax = Math.max(...logVals);
+        const pRange = (pMax - pMin) || 1;
+        const priceYAt = y => padTop + h - ((Math.log10(y) - pMin) / pRange) * h;
+        [{ color: "rgba(0,0,0,0.55)", width: 3 }, { color: "#ffffff", width: 1.5 }].forEach(style => {
+          ctx.beginPath();
+          visible.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), priceYAt(p.y)) : ctx.lineTo(xAt(p.x), priceYAt(p.y)));
+          ctx.strokeStyle = style.color;
+          ctx.lineWidth = style.width;
+          ctx.stroke();
+        });
+      }
+    }
+
     if(highlightX != null){
       const hx = xAt(highlightX);
       if(hx >= -1 && hx <= plotW + 1){
@@ -461,11 +481,11 @@
   function createHodlWavesChart(){
     const canvas = document.getElementById("hodlWavesChart");
     const tooltip = document.getElementById("hodlWavesTooltip");
-    let rows = [], bandKeys = [], colors = [], fullRange = null, highlightX = null;
+    let rows = [], bandKeys = [], colors = [], fullRange = null, highlightX = null, priceSeries = [];
 
     function render(){
       if(!fullRange) return;
-      drawHodlWaves(canvas, rows, bandKeys, colors, fullRange, highlightX);
+      drawHodlWaves(canvas, rows, bandKeys, colors, fullRange, highlightX, priceSeries);
     }
 
     function updateTooltip(ms){
@@ -479,7 +499,11 @@
         const pct = ((r.bands[k] || 0) / total * 100).toFixed(1);
         return `<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${color};margin-right:4px;"></i>${prettyBandLabel(k)}: ${pct}%</div>`;
       }).join("");
-      tooltip.innerHTML = `<div><b>${new Date(r.dateMs).toISOString().slice(0,10)}</b></div>${lines}`;
+      const priceAt = priceSeries.length ? nearestPoint(priceSeries, ms) : null;
+      const priceLine = priceAt
+        ? `<div style="margin-top:3px;border-top:1px solid rgba(140,140,140,0.35);padding-top:3px;">BTC $${Math.round(priceAt.y).toLocaleString("en-US")}</div>`
+        : "";
+      tooltip.innerHTML = `<div><b>${new Date(r.dateMs).toISOString().slice(0,10)}</b></div>${lines}${priceLine}`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
       const frac = (ms - fullRange.min) / (fullRange.max - fullRange.min);
@@ -506,16 +530,18 @@
     canvas.addEventListener("mouseleave", () => updateTooltip(null));
 
     return {
-      setData(history, keys){
+      setData(history, keys, prices){
         rows = history;
         bandKeys = keys.slice().sort((a,b) => bandKeyOrder(a) - bandKeyOrder(b));
         colors = bandKeys.map((k,i) => bandColor(i, bandKeys.length));
+        priceSeries = (prices || []).slice().sort((a,b) => a.x - b.x);
         if(!rows.length) return;
         fullRange = { min: rows[0].dateMs, max: rows[rows.length-1].dateMs };
         highlightX = null;
         render();
         const legend = document.getElementById("hodlWavesLegend");
-        legend.innerHTML = bandKeys.map((k,i) => `<span><i style="background:${colors[i]}"></i>${prettyBandLabel(k)}</span>`).join("");
+        legend.innerHTML = bandKeys.map((k,i) => `<span><i style="background:${colors[i]}"></i>${prettyBandLabel(k)}</span>`).join("") +
+          (priceSeries.length ? `<span><i style="background:#fff;border:1px solid #000;"></i>BTC 가격 (로그)</span>` : "");
       },
       redraw: render,
     };
@@ -972,13 +998,32 @@
     }
   }
 
+  // BTC price for the HODL Waves overlay comes from the same long-history
+  // endpoint cycles.html uses (Yahoo Finance via our server, back to
+  // ~2014) — plenty of coverage for whatever window hodl-waves-supply
+  // returns. Wrapped so a price-fetch failure still lets the waves render
+  // on their own, just without the overlay line.
+  async function fetchBtcHistoryForHodl(){
+    try{
+      const res = await fetch("/api/btc-history");
+      if(!res.ok) return [];
+      const data = await res.json();
+      if(!data.prices) return [];
+      return Object.entries(data.prices)
+        .map(([d,v]) => ({ x: Date.parse(d), y: v }))
+        .filter(p => !Number.isNaN(p.x) && p.y != null);
+    }catch{
+      return [];
+    }
+  }
+
   async function loadHodlWaves(){
     try{
-      const res = await fetch("/api/hodl-waves");
+      const [res, priceSeries] = await Promise.all([fetch("/api/hodl-waves"), fetchBtcHistoryForHodl()]);
       if(!res.ok) throw new Error("API " + res.status);
       const data = await res.json();
       if(!data.history || !data.history.length) throw new Error("데이터 없음");
-      hodlWavesChart.setData(data.history, data.bandKeys);
+      hodlWavesChart.setData(data.history, data.bandKeys, priceSeries);
       document.getElementById("hodlWavesRange").textContent =
         data.earliest + " ~ " + data.latest + " (" + data.count.toLocaleString("en-US") + "pts)";
     }catch(e){
