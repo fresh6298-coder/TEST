@@ -66,17 +66,18 @@
     margin-bottom:16px;
   }
   .metric-head{
-    display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;
+    display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;
+    row-gap:2px;column-gap:10px;margin-bottom:2px;
   }
-  .metric-name-row{display:flex;align-items:center;gap:5px;}
-  .metric-name{font-size:14px;font-weight:700;}
+  .metric-name-row{display:flex;align-items:center;gap:5px;flex-shrink:0;}
+  .metric-name{font-size:14px;font-weight:700;white-space:nowrap;}
   .info-btn{
     background:none;border:1px solid var(--sub);color:var(--sub);
     border-radius:50%;width:16px;height:16px;font-size:11px;line-height:1;
     display:flex;align-items:center;justify-content:center;
     cursor:pointer;padding:0;flex-shrink:0;font-family:inherit;
   }
-  .metric-value{font-size:24px;font-weight:700;}
+  .metric-value{font-size:24px;font-weight:700;white-space:nowrap;}
   .metric-zone{font-size:12px;margin-bottom:10px;}
   .metric-desc{font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.5;}
   .metric-chart{width:100%;height:100px;display:block;touch-action:none;cursor:grab;}
