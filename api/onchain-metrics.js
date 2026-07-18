@@ -84,18 +84,26 @@ async function fetchFullHistory(path) {
   HISTORY_QUERY_VARIANTS.forEach((q) => attempts.push({ base: BGEO_ANON_BASE, q, auth: false }));
 
   let best = null;
+  const debug = [];
   for (const { base, q, auth } of attempts) {
+    const label = `${auth ? "auth" : "anon"} ${base}/${path}${q || "(no query)"}`;
     try {
       const json = await fetchJson(`${base}/${path}${q}`, auth);
       const rows = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+      debug.push(`${label} -> ${rows.length} rows`);
       if (rows.length && (!best || rows.length > best.rows.length)) {
         best = { json, rows, source: base };
       }
-    } catch {
-      // try the next variant/base
+    } catch (err) {
+      debug.push(`${label} -> ERROR ${err.status || err.message}`);
     }
   }
-  if (!best) throw new Error("no data from any query variant");
+  if (!best) {
+    const e = new Error("no data from any query variant");
+    e.debug = debug;
+    throw e;
+  }
+  best.debug = debug;
   return best;
 }
 
@@ -177,12 +185,16 @@ async function loadMetric(key, path, hint) {
   const archiveIsFreshEnough = !needsAuthAttempt && latestMs != null && Date.now() - latestMs < DAY_MS;
 
   let fresh = null;
+  let fetchDebug = archiveIsFreshEnough ? ["skipped (archive already fresh)"] : null;
+  let freshSource = null;
   if (!archiveIsFreshEnough) {
     try {
       const best = await fetchFullHistory(path);
       fresh = normalizeSeries(best.json, hint);
-    } catch {
-      fresh = null;
+      fetchDebug = best.debug;
+      freshSource = best.source;
+    } catch (err) {
+      fetchDebug = err.debug || [String(err.message)];
     }
   }
 
@@ -200,6 +212,8 @@ async function loadMetric(key, path, hint) {
     count: history.length,
     earliest: history[0].date,
     latest: history[history.length - 1].date,
+    source: freshSource || "cache",
+    debug: fetchDebug,
   };
 }
 
@@ -225,7 +239,7 @@ export default async function handler(req, res) {
 
   res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
   res.status(200).json({
-    source: BGEO_TOKEN ? BGEO_AUTH_BASE : BGEO_ANON_BASE,
+    tokenConfigured: Boolean(BGEO_TOKEN),
     fetchedAt: new Date().toISOString(),
     metrics,
     errors,
