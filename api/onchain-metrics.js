@@ -26,6 +26,10 @@ const HEADERS = {
 // rate-limited to 8 req/hour). Whichever variant/base returns the most
 // rows wins.
 const HISTORY_QUERY_VARIANTS = ["", "?limit=100000", "?days=100000"];
+// The authenticated base is rate-limited (observed 429s) — only try one
+// query variant against it per metric to conserve quota; the anonymous
+// base below still gets the full variant list as a fallback.
+const AUTH_QUERY_VARIANTS = [""];
 
 // Fields that look numeric but are never "the metric" — timestamps,
 // ids, block heights, etc. Excluded from value-field guessing.
@@ -79,31 +83,44 @@ function normalizeSeries(json, hint) {
 async function fetchFullHistory(path) {
   const attempts = [];
   if (BGEO_TOKEN) {
-    HISTORY_QUERY_VARIANTS.forEach((q) => attempts.push({ base: BGEO_AUTH_BASE, q, auth: true }));
+    AUTH_QUERY_VARIANTS.forEach((q) => attempts.push({ base: BGEO_AUTH_BASE, q, auth: true }));
   }
   HISTORY_QUERY_VARIANTS.forEach((q) => attempts.push({ base: BGEO_ANON_BASE, q, auth: false }));
 
   let best = null;
+  let authSucceeded = false;
+  let authRateLimited = false;
+  let authAttemptsMade = 0;
   const debug = [];
   for (const { base, q, auth } of attempts) {
     const label = `${auth ? "auth" : "anon"} ${base}/${path}${q || "(no query)"}`;
+    if (auth) authAttemptsMade++;
     try {
       const json = await fetchJson(`${base}/${path}${q}`, auth);
       const rows = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
       debug.push(`${label} -> ${rows.length} rows`);
+      if (auth && rows.length) authSucceeded = true;
       if (rows.length && (!best || rows.length > best.rows.length)) {
         best = { json, rows, source: base };
       }
     } catch (err) {
       debug.push(`${label} -> ERROR ${err.status || err.message}`);
+      if (auth && err.status === 429) authRateLimited = true;
     }
   }
+  // Auth counts as "resolved" (no need to retry later) once it succeeds or
+  // fails for a reason other than rate-limiting (e.g. a bad/expired
+  // token). A 429 just means the quota needs to reset, so a future
+  // request should try again rather than giving up on auth forever.
+  const authResolved = authAttemptsMade === 0 || authSucceeded || !authRateLimited;
   if (!best) {
     const e = new Error("no data from any query variant");
     e.debug = debug;
+    e.authResolved = authResolved;
     throw e;
   }
   best.debug = debug;
+  best.authResolved = authResolved;
   return best;
 }
 
@@ -187,19 +204,26 @@ async function loadMetric(key, path, hint) {
   let fresh = null;
   let fetchDebug = archiveIsFreshEnough ? ["skipped (archive already fresh)"] : null;
   let freshSource = null;
+  let authResolved = false;
   if (!archiveIsFreshEnough) {
     try {
       const best = await fetchFullHistory(path);
       fresh = normalizeSeries(best.json, hint);
       fetchDebug = best.debug;
       freshSource = best.source;
+      authResolved = Boolean(best.authResolved);
     } catch (err) {
       fetchDebug = err.debug || [String(err.message)];
+      authResolved = Boolean(err.authResolved);
     }
   }
 
   let history = rows;
-  let authAttempted = existing.authAttempted || Boolean(BGEO_TOKEN);
+  // Only latch authAttempted once auth has actually been resolved one way
+  // or the other — a 429 (rate limit) must NOT get recorded as "tried",
+  // or a future request (once the provider's quota resets) would never
+  // attempt auth again.
+  let authAttempted = existing.authAttempted || (Boolean(BGEO_TOKEN) && authResolved);
   if (fresh) {
     history = mergeHistory(rows, fresh);
     if (redisConfigured()) await redisSetArchive(archiveKey, history, authAttempted).catch(() => {});
