@@ -189,6 +189,26 @@ async function redisSetReport(key, value) {
   });
 }
 
+// Upstash's plain REST wrapper used here has no key-listing/SCAN, so an
+// explicit index of "which weeks have a report" is maintained alongside
+// the per-week entries — otherwise there'd be no way to list past weeks
+// for weekly-report.html's accordion.
+const WEEK_INDEX_KEY = "weekly-report-index";
+const MAX_INDEXED_WEEKS = 104; // 2 years — plenty, and bounds the list forever
+
+async function redisGetWeekIndex() {
+  const list = await redisGetReport(WEEK_INDEX_KEY);
+  return Array.isArray(list) ? list : [];
+}
+
+async function redisAddToWeekIndex(entry) {
+  const list = await redisGetWeekIndex();
+  const next = [entry, ...list.filter((e) => e.weekEnd !== entry.weekEnd)]
+    .sort((a, b) => b.weekEnd.localeCompare(a.weekEnd))
+    .slice(0, MAX_INDEXED_WEEKS);
+  await redisSetReport(WEEK_INDEX_KEY, next);
+}
+
 function pctChange(from, to) {
   if (from == null || to == null || from === 0) return null;
   return ((to - from) / Math.abs(from)) * 100;
@@ -213,7 +233,11 @@ function priceLawFit(ms) {
   return Math.pow(10, PRICE_LAW_LOG_A + PRICE_LAW_BETA * Math.log10(t));
 }
 
-async function buildWeeklyDeltasText(host, weekStartMs, weekEndMs) {
+// Builds both a structured `stats` object (for weekly-report.html's
+// charts/tables) and a text rendering of the same numbers (for the
+// Gemini prompt) from one shared pass over the data, so the two never
+// drift apart.
+async function buildWeeklyStats(host, weekStartMs, weekEndMs) {
   const base = `https://${host}`;
   const [onchain, etf, waves, btc, uni, macro] = await Promise.all([
     fetchJsonSafe(`${base}/api/onchain-metrics`),
@@ -225,15 +249,25 @@ async function buildWeeklyDeltasText(host, weekStartMs, weekEndMs) {
   ]);
 
   const lines = [];
-  let btcStart = null, btcEnd = null;
+  const stats = {};
 
+  let btcStart = null, btcEnd = null;
   if (btc && btc.prices) {
-    const series = Object.entries(btc.prices).map(([d, v]) => ({ dateMs: Date.parse(d), value: v }));
+    const series = Object.entries(btc.prices).map(([d, v]) => ({ dateMs: Date.parse(d), value: v })).sort((a, b) => a.dateMs - b.dateMs);
     btcStart = valueAtOrBefore(series, weekStartMs);
     btcEnd = valueAtOrBefore(series, weekEndMs);
     if (btcStart && btcEnd) {
+      const changePct = pctChange(btcStart.value, btcEnd.value);
+      stats.btc = {
+        start: btcStart.value,
+        end: btcEnd.value,
+        changePct,
+        // Daily closes within the week, for a small price chart.
+        series: series.filter((p) => p.dateMs >= weekStartMs && p.dateMs <= weekEndMs)
+          .map((p) => ({ date: kstDateString(p.dateMs), value: p.value })),
+      };
       lines.push(
-        `BTC 가격: $${Math.round(btcStart.value).toLocaleString("en-US")} → $${Math.round(btcEnd.value).toLocaleString("en-US")} (${fmtPct(pctChange(btcStart.value, btcEnd.value))})`
+        `BTC 가격: $${Math.round(btcStart.value).toLocaleString("en-US")} → $${Math.round(btcEnd.value).toLocaleString("en-US")} (${fmtPct(changePct)})`
       );
     }
   }
@@ -242,25 +276,29 @@ async function buildWeeklyDeltasText(host, weekStartMs, weekEndMs) {
     const modelFit = priceLawFit(btcEnd.dateMs);
     const deviationPct = pctChange(modelFit, btcEnd.value);
     const sigmaDev = Math.log10(btcEnd.value / modelFit) / PRICE_LAW_SIGMA_DEX;
-    const zone = sigmaDev >= 2 ? "모델 상단 밴드(+2σ) 초과" : sigmaDev <= -2 ? "모델 하단 밴드(-2σ) 미만" : "모델 밴드(±2σ) 내";
+    const zone = sigmaDev >= 2 ? "상단 밴드(+2σ) 초과" : sigmaDev <= -2 ? "하단 밴드(-2σ) 미만" : "밴드(±2σ) 내";
+    stats.priceLaw = { modelFit, actual: btcEnd.value, deviationPct, sigmaDev, zone };
     lines.push(
-      `가격 멱법칙 모델: 이론가 $${Math.round(modelFit).toLocaleString("en-US")} 대비 실제가 ${fmtPct(deviationPct)} (${zone})`
+      `가격 멱법칙 모델: 이론가 $${Math.round(modelFit).toLocaleString("en-US")} 대비 실제가 ${fmtPct(deviationPct)} (모델 ${zone})`
     );
   }
 
   if (macro && macro.assets && btcStart && btcEnd) {
     const btcChangePct = pctChange(btcStart.value, btcEnd.value);
+    stats.macro = [{ label: "BTC", changePct: btcChangePct }];
     Object.entries(macro.assets).forEach(([label, closes]) => {
       const series = Object.entries(closes).map(([d, v]) => ({ dateMs: Date.parse(d), value: v }));
       const start = valueAtOrBefore(series, weekStartMs);
       const end = valueAtOrBefore(series, weekEndMs);
       if (!start || !end) return;
       const assetChangePct = pctChange(start.value, end.value);
+      stats.macro.push({ label, changePct: assetChangePct });
       lines.push(`${label}: ${fmtPct(assetChangePct)} (BTC ${fmtPct(btcChangePct)})`);
     });
   }
 
   if (onchain && onchain.metrics) {
+    stats.onchain = [];
     Object.entries(onchain.metrics).forEach(([key, m]) => {
       if (!m || !Array.isArray(m.history) || !m.history.length) return;
       const start = valueAtOrBefore(m.history, weekStartMs);
@@ -268,13 +306,16 @@ async function buildWeeklyDeltasText(host, weekStartMs, weekEndMs) {
       if (!start || !end) return;
       const label = METRIC_LABELS[key] || key;
       const round = (v) => Math.round(v * 1000) / 1000;
-      lines.push(`${label}: ${round(start.value)} → ${round(end.value)} (${fmtPct(pctChange(start.value, end.value))})`);
+      const changePct = pctChange(start.value, end.value);
+      stats.onchain.push({ key, label, start: round(start.value), end: round(end.value), changePct });
+      lines.push(`${label}: ${round(start.value)} → ${round(end.value)} (${fmtPct(changePct)})`);
     });
   }
 
   if (etf && Array.isArray(etf.rows) && etf.rows.length) {
     const weekRows = etf.rows.filter((r) => r.dateMs >= weekStartMs && r.dateMs <= weekEndMs);
     const weekTotal = weekRows.reduce((s, r) => s + (r.total || 0), 0);
+    stats.etf = { weekTotal, days: weekRows.map((r) => ({ date: r.date, total: r.total })) };
     const sign = weekTotal >= 0 ? "+" : "";
     lines.push(`ETF 순유입 이번 주 합계 (${weekRows.length}일): ${sign}${weekTotal.toFixed(1)}M 달러`);
   }
@@ -286,12 +327,12 @@ async function buildWeeklyDeltasText(host, weekStartMs, weekEndMs) {
       const startTotal = waves.bandKeys.reduce((s, k) => s + (start.bands[k] || 0), 0) || 1;
       const endTotal = waves.bandKeys.reduce((s, k) => s + (end.bands[k] || 0), 0) || 1;
       const shifts = waves.bandKeys
-        .map((k) => ({ k, delta: (end.bands[k] || 0) / endTotal * 100 - (start.bands[k] || 0) / startTotal * 100 }))
-        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-        .slice(0, 3);
+        .map((k) => ({ band: k, delta: (end.bands[k] || 0) / endTotal * 100 - (start.bands[k] || 0) / startTotal * 100 }))
+        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      stats.hodlWaves = { shifts: shifts.slice(0, 5) };
       lines.push(
         `HODL Waves 이번 주 가장 크게 움직인 구간: ` +
-        shifts.map((s) => `${s.k} ${s.delta >= 0 ? "+" : ""}${s.delta.toFixed(1)}%p`).join(", ")
+        shifts.slice(0, 3).map((s) => `${s.band} ${s.delta >= 0 ? "+" : ""}${s.delta.toFixed(1)}%p`).join(", ")
       );
     }
   }
@@ -301,8 +342,10 @@ async function buildWeeklyDeltasText(host, weekStartMs, weekEndMs) {
   const articlesText = thisWeekPosts.length
     ? thisWeekPosts.map((p) => `- ${p.title}${p.summary ? `: ${p.summary}` : ""}`).join("\n")
     : "(이번 주 새로 발행된 University 칼럼 없음)";
+  stats.articles = thisWeekPosts.map((p) => ({ title: p.title, url: p.url, summary: p.summary || null }));
 
   return {
+    stats,
     statsText: lines.length ? lines.join("\n") : "(이번 주 데이터를 충분히 가져오지 못했습니다.)",
     articlesText,
     postCount: thisWeekPosts.length,
@@ -363,7 +406,19 @@ async function callGemini(apiKey, systemPrompt, contents) {
 }
 
 async function handleWeeklyReport(req, res, apiKey) {
-  const weekEndStr = currentWeekEndDateStr(Date.now());
+  const query = req.query || {};
+
+  // ?list=1 — the accordion's index of every week that has a saved
+  // report, without pulling each week's full stats/narrative.
+  if (query.list) {
+    const weeks = redisConfigured() ? await redisGetWeekIndex().catch(() => []) : [];
+    res.status(200).json({ weeks });
+    return;
+  }
+
+  const currentWeekEndStr = currentWeekEndDateStr(Date.now());
+  const isPastWeekRequest = typeof query.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(query.week);
+  const weekEndStr = isPastWeekRequest ? query.week : currentWeekEndStr;
   const weekEndMs = Date.parse(weekEndStr + "T23:59:59+09:00");
   const weekStartMs = weekEndMs - 6 * DAY_MS;
   const weekStartStr = kstDateString(weekStartMs);
@@ -377,8 +432,17 @@ async function handleWeeklyReport(req, res, apiKey) {
     }
   }
 
+  // A specifically-requested past week that isn't cached never gets
+  // freshly generated — only "this week" (no ?week=) does that, so a
+  // typo'd or long-gone date doesn't silently produce a report using
+  // today's data under the wrong label.
+  if (isPastWeekRequest) {
+    res.status(404).json({ error: "해당 주차의 리포트를 찾을 수 없습니다." });
+    return;
+  }
+
   try {
-    const { statsText, articlesText, postCount } = await buildWeeklyDeltasText(req.headers.host, weekStartMs, weekEndMs);
+    const { stats, statsText, articlesText, postCount } = await buildWeeklyStats(req.headers.host, weekStartMs, weekEndMs);
     const prompt = buildWeeklyReportPrompt(weekStartStr, weekEndStr, statsText, articlesText, buildKbText());
     const { text, blocked } = await callGemini(apiKey, prompt, [{ role: "user", parts: [{ text: "이번 주 리포트를 작성해줘." }] }]);
 
@@ -387,11 +451,20 @@ async function handleWeeklyReport(req, res, apiKey) {
       weekStart: weekStartStr,
       weekEnd: weekEndStr,
       report,
+      stats,
       statsText,
       postCount,
       generatedAt: new Date().toISOString(),
     };
-    if (redisConfigured() && text) await redisSetReport(cacheKey, payload).catch(() => {});
+    if (redisConfigured() && text) {
+      await redisSetReport(cacheKey, payload).catch(() => {});
+      await redisAddToWeekIndex({
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        generatedAt: payload.generatedAt,
+        btcChangePct: (stats.btc && stats.btc.changePct) ?? null,
+      }).catch(() => {});
+    }
     res.status(200).json({ ...payload, cached: false });
   } catch (err) {
     res.status(502).json({ error: "주간 리포트 생성에 실패했습니다.", detail: String(err.message || err) });

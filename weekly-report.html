@@ -51,32 +51,63 @@
   .topbar h1{
     font-size:18px;margin:0;flex:1;font-weight:700;
   }
-  .week-range{font-size:12px;color:var(--sub);margin-bottom:16px;}
-
-  .card{
-    border:1px solid var(--track);border-radius:10px;
-    padding:14px 16px;margin-bottom:14px;
+  .toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:14px;}
+  .toolbar button{
+    font-family:inherit;font-size:11.5px;color:var(--orange);
+    background:none;border:1px solid var(--orange);border-radius:12px;
+    padding:5px 12px;cursor:pointer;
   }
-  .card h2{font-size:13px;margin:0 0 10px;color:var(--sub);font-weight:700;}
-  .stats-list{display:flex;flex-direction:column;gap:6px;font-size:12.5px;line-height:1.6;}
+  .toolbar button:disabled{opacity:.5;cursor:not-allowed;}
+
+  .week-item{
+    border:1px solid var(--track);
+    border-radius:10px;
+    margin-bottom:12px;
+    overflow:hidden;
+  }
+  .week-item summary{
+    list-style:none;cursor:pointer;
+    padding:12px 40px 12px 14px;
+    position:relative;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .week-item summary::-webkit-details-marker{display:none;}
+  .week-item summary::after{
+    content:"▾";position:absolute;right:14px;top:50%;transform:translateY(-50%) rotate(-90deg);
+    color:var(--sub);font-size:11px;transition:transform .15s ease;
+  }
+  .week-item[open] summary::after{transform:translateY(-50%) rotate(0deg);}
+  .week-item[open] summary{border-bottom:1px solid var(--track);}
+  .week-range{font-size:13px;font-weight:700;}
+  .week-badge{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:10px;}
+  .week-badge.up{color:var(--green);background:rgba(22,163,74,0.1);}
+  .week-badge.down{color:var(--red);background:rgba(239,68,68,0.1);}
+  .week-body{padding:14px 16px;}
+
+  .card{margin-bottom:14px;}
+  .card:last-child{margin-bottom:0;}
+  .card h3{font-size:12px;margin:0 0 8px;color:var(--sub);font-weight:700;}
+
+  .stat-table{width:100%;border-collapse:collapse;font-size:12px;}
+  .stat-table td{padding:4px 0;border-bottom:1px solid var(--track);}
+  .stat-table tr:last-child td{border-bottom:none;}
+  .stat-table td.num{text-align:right;white-space:nowrap;font-weight:700;}
+  .stat-table td.chg.up{color:var(--green);}
+  .stat-table td.chg.down{color:var(--red);}
+
+  canvas.chart{width:100%;display:block;}
+
   .report-body{font-size:13px;line-height:1.75;}
   .report-body b{color:var(--orange);display:block;margin:12px 0 4px;font-size:13.5px;}
   .report-body b:first-child{margin-top:0;}
   .report-body p{margin:0 0 8px;}
 
-  .meta-line{font-size:10.5px;color:var(--sub);text-align:right;margin-top:-4px;margin-bottom:14px;}
-  .refresh-row{display:flex;justify-content:flex-end;margin-bottom:10px;}
-  .refresh-row button{
-    font-family:inherit;font-size:11.5px;color:var(--orange);
-    background:none;border:1px solid var(--orange);border-radius:12px;
-    padding:5px 12px;cursor:pointer;
-  }
-  .refresh-row button:disabled{opacity:.5;cursor:not-allowed;}
+  .article-list{font-size:12px;line-height:1.6;padding-left:16px;margin:0;}
 
+  .empty{color:var(--sub);font-size:13px;text-align:center;padding:30px 16px;}
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
   }
-  .empty{color:var(--sub);font-size:13px;text-align:center;padding:60px 20px;}
 
   .bottom-nav{
     position:fixed;left:0;right:0;bottom:0;
@@ -101,6 +132,12 @@
       --track:#2a2a2a;
     }
   }
+
+  @media print{
+    .toolbar, .bottom-nav, .back-link{display:none !important;}
+    .week-item{break-inside:avoid;}
+    body{background:#fff;color:#000;}
+  }
 </style>
 </head>
 <body>
@@ -110,15 +147,12 @@
     <div class="coin-icon">📊</div>
     <h1>주간 시황 리포트</h1>
   </header>
-  <div class="week-range" id="weekRange">불러오는 중...</div>
 
-  <div class="refresh-row">
-    <button type="button" id="refreshBtn">↻ 새로고침</button>
+  <div class="toolbar">
+    <button type="button" id="printBtn">🖨 인쇄 / PDF 저장</button>
   </div>
 
-  <div id="content">
-    <div class="empty">불러오는 중...</div>
-  </div>
+  <div id="weekList"><div class="empty">불러오는 중...</div></div>
 
   <p class="status-line" id="statusLine">&nbsp;</p>
 </div>
@@ -139,62 +173,213 @@
 (function(){
   "use strict";
 
-  const content = document.getElementById("content");
-  const weekRange = document.getElementById("weekRange");
-  const refreshBtn = document.getElementById("refreshBtn");
+  const weekList = document.getElementById("weekList");
   const statusLine = document.getElementById("statusLine");
+  const printBtn = document.getElementById("printBtn");
 
   function setStatus(msg){ statusLine.textContent = msg || " "; }
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
+  function fmtPct(v){
+    if(v == null) return "N/A";
+    return (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+  }
+  function chgClass(v){ return v == null ? "" : (v >= 0 ? "up" : "down"); }
+
+  printBtn.addEventListener("click", () => window.print());
 
   // The report is plain text with "**소제목**" style sub-headings and
-  // blank-line-separated paragraphs — just enough structure to need a
-  // tiny formatter rather than pulling in a full markdown library for
-  // one page.
+  // blank-line-separated paragraphs.
   function renderReportBody(text){
-    const escaped = escapeHtml(text);
+    const escaped = escapeHtml(text || "");
     const withHeadings = escaped.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
-    const paragraphs = withHeadings.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
-    return paragraphs;
+    return withHeadings.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
   }
 
-  function renderStats(statsText){
-    if(!statsText) return "";
-    const lines = statsText.split("\n").filter(Boolean);
-    return `<div class="stats-list">${lines.map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>`;
+  // ---- Small canvas charts (static, no zoom/pan — just an at-a-glance
+  // visual for a fixed week, unlike the interactive charts elsewhere) ----
+  function drawLineChart(canvas, points){
+    const w = canvas.clientWidth, h = canvas.clientHeight || 90;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    if(!points.length) return;
+
+    const pad = 6;
+    const values = points.map(p => p.value);
+    const min = Math.min(...values), max = Math.max(...values);
+    const range = (max - min) || 1;
+    const xAt = i => points.length > 1 ? pad + (i/(points.length-1)) * (w - pad*2) : w/2;
+    const yAt = v => pad + (1 - (v - min)/range) * (h - pad*2);
+
+    const grad = ctx.createLinearGradient(0,0,0,h);
+    grad.addColorStop(0, "rgba(247,147,26,0.35)");
+    grad.addColorStop(1, "rgba(247,147,26,0.02)");
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), h);
+    points.forEach((p,i) => ctx.lineTo(xAt(i), yAt(p.value)));
+    ctx.lineTo(xAt(points.length-1), h);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(i), yAt(p.value)) : ctx.lineTo(xAt(i), yAt(p.value)));
+    ctx.strokeStyle = "#f7931a";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function drawBarChart(canvas, items){
+    const w = canvas.clientWidth;
+    const rowH = 22;
+    const h = items.length * rowH + 4;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.height = h; // fixed CSS height set inline before draw
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.height = h + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    if(!items.length) return;
+
+    const labelW = 92;
+    const plotW = w - labelW - 46;
+    const midX = labelW + plotW/2;
+    const maxAbs = Math.max(1, ...items.map(it => Math.abs(it.changePct || 0)));
+    const scale = (plotW/2 - 4) / maxAbs;
+
+    ctx.font = "10.5px ui-monospace, monospace";
+    items.forEach((it, i) => {
+      const y = i*rowH;
+      const v = it.changePct || 0;
+      const barW = Math.abs(v) * scale;
+      const barX = v >= 0 ? midX : midX - barW;
+      ctx.fillStyle = v >= 0 ? "rgba(22,163,74,0.75)" : "rgba(239,68,68,0.75)";
+      ctx.fillRect(barX, y + 4, Math.max(barW,1), rowH - 10);
+
+      ctx.fillStyle = "rgba(140,140,140,0.95)";
+      ctx.textAlign = "left";
+      ctx.fillText(it.label.length > 12 ? it.label.slice(0,11)+"…" : it.label, 0, y + rowH/2 + 3);
+
+      ctx.fillStyle = v >= 0 ? "#16a34a" : "#ef4444";
+      ctx.textAlign = v >= 0 ? "left" : "right";
+      const textX = v >= 0 ? Math.min(barX + barW + 4, w - 2) : Math.max(barX - 4, labelW + 2);
+      ctx.fillText((v>=0?"+":"")+v.toFixed(1)+"%", textX, y + rowH/2 + 3);
+    });
+
+    // zero line
+    ctx.strokeStyle = "rgba(150,150,150,0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(midX, 0); ctx.lineTo(midX, h); ctx.stroke();
+  }
+
+  function renderWeekBody(container, data){
+    const stats = data.stats || {};
+    const rows = [];
+
+    if(stats.btc){
+      rows.push(`<tr><td>BTC 가격</td><td class="num">$${Math.round(stats.btc.start).toLocaleString("en-US")} → $${Math.round(stats.btc.end).toLocaleString("en-US")}</td><td class="num chg ${chgClass(stats.btc.changePct)}">${fmtPct(stats.btc.changePct)}</td></tr>`);
+    }
+    if(stats.priceLaw){
+      rows.push(`<tr><td>멱법칙 모델 대비</td><td class="num">이론가 $${Math.round(stats.priceLaw.modelFit).toLocaleString("en-US")}</td><td class="num chg ${chgClass(stats.priceLaw.deviationPct)}">${fmtPct(stats.priceLaw.deviationPct)}</td></tr>`);
+    }
+    (stats.onchain || []).forEach(m => {
+      rows.push(`<tr><td>${escapeHtml(m.label)}</td><td class="num">${m.start} → ${m.end}</td><td class="num chg ${chgClass(m.changePct)}">${fmtPct(m.changePct)}</td></tr>`);
+    });
+    if(stats.etf){
+      const sign = stats.etf.weekTotal >= 0 ? "+" : "";
+      rows.push(`<tr><td>ETF 순유입 합계</td><td class="num" colspan="2">${sign}${stats.etf.weekTotal.toFixed(1)}M 달러</td></tr>`);
+    }
+
+    const macroItems = stats.macro || [];
+    const hodlShifts = (stats.hodlWaves && stats.hodlWaves.shifts) || [];
+    const priceSeries = (stats.btc && stats.btc.series) || [];
+    const articles = stats.articles || [];
+
+    container.innerHTML = `
+      ${priceSeries.length >= 2 ? `<div class="card"><h3>이번 주 가격 추이</h3><canvas class="chart" style="height:90px;"></canvas></div>` : ""}
+      ${rows.length ? `<div class="card"><h3>지표 변화</h3><table class="stat-table">${rows.join("")}</table></div>` : ""}
+      ${macroItems.length ? `<div class="card"><h3>자산별 이번 주 성과 비교</h3><canvas class="chart macro-chart"></canvas></div>` : ""}
+      ${hodlShifts.length ? `<div class="card"><h3>HODL Waves 이번 주 가장 크게 움직인 구간</h3><canvas class="chart hodl-chart"></canvas></div>` : ""}
+      <div class="card"><h3>AI 인사이트</h3><div class="report-body">${renderReportBody(data.report)}</div></div>
+      ${articles.length ? `<div class="card"><h3>이번 주 University 칼럼</h3><ul class="article-list">${articles.map(a => `<li>${escapeHtml(a.title)}${a.summary ? " — " + escapeHtml(a.summary) : ""}</li>`).join("")}</ul></div>` : ""}
+    `;
+
+    if(priceSeries.length >= 2) drawLineChart(container.querySelector(".chart:not(.macro-chart):not(.hodl-chart)"), priceSeries);
+    if(macroItems.length) drawBarChart(container.querySelector(".macro-chart"), macroItems);
+    if(hodlShifts.length) drawBarChart(container.querySelector(".hodl-chart"), hodlShifts.map(s => ({ label: s.band, changePct: s.delta })));
+  }
+
+  function weekTeaser(entry){
+    const badge = entry.btcChangePct == null ? "" :
+      `<span class="week-badge ${entry.btcChangePct >= 0 ? "up" : "down"}">BTC ${fmtPct(entry.btcChangePct)}</span>`;
+    return `<span class="week-range">${entry.weekStart} ~ ${entry.weekEnd}</span>${badge}`;
+  }
+
+  async function loadWeekInto(details, entry, preloaded){
+    const body = details.querySelector(".week-body");
+    if(details.dataset.loaded === "1") return;
+    if(preloaded){
+      renderWeekBody(body, preloaded);
+      details.dataset.loaded = "1";
+      return;
+    }
+    body.innerHTML = '<div class="empty">불러오는 중...</div>';
+    try{
+      const res = await fetch(`/api/ask?week=${encodeURIComponent(entry.weekEnd)}`);
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || "로드 실패");
+      renderWeekBody(body, data);
+      details.dataset.loaded = "1";
+    }catch(e){
+      body.innerHTML = `<div class="empty">이 주차 리포트를 불러오지 못했습니다.<br>${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  function buildWeekItem(entry, isFirst){
+    const details = document.createElement("details");
+    details.className = "week-item";
+    if(isFirst) details.open = true;
+    details.innerHTML = `<summary>${weekTeaser(entry)}</summary><div class="week-body"></div>`;
+    details.addEventListener("toggle", () => {
+      if(details.open) loadWeekInto(details, entry, isFirst ? details._preloaded : null);
+    });
+    return details;
   }
 
   async function load(){
     setStatus("");
-    content.innerHTML = '<div class="empty">불러오는 중... (처음 생성 시 몇십 초 걸릴 수 있어)</div>';
-    refreshBtn.disabled = true;
+    weekList.innerHTML = '<div class="empty">불러오는 중... (이번 주 리포트가 처음 생성되는 경우 몇십 초 걸릴 수 있어)</div>';
     try{
-      const res = await fetch("/api/ask");
-      const data = await res.json();
-      if(!res.ok) throw new Error(data.error || "리포트를 불러오지 못했습니다.");
+      const currentRes = await fetch("/api/ask");
+      const current = await currentRes.json();
+      if(!currentRes.ok) throw new Error(current.error || "이번 주 리포트를 불러오지 못했습니다.");
 
-      weekRange.textContent = `${data.weekStart} ~ ${data.weekEnd} (한국시간 기준)` + (data.cached ? " · 캐시된 리포트" : " · 방금 생성됨");
-      content.innerHTML = `
-        <div class="card">
-          <h2>이번 주 지표 변화</h2>
-          ${renderStats(data.statsText)}
-        </div>
-        <div class="card">
-          <h2>AI 인사이트</h2>
-          <div class="report-body">${renderReportBody(data.report)}</div>
-        </div>
-      `;
-      setStatus("생성 시각: " + new Date(data.generatedAt).toLocaleString("ko-KR"));
+      const listRes = await fetch("/api/ask?list=1");
+      const listData = await listRes.json();
+      const weeks = Array.isArray(listData.weeks) && listData.weeks.length
+        ? listData.weeks
+        : [{ weekStart: current.weekStart, weekEnd: current.weekEnd, btcChangePct: current.stats && current.stats.btc && current.stats.btc.changePct }];
+
+      weekList.innerHTML = "";
+      weeks.forEach((entry, i) => {
+        const isFirst = i === 0;
+        const details = buildWeekItem(entry, isFirst);
+        if(isFirst) details._preloaded = current;
+        weekList.appendChild(details);
+        if(isFirst) loadWeekInto(details, entry, current);
+      });
+
+      setStatus(weeks.length + "개 주차 · 최신 생성: " + new Date(current.generatedAt).toLocaleString("ko-KR"));
     }catch(e){
-      content.innerHTML = '<div class="empty">리포트를 불러오지 못했습니다.<br>' + escapeHtml(e.message) + '</div>';
-    }finally{
-      refreshBtn.disabled = false;
+      weekList.innerHTML = `<div class="empty">리포트를 불러오지 못했습니다.<br>${escapeHtml(e.message)}</div>`;
     }
   }
 
-  refreshBtn.addEventListener("click", load);
   load();
 })();
 </script>
