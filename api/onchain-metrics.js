@@ -265,11 +265,22 @@ export default async function handler(req, res) {
     return;
   }
 
+  // ?summary=1 drops each metric's (often huge) `history` array — handy
+  // for eyeballing count/earliest/latest/debug on mobile, where copying
+  // or scrolling through the full JSON is painful.
+  const summaryOnly = "summary" in (req.query || {}) || /[?&]summary=1/.test(req.url || "");
+  const outMetrics = summaryOnly
+    ? Object.fromEntries(Object.entries(metrics).map(([k, m]) => {
+        const { history, ...rest } = m;
+        return [k, rest];
+      }))
+    : metrics;
+
   res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
   res.status(200).json({
     tokenConfigured: Boolean(BGEO_TOKEN),
     fetchedAt: new Date().toISOString(),
-    metrics,
+    metrics: outMetrics,
     errors,
   });
 }
