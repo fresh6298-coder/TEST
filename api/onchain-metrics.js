@@ -24,15 +24,14 @@ const HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Accept: "application/json",
 };
-// Neither provider's docs were reachable to confirm the exact param for
-// full history, so a short, bounded list of plausible variants is tried
-// per base URL rather than a wide guess-spray (the anonymous base is
-// rate-limited to 8 req/hour). Whichever variant/base returns the most
-// rows wins.
-const HISTORY_QUERY_VARIANTS = ["", "?limit=100000", "?days=100000"];
-// The authenticated base is rate-limited (observed 429s) — only try one
-// query variant against it per metric to conserve quota; the anonymous
-// base below still gets the full variant list as a fallback.
+// Originally tried 3 query variants per base to probe for a "full
+// history" param, but production evidence across many metrics/requests
+// showed the extra variants never returned more rows than a bare request
+// — they only burned through the anonymous base's rate limit and
+// triggered 429s on the very next variant in the same request (visible
+// in the per-metric debug log). With 7 metrics that was up to 21
+// anonymous requests per page load. Down to one variant each now.
+const HISTORY_QUERY_VARIANTS = [""];
 const AUTH_QUERY_VARIANTS = [""];
 
 // Fields that look numeric but are never "the metric" — timestamps,

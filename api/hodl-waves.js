@@ -12,7 +12,10 @@ const HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Accept: "application/json",
 };
-const HISTORY_QUERY_VARIANTS = ["", "?limit=100000", "?days=100000"];
+// See api/onchain-metrics.js for why this is just one variant now (extra
+// query params never returned more rows in production, only burned
+// through the anonymous base's rate limit).
+const HISTORY_QUERY_VARIANTS = [""];
 const AUTH_QUERY_VARIANTS = [""];
 
 const NON_BAND_KEY = /^(d|date|id|unix.*|timestamp|ts|epoch|createdat|updatedat|blockheight|height)$/i;
