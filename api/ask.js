@@ -199,27 +199,65 @@ function fmtPct(v) {
   return (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 }
 
+// Same power-law model as cycles.html's "가격 멱법칙 모델" panel
+// (Santostasi & Perrenod: log10 P(t) = -16.509 + 5.690·log10 t, t = days
+// since genesis) — pure math, no fetch needed, so this is computed
+// locally rather than scraping the client-side chart.
+const GENESIS_MS = Date.UTC(2009, 0, 3);
+const PRICE_LAW_LOG_A = -16.509;
+const PRICE_LAW_BETA = 5.69;
+const PRICE_LAW_SIGMA_DEX = 0.302;
+
+function priceLawFit(ms) {
+  const t = (ms - GENESIS_MS) / DAY_MS;
+  return Math.pow(10, PRICE_LAW_LOG_A + PRICE_LAW_BETA * Math.log10(t));
+}
+
 async function buildWeeklyDeltasText(host, weekStartMs, weekEndMs) {
   const base = `https://${host}`;
-  const [onchain, etf, waves, btc, uni] = await Promise.all([
+  const [onchain, etf, waves, btc, uni, macro] = await Promise.all([
     fetchJsonSafe(`${base}/api/onchain-metrics`),
     fetchJsonSafe(`${base}/api/etf-flow`),
     fetchJsonSafe(`${base}/api/hodl-waves`),
     fetchJsonSafe(`${base}/api/btc-history`),
     fetchJsonSafe(`${base}/api/university-news`),
+    fetchJsonSafe(`${base}/api/macro-correlation`),
   ]);
 
   const lines = [];
+  let btcStart = null, btcEnd = null;
 
   if (btc && btc.prices) {
     const series = Object.entries(btc.prices).map(([d, v]) => ({ dateMs: Date.parse(d), value: v }));
-    const start = valueAtOrBefore(series, weekStartMs);
-    const end = valueAtOrBefore(series, weekEndMs);
-    if (start && end) {
+    btcStart = valueAtOrBefore(series, weekStartMs);
+    btcEnd = valueAtOrBefore(series, weekEndMs);
+    if (btcStart && btcEnd) {
       lines.push(
-        `BTC 가격: $${Math.round(start.value).toLocaleString("en-US")} → $${Math.round(end.value).toLocaleString("en-US")} (${fmtPct(pctChange(start.value, end.value))})`
+        `BTC 가격: $${Math.round(btcStart.value).toLocaleString("en-US")} → $${Math.round(btcEnd.value).toLocaleString("en-US")} (${fmtPct(pctChange(btcStart.value, btcEnd.value))})`
       );
     }
+  }
+
+  if (btcEnd) {
+    const modelFit = priceLawFit(btcEnd.dateMs);
+    const deviationPct = pctChange(modelFit, btcEnd.value);
+    const sigmaDev = Math.log10(btcEnd.value / modelFit) / PRICE_LAW_SIGMA_DEX;
+    const zone = sigmaDev >= 2 ? "모델 상단 밴드(+2σ) 초과" : sigmaDev <= -2 ? "모델 하단 밴드(-2σ) 미만" : "모델 밴드(±2σ) 내";
+    lines.push(
+      `가격 멱법칙 모델: 이론가 $${Math.round(modelFit).toLocaleString("en-US")} 대비 실제가 ${fmtPct(deviationPct)} (${zone})`
+    );
+  }
+
+  if (macro && macro.assets && btcStart && btcEnd) {
+    const btcChangePct = pctChange(btcStart.value, btcEnd.value);
+    Object.entries(macro.assets).forEach(([label, closes]) => {
+      const series = Object.entries(closes).map(([d, v]) => ({ dateMs: Date.parse(d), value: v }));
+      const start = valueAtOrBefore(series, weekStartMs);
+      const end = valueAtOrBefore(series, weekEndMs);
+      if (!start || !end) return;
+      const assetChangePct = pctChange(start.value, end.value);
+      lines.push(`${label}: ${fmtPct(assetChangePct)} (BTC ${fmtPct(btcChangePct)})`);
+    });
   }
 
   if (onchain && onchain.metrics) {
@@ -278,7 +316,7 @@ ${weekStartStr} ~ ${weekEndStr} (한국시간 기준, 월요일~일요일) 한 �
 
 규칙:
 - 아래 "이번 주 지표 변화"에 있는 수치만 사실로 취급하고, 없는 수치를 지어내지 마세요.
-- 구성: (1) 가격 요약 (2) 온체인 지표로 본 시장 심리/국면 (3) ETF 자금 흐름 해석 (4) HODL Waves로 본 보유자 동향 (5) 이번 주 University 칼럼이 있다면 그 논지 반영 (6) 종합 인사이트 3~4문장.
+- 구성: (1) 가격 요약 (2) 온체인 지표로 본 시장 심리/국면 (3) ETF 자금 흐름 해석 (4) HODL Waves로 본 보유자 동향 (5) 가격 멱법칙 모델 대비 현재 위치 및 금·나스닥·달러인덱스·코스피·삼성전자 대비 이번 주 상대 성과 (6) 이번 주 University 칼럼이 있다면 그 논지 반영 (7) 종합 인사이트 3~4문장.
 - 확정적인 매수/매도 추천이나 가격 예측은 하지 말고, 지표가 역사적으로 어떻게 해석되는지에 근거해 설명하세요.
 - 전체 400~600자 내외의 마크다운 텍스트로, 소제목은 "**제목**" 형식을 사용하세요.
 
