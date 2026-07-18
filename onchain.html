@@ -68,7 +68,14 @@
   .metric-head{
     display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;
   }
+  .metric-name-row{display:flex;align-items:center;gap:5px;}
   .metric-name{font-size:14px;font-weight:700;}
+  .info-btn{
+    background:none;border:1px solid var(--sub);color:var(--sub);
+    border-radius:50%;width:16px;height:16px;font-size:11px;line-height:1;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;padding:0;flex-shrink:0;font-family:inherit;
+  }
   .metric-value{font-size:24px;font-weight:700;}
   .metric-zone{font-size:12px;margin-bottom:10px;}
   .metric-desc{font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.5;}
@@ -115,6 +122,34 @@
   .bottom-nav a .icon{font-size:15px;line-height:1;}
   .bottom-nav a.active{color:var(--orange);}
 
+  .info-modal{
+    position:fixed;inset:0;background:rgba(0,0,0,0.5);
+    display:none;align-items:flex-end;justify-content:center;z-index:200;
+  }
+  .info-modal.open{display:flex;}
+  .info-modal-content{
+    background:var(--bg);width:100%;max-width:640px;
+    border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+    max-height:80vh;overflow-y:auto;
+    box-shadow:0 -4px 24px rgba(0,0,0,0.25);
+  }
+  .info-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .info-modal-header h2{font-size:16px;margin:0;font-weight:700;}
+  .info-modal-header button{
+    background:none;border:none;font-size:16px;color:var(--sub);cursor:pointer;
+    padding:6px 8px;line-height:1;
+  }
+  .info-modal-body{font-size:13px;line-height:1.7;color:var(--text);}
+  .info-modal-body p{margin:0 0 12px;}
+  .info-modal-body p:last-child{margin-bottom:0;}
+  .info-modal-body b{color:var(--orange);}
+  .info-modal-body .info-zone{
+    background:rgba(247,147,26,0.08);border:1px solid rgba(247,147,26,0.25);
+    border-radius:8px;padding:10px 12px;margin:0 0 12px;font-size:12.5px;
+  }
+  .info-modal-body .info-zone div{margin-bottom:4px;}
+  .info-modal-body .info-zone div:last-child{margin-bottom:0;}
+
   @media (prefers-color-scheme:dark){
     :root{
       --bg:#0f0f0f;
@@ -136,7 +171,7 @@
   <div class="updated" id="updatedLine">불러오는 중...</div>
 
   <div class="metric-card">
-    <div class="metric-head"><span class="metric-name">MVRV Z-Score</span><span class="metric-value" id="mvrvValue">-</span></div>
+    <div class="metric-head"><span class="metric-name-row"><span class="metric-name">MVRV Z-Score</span><button type="button" class="info-btn" data-metric="mvrv">i</button></span><span class="metric-value" id="mvrvValue">-</span></div>
     <div class="metric-zone" id="mvrvZone">-</div>
     <div class="metric-desc">시가총액과 실현시가총액의 괴리를 표준편차로 정규화한 지표. 역사적으로 7 이상이면 과열(사이클 고점권), 0 이하면 저평가(사이클 저점권) 구간으로 해석돼.</div>
     <div class="chart-canvas-wrap">
@@ -151,7 +186,7 @@
   </div>
 
   <div class="metric-card">
-    <div class="metric-head"><span class="metric-name">NUPL</span><span class="metric-value" id="nuplValue">-</span></div>
+    <div class="metric-head"><span class="metric-name-row"><span class="metric-name">NUPL</span><button type="button" class="info-btn" data-metric="nupl">i</button></span><span class="metric-value" id="nuplValue">-</span></div>
     <div class="metric-zone" id="nuplZone">-</div>
     <div class="metric-desc">보유자 전체의 미실현 손익 비율. 0 이하 항복(Capitulation), 0.5~0.75 확신(Belief), 0.75 이상 도취(Euphoria) 구간으로 해석돼.</div>
     <div class="chart-canvas-wrap">
@@ -166,7 +201,7 @@
   </div>
 
   <div class="metric-card">
-    <div class="metric-head"><span class="metric-name">Puell Multiple</span><span class="metric-value" id="puellValue">-</span></div>
+    <div class="metric-head"><span class="metric-name-row"><span class="metric-name">Puell Multiple</span><button type="button" class="info-btn" data-metric="puell">i</button></span><span class="metric-value" id="puellValue">-</span></div>
     <div class="metric-zone" id="puellZone">-</div>
     <div class="metric-desc">일일 채굴 발행가치를 365일 평균과 비교한 지표. 4 이상이면 채굴자 수익성 과열(고점권), 0.5 이하면 저평가(저점권) 구간으로 해석돼.</div>
     <div class="chart-canvas-wrap">
@@ -183,6 +218,16 @@
   <p class="status-line" id="statusLine">&nbsp;</p>
   <p class="source-note" id="rawApiNote" style="display:none;"><a href="/api/onchain-metrics" target="_blank" rel="noopener">raw API 응답 보기 →</a></p>
   <p class="source-note">Data: <a href="https://bitcoin-data.com" target="_blank" rel="noopener">bitcoin-data.com</a></p>
+</div>
+
+<div class="info-modal" id="infoModal">
+  <div class="info-modal-content">
+    <div class="info-modal-header">
+      <h2 id="infoModalTitle">-</h2>
+      <button id="infoModalClose" type="button" aria-label="닫기">✕</button>
+    </div>
+    <div class="info-modal-body" id="infoModalBody"></div>
+  </div>
 </div>
 
 <nav class="bottom-nav">
@@ -467,6 +512,93 @@
     if(v <= 0.5) return ["저평가 (채굴자 수익성 저점권)", "var(--green)"];
     return ["중립", "var(--sub)"];
   }
+
+  // ---- Info modal: plain-language explanations for each indicator ----
+  const INFO_CONTENT = {
+    mvrv: {
+      title: "MVRV Z-Score",
+      body: `
+        <p><b>이게 뭘 재는 지표야?</b><br>
+        비트코인의 "현재 시가총액"이, 보유자들이 평균적으로 코인을 손에 넣었을 때의 가격(실현시가총액)보다 얼마나 더 높은지를 보여줘.
+        실현시가총액이란 모든 코인을 "마지막으로 지갑을 옮긴 시점의 가격"으로 각각 계산해서 다 더한 값이야 — 그러니까 "시장 전체 보유자들의 평균 매입단가"에 가까운 개념이지.</p>
+
+        <p><b>왜 중요해?</b><br>
+        시가총액이 실현시가총액보다 훨씬 높다는 건, 시장 전체가 평균적으로 큰 미실현 수익(평가이익) 상태라는 뜻이야. 사람들은 돈을 많이 벌었다고 느낄수록 팔고 싶어지니까, 역사적으로 이 수치가 극단적으로 높을 때 사이클 고점이 자주 나왔어. 반대로 이 값이 낮거나 마이너스면 시장 전체가 손실 상태라는 뜻이라, 다들 지쳐서 항복 매물이 나오는 사이클 바닥권에서 자주 나타나.</p>
+
+        <p><b>Z-Score는 왜 붙어있어?</b><br>
+        단순 비율(MVRV)이 아니라 "역사적 평균 대비 표준편차 몇 배 벗어났는지"로 정규화한 값이야. 그래서 시간이 지나도 "역사적으로 극단적인 수준인지"를 일관되게 비교할 수 있어.</p>
+
+        <div class="info-zone">
+          <div><b style="color:var(--red)">7 이상</b> — 과열. 시장 전체가 큰 평가이익 상태. 역사적으로 사이클 고점 근처.</div>
+          <div><b style="color:var(--sub)">0~7</b> — 중립 구간.</div>
+          <div><b style="color:var(--green)">0 이하</b> — 저평가. 시장 전체가 손실 상태. 역사적으로 사이클 저점 근처.</div>
+        </div>
+
+        <p><b>한 줄 요약:</b> "지금 비트코인 보유자 전체가 평균적으로 얼마나 벌고(혹은 잃고) 있는지"를 보여주는 온도계야. 다들 너무 많이 벌고 있으면 위험 신호, 다들 손해보고 있으면 오히려 기회일 수 있어.</p>
+      `,
+    },
+    nupl: {
+      title: "NUPL",
+      body: `
+        <p><b>이게 뭘 재는 지표야?</b><br>
+        NUPL은 "Net Unrealized Profit/Loss"의 줄임말로, 전체 유통 중인 비트코인 중 보유자들이 지금 이 순간 평균적으로 이익 중인지 손실 중인지를 <b>비율(%)</b>로 보여줘.
+        계산식은 (시가총액 − 실현시가총액) ÷ 시가총액 이야 — MVRV Z-Score랑 재료는 비슷한데, 표준편차 대신 "전체에서 차지하는 비중"으로 보여준다는 점이 달라.</p>
+
+        <p><b>왜 5단계로 나눠서 봐?</b><br>
+        비율이다 보니 시장 참여자들의 "심리 상태"를 5단계로 나눠서 해석하는 게 유명해졌어. 값이 아주 낮으면 다들 손실을 보고 지쳐서 포기(항복)하는 상태고, 값이 아주 높으면 다들 큰 수익에 취해서 과도하게 낙관하는(도취) 상태야. 두 극단 모두 역사적으로 추세가 꺾이기 쉬운 구간이었어.</p>
+
+        <div class="info-zone">
+          <div><b style="color:var(--red)">0.75 이상</b> — Euphoria/Greed (도취). 다들 큰 수익에 취해있음. 고점 경계 구간.</div>
+          <div><b style="color:#f97316">0.5~0.75</b> — Belief/Denial (확신). 상승을 확신하는 분위기.</div>
+          <div><b style="color:var(--sub)">0.25~0.5</b> — Optimism/Belief (낙관). 회복세에 대한 기대.</div>
+          <div><b style="color:#84cc16">0~0.25</b> — Hope/Fear (희망/공포). 방향성이 불확실.</div>
+          <div><b style="color:var(--green)">0 이하</b> — Capitulation (항복). 시장 전체가 손실, 지쳐서 포기 매물. 바닥 경계 구간.</div>
+        </div>
+
+        <p><b>한 줄 요약:</b> "지금 시장 전체 보유자들의 심리 온도"를 보여주는 지표야. 다들 너무 확신에 차 있으면(도취) 조심하고, 다들 절망하고 있으면(항복) 오히려 관심 가져볼 만해.</p>
+      `,
+    },
+    puell: {
+      title: "Puell Multiple",
+      body: `
+        <p><b>이게 뭘 재는 지표야?</b><br>
+        비트코인 채굴자(마이너)가 오늘 하루 새로 채굴해서 얻은 코인의 가치(발행량 × 오늘 가격)를, 최근 365일 평균 발행가치와 비교한 지표야.
+        계산식은 (오늘 채굴 발행가치) ÷ (최근 1년 평균 채굴 발행가치) 야.</p>
+
+        <p><b>왜 채굴자 수익을 봐야 해?</b><br>
+        채굴자는 전기세, 장비 유지비 같은 고정 비용이 계속 나가는 사업자라서, 채굴한 코인을 지속적으로 시장에 팔아서 현금을 마련해야 하는 경우가 많아. 이 지표는 "채굴자들이 지금 얼마나 짭짤하게 벌고 있는지"를 보여주는데, 이게 채굴자들의 매도 압력이나 항복 시점을 가늠하는 데 쓰여.</p>
+
+        <p><b>극단적인 값이면 왜 신호가 돼?</b><br>
+        값이 아주 높다는 건 채굴자 수익성이 평소보다 훨씬 좋다는 뜻이라 (가격이 단기간 급등했을 가능성이 높음) 역사적으로 가격 과열 국면에서 자주 나타났어. 반대로 값이 아주 낮으면 채굴 원가도 못 건지는 채굴자들이 항복(장비를 끄거나 파산)하는 시기라, 역사적으로 바닥권에서 자주 나타났어.</p>
+
+        <div class="info-zone">
+          <div><b style="color:var(--red)">4 이상</b> — 과열. 채굴자 수익성이 매우 좋음. 역사적으로 고점권.</div>
+          <div><b style="color:var(--sub)">0.5~4</b> — 중립 구간.</div>
+          <div><b style="color:var(--green)">0.5 이하</b> — 저평가. 채굴자 수익성이 매우 나쁨. 역사적으로 저점권.</div>
+        </div>
+
+        <p><b>한 줄 요약:</b> "광부들이 지금 금을 캐서 얼마나 남기고 있는지"를 보는 지표야. 너무 잘 벌면(고점 신호), 너무 못 벌면(바닥 신호) — 채굴자의 시선으로 사이클을 보는 방법이지.</p>
+      `,
+    },
+  };
+
+  function openInfoModal(metric){
+    const info = INFO_CONTENT[metric];
+    if(!info) return;
+    document.getElementById("infoModalTitle").textContent = info.title;
+    document.getElementById("infoModalBody").innerHTML = info.body;
+    document.getElementById("infoModal").classList.add("open");
+  }
+  function closeInfoModal(){
+    document.getElementById("infoModal").classList.remove("open");
+  }
+  document.querySelectorAll(".info-btn").forEach(btn => {
+    btn.addEventListener("click", () => openInfoModal(btn.dataset.metric));
+  });
+  document.getElementById("infoModalClose").addEventListener("click", closeInfoModal);
+  document.getElementById("infoModal").addEventListener("click", e => {
+    if(e.target.id === "infoModal") closeInfoModal();
+  });
 
   async function load(){
     try{
