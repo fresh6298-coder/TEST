@@ -113,26 +113,31 @@ function redisConfigured() {
   return Boolean(REDIS_URL && REDIS_TOKEN);
 }
 
+// Stores {authAttempted, rows} rather than a bare array — see the
+// authAttempted check in loadMetric for why: a cached archive built
+// before a token existed must not silently keep hiding a longer history
+// just because it happens to already have "today"'s date in it.
 async function redisGetArchive(key) {
   const res = await fetch(`${REDIS_URL}/get/${key}`, {
     headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
   });
   if (!res.ok) throw new Error(`redis GET failed: ${res.status}`);
   const data = await res.json();
-  if (!data.result) return [];
+  if (!data.result) return { authAttempted: false, rows: [] };
   try {
     const parsed = JSON.parse(data.result);
-    return Array.isArray(parsed) ? parsed : [];
+    if (Array.isArray(parsed)) return { authAttempted: false, rows: parsed }; // pre-token archive format
+    return { authAttempted: !!parsed.authAttempted, rows: Array.isArray(parsed.rows) ? parsed.rows : [] };
   } catch {
-    return [];
+    return { authAttempted: false, rows: [] };
   }
 }
 
-async function redisSetArchive(key, rows) {
+async function redisSetArchive(key, rows, authAttempted) {
   await fetch(`${REDIS_URL}/set/${key}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${REDIS_TOKEN}`, "content-type": "text/plain" },
-    body: JSON.stringify(rows),
+    body: JSON.stringify({ authAttempted, rows }),
   });
 }
 
@@ -146,21 +151,30 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 async function loadMetric(key, path, hint) {
   const archiveKey = `onchain-archive:${path}`;
-  let existing = [];
+  let existing = { authAttempted: false, rows: [] };
   if (redisConfigured()) {
     try {
       existing = await redisGetArchive(archiveKey);
     } catch {
-      existing = [];
+      existing = { authAttempted: false, rows: [] };
     }
   }
 
+  // A token that's now configured but was never tried against this
+  // archive must force a fresh attempt regardless of date-freshness —
+  // otherwise an archive that already happens to include today's date
+  // (built before the token existed) would silently keep serving the
+  // old, shorter window forever.
+  const needsAuthAttempt = Boolean(BGEO_TOKEN) && !existing.authAttempted;
+
   // These metrics only update once a day at most, and anonymous access to
   // bitcoin-data.com is rate-limited (8 req/hour, 15/day) — once the
-  // archive already has today-or-yesterday's data, skip hitting the
-  // origin again this request and just serve what's cached.
-  const latestMs = existing.length ? existing[existing.length - 1].dateMs : null;
-  const archiveIsFreshEnough = latestMs != null && Date.now() - latestMs < DAY_MS;
+  // archive already has today-or-yesterday's data (and doesn't need the
+  // auth check above), skip hitting the origin again this request and
+  // just serve what's cached.
+  const rows = existing.rows;
+  const latestMs = rows.length ? rows[rows.length - 1].dateMs : null;
+  const archiveIsFreshEnough = !needsAuthAttempt && latestMs != null && Date.now() - latestMs < DAY_MS;
 
   let fresh = null;
   if (!archiveIsFreshEnough) {
@@ -172,10 +186,11 @@ async function loadMetric(key, path, hint) {
     }
   }
 
-  let history = existing;
+  let history = rows;
+  let authAttempted = existing.authAttempted || Boolean(BGEO_TOKEN);
   if (fresh) {
-    history = mergeHistory(existing, fresh);
-    if (redisConfigured()) await redisSetArchive(archiveKey, history).catch(() => {});
+    history = mergeHistory(rows, fresh);
+    if (redisConfigured()) await redisSetArchive(archiveKey, history, authAttempted).catch(() => {});
   }
 
   if (!history.length) throw new Error(`${path}: no parseable records`);
