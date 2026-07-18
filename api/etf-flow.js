@@ -1,10 +1,12 @@
 import { fetchTableWithFallback, parseNumber } from "./_lib/scrape.js";
 
-// The plain /btc/ page only server-renders a recent window of rows (older
-// history loads client-side); /bitcoin-etf-flow-all-data/ is farside's
-// dedicated full-history page, back to the Jan 2024 launch.
-const SOURCE_URL = "https://farside.co.uk/bitcoin-etf-flow-all-data/";
-const READER_URL = "https://r.jina.ai/https://farside.co.uk/bitcoin-etf-flow-all-data/";
+// farside.co.uk's dedicated full-history page (/bitcoin-etf-flow-all-data/)
+// 403s server-side fetches outright (its bot protection is stricter there
+// than on the main page), so scrape the regular /btc/ page instead — it
+// may only carry a recent window server-rendered, but it's the one that
+// actually responds.
+const SOURCE_URL = "https://farside.co.uk/btc/";
+const READER_URL = "https://r.jina.ai/https://farside.co.uk/btc/";
 
 const MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
 
