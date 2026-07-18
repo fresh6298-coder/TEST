@@ -1,4 +1,13 @@
-const BASE = "https://bitcoin-data.com/v1";
+// bitcoin-data.com (anonymous, rate-limited to 8 req/hour) was the only
+// access this app had for a while and caps out around a ~4-year rolling
+// window. api.bgeometrics.com is the same provider's authenticated API —
+// confirmed working via a user-provided token (`Authorization: Bearer
+// <token>`) — and is tried first when a token is configured, since it
+// may not carry the same rolling-window cap. Falls back to the
+// anonymous endpoint either way, so this works with or without a token.
+const BGEO_AUTH_BASE = "https://api.bgeometrics.com/v1";
+const BGEO_ANON_BASE = "https://bitcoin-data.com/v1";
+const BGEO_TOKEN = process.env.BGEOMETRICS_API_TOKEN;
 
 const METRICS = {
   mvrvZscore: { path: "mvrv-zscore", hint: /mvrv/i },
@@ -11,20 +20,20 @@ const HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Accept: "application/json",
 };
-// bitcoin-data.com's docs weren't reachable to confirm the exact param
-// for full history (anonymous access is also rate-limited — 8 req/hour —
-// so this stays a short, bounded list rather than a wide guess-spray
-// that would burn the whole hourly budget on one page load). Stops at
-// the first variant past the plain endpoint that actually returns more
-// rows; if none do, the plain endpoint's result is used as before.
+// Neither provider's docs were reachable to confirm the exact param for
+// full history, so a short, bounded list of plausible variants is tried
+// per base URL rather than a wide guess-spray (the anonymous base is
+// rate-limited to 8 req/hour). Whichever variant/base returns the most
+// rows wins.
 const HISTORY_QUERY_VARIANTS = ["", "?limit=100000", "?days=100000"];
 
 // Fields that look numeric but are never "the metric" — timestamps,
 // ids, block heights, etc. Excluded from value-field guessing.
 const NON_VALUE_KEY = /^(d|date|id|unix.*|timestamp|ts|epoch|createdat|updatedat|blockheight|height)$/i;
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: HEADERS });
+async function fetchJson(url, useAuth) {
+  const headers = useAuth && BGEO_TOKEN ? { ...HEADERS, Authorization: `Bearer ${BGEO_TOKEN}` } : HEADERS;
+  const res = await fetch(url, { headers });
   if (!res.ok) {
     const err = new Error(`${url} -> ${res.status}`);
     err.status = res.status;
@@ -61,26 +70,33 @@ function normalizeSeries(json, hint) {
   return rows.map((row) => normalizeRecord(row, hint)).filter(Boolean);
 }
 
-// The plain endpoint seems to cap out around ~4 years of daily records
-// (a rolling window, not a hard data-availability limit — bitcoin-data.com
-// markets full history back to genesis). Try a couple of plausible
-// params for a bigger window; whichever variant returns the most rows
-// wins, falling back to the plain endpoint if none help.
+// The anonymous endpoint seems to cap out around ~4 years of daily
+// records (a rolling window, not a hard data-availability limit — this
+// provider markets full history back to genesis). Try the authenticated
+// base first (if a token is configured), then the anonymous one, each
+// with a couple of plausible query variants; whichever combination
+// returns the most rows wins.
 async function fetchFullHistory(path) {
+  const attempts = [];
+  if (BGEO_TOKEN) {
+    HISTORY_QUERY_VARIANTS.forEach((q) => attempts.push({ base: BGEO_AUTH_BASE, q, auth: true }));
+  }
+  HISTORY_QUERY_VARIANTS.forEach((q) => attempts.push({ base: BGEO_ANON_BASE, q, auth: false }));
+
   let best = null;
-  for (const q of HISTORY_QUERY_VARIANTS) {
+  for (const { base, q, auth } of attempts) {
     try {
-      const json = await fetchJson(`${BASE}/${path}${q}`);
+      const json = await fetchJson(`${base}/${path}${q}`, auth);
       const rows = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
       if (rows.length && (!best || rows.length > best.rows.length)) {
-        best = { json, rows };
+        best = { json, rows, source: base };
       }
     } catch {
-      // try the next variant
+      // try the next variant/base
     }
   }
   if (!best) throw new Error("no data from any query variant");
-  return best.json;
+  return best;
 }
 
 // ---- Persistent archive (Upstash Redis), same pattern as api/etf-flow.js ----
@@ -149,8 +165,8 @@ async function loadMetric(key, path, hint) {
   let fresh = null;
   if (!archiveIsFreshEnough) {
     try {
-      const json = await fetchFullHistory(path);
-      fresh = normalizeSeries(json, hint);
+      const best = await fetchFullHistory(path);
+      fresh = normalizeSeries(best.json, hint);
     } catch {
       fresh = null;
     }
@@ -194,7 +210,7 @@ export default async function handler(req, res) {
 
   res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
   res.status(200).json({
-    source: BASE,
+    source: BGEO_TOKEN ? BGEO_AUTH_BASE : BGEO_ANON_BASE,
     fetchedAt: new Date().toISOString(),
     metrics,
     errors,
