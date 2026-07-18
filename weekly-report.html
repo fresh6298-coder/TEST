@@ -96,6 +96,11 @@
   .stat-table td.chg.down{color:var(--red);}
 
   canvas.chart{width:100%;display:block;}
+  .chart-legend{display:flex;align-items:center;gap:12px;font-size:10.5px;color:var(--sub);margin-bottom:6px;}
+  .legend-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;}
+  .legend-dot.orange{background:#f7931a;}
+  .legend-dot.up{background:#16a34a;}
+  .legend-dot.down{background:#ef4444;}
 
   .insight-grid{display:flex;flex-direction:column;gap:8px;}
   .insight-card{
@@ -247,7 +252,7 @@
   // ---- Small canvas charts (static, no zoom/pan — just an at-a-glance
   // visual for a fixed week, unlike the interactive charts elsewhere) ----
   function drawLineChart(canvas, points){
-    const w = canvas.clientWidth, h = canvas.clientHeight || 90;
+    const w = canvas.clientWidth, h = canvas.clientHeight || 108;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext("2d");
@@ -255,12 +260,12 @@
     ctx.clearRect(0,0,w,h);
     if(!points.length) return;
 
-    const pad = 6;
+    const padX = 6, padTop = 16, padBottom = 16;
     const values = points.map(p => p.value);
     const min = Math.min(...values), max = Math.max(...values);
     const range = (max - min) || 1;
-    const xAt = i => points.length > 1 ? pad + (i/(points.length-1)) * (w - pad*2) : w/2;
-    const yAt = v => pad + (1 - (v - min)/range) * (h - pad*2);
+    const xAt = i => points.length > 1 ? padX + (i/(points.length-1)) * (w - padX*2) : w/2;
+    const yAt = v => padTop + (1 - (v - min)/range) * (h - padTop - padBottom);
 
     const grad = ctx.createLinearGradient(0,0,0,h);
     grad.addColorStop(0, "rgba(247,147,26,0.35)");
@@ -278,6 +283,26 @@
     ctx.strokeStyle = "#f7931a";
     ctx.lineWidth = 1.5;
     ctx.stroke();
+
+    // Start/end value labels + markers so the trend's actual numbers are
+    // readable directly on the chart, not just in the stat table below.
+    const fmtV = v => "$" + Math.round(v).toLocaleString("en-US");
+    const startX = xAt(0), startY = yAt(points[0].value);
+    const endX = xAt(points.length-1), endY = yAt(points[points.length-1].value);
+
+    ctx.fillStyle = "#f7931a";
+    [[startX,startY],[endX,endY]].forEach(([x,y]) => {
+      ctx.beginPath(); ctx.arc(x,y,2.5,0,Math.PI*2); ctx.fill();
+    });
+
+    ctx.font = "9.5px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(140,140,140,0.95)";
+    ctx.textAlign = "left";
+    ctx.fillText(fmtV(points[0].value), Math.max(startX, 0), startY < h/2 ? startY + 13 : startY - 7);
+
+    ctx.fillStyle = "#f7931a";
+    ctx.textAlign = "right";
+    ctx.fillText(fmtV(points[points.length-1].value), Math.min(endX, w), endY < h/2 ? endY + 13 : endY - 7);
   }
 
   function drawBarChart(canvas, items){
@@ -318,10 +343,14 @@
       ctx.fillText((v>=0?"+":"")+v.toFixed(1)+"%", textX, y + rowH/2 + 3);
     });
 
-    // zero line
+    // zero line + tick label
     ctx.strokeStyle = "rgba(150,150,150,0.4)";
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(midX, 0); ctx.lineTo(midX, h); ctx.stroke();
+    ctx.fillStyle = "rgba(150,150,150,0.85)";
+    ctx.textAlign = "center";
+    ctx.font = "9px ui-monospace, monospace";
+    ctx.fillText("0%", midX, h - 2);
   }
 
   function renderWeekBody(container, data){
@@ -348,10 +377,10 @@
     const articles = stats.articles || [];
 
     container.innerHTML = `
-      ${priceSeries.length >= 2 ? `<div class="card"><h3>이번 주 가격 추이</h3><canvas class="chart" style="height:90px;"></canvas></div>` : ""}
+      ${priceSeries.length >= 2 ? `<div class="card"><h3>이번 주 가격 추이</h3><div class="chart-legend"><span class="legend-dot orange"></span>BTC 가격 (USD)</div><canvas class="chart" style="height:108px;"></canvas></div>` : ""}
       ${rows.length ? `<div class="card"><h3>지표 변화</h3><table class="stat-table">${rows.join("")}</table></div>` : ""}
-      ${macroItems.length ? `<div class="card"><h3>자산별 이번 주 성과 비교</h3><canvas class="chart macro-chart"></canvas></div>` : ""}
-      ${hodlShifts.length ? `<div class="card"><h3>HODL Waves 이번 주 가장 크게 움직인 구간</h3><canvas class="chart hodl-chart"></canvas></div>` : ""}
+      ${macroItems.length ? `<div class="card"><h3>자산별 이번 주 성과 비교</h3><div class="chart-legend"><span class="legend-dot up"></span>상승<span class="legend-dot down"></span>하락</div><canvas class="chart macro-chart"></canvas></div>` : ""}
+      ${hodlShifts.length ? `<div class="card"><h3>HODL Waves 이번 주 가장 크게 움직인 구간</h3><div class="chart-legend"><span class="legend-dot up"></span>비중 증가<span class="legend-dot down"></span>비중 감소</div><canvas class="chart hodl-chart"></canvas></div>` : ""}
       <div class="card"><h3>AI 인사이트</h3><div class="report-body">${renderReportBody(data.report)}</div></div>
       ${articles.length ? `<div class="card"><h3>이번 주 University 칼럼</h3><ul class="article-list">${articles.map(a => `<li>${escapeHtml(a.title)}${a.summary ? " — " + escapeHtml(a.summary) : ""}</li>`).join("")}</ul></div>` : ""}
     `;
