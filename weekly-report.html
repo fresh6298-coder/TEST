@@ -194,6 +194,12 @@
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
+  // Escapes only &/</> — used where the string will also pass through the
+  // numeric highlighter below, since escaping quotes to "&#39;" lets that
+  // regex match the digits inside the entity and split it with a <mark> tag.
+  function escapeHtmlLite(s){
+    return String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  }
   function fmtPct(v){
     if(v == null) return "N/A";
     return (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
@@ -231,7 +237,7 @@
 
     return `<div class="insight-grid">${sections.map(sec => {
       const isFinal = sec.title && /종합\s*인사이트/.test(sec.title);
-      const bodyHtml = escapeHtml(sec.body.trim())
+      const bodyHtml = escapeHtmlLite(sec.body.trim())
         .replace(/([+-]?\$?[\d][\d,]*\.?\d*%?)/g, '<mark>$1</mark>')
         .split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
       return `<div class="insight-card${isFinal ? " highlight" : ""}">${sec.title ? `<div class="insight-head"><span class="insight-icon">${iconFor(sec.title)}</span>${escapeHtml(sec.title)}</div>` : ""}<div class="insight-text">${bodyHtml}</div></div>`;
