@@ -1,4 +1,25 @@
+import fs from "node:fs";
+import path from "node:path";
 import { fetchTableWithFallback, parseNumber } from "./_lib/scrape.js";
+
+// One-time manual export (user-downloaded from farside's full-history
+// page directly, sidestepping its intermittent bot-blocking entirely) —
+// the complete daily series from the Jan 2024 launch through 17 Jul
+// 2026. This is the permanent backfill for that range: it's merged in
+// on every request regardless of whether any live source is reachable,
+// so the historical gap is solved for good independent of farside or
+// Redis. Live fetches only need to extend the tail past where this ends.
+let SEED_ROWS = null;
+function loadSeedRows() {
+  if (SEED_ROWS) return SEED_ROWS;
+  try {
+    const filePath = path.join(process.cwd(), "data", "etf-flow-history.json");
+    SEED_ROWS = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch {
+    SEED_ROWS = [];
+  }
+  return SEED_ROWS;
+}
 
 // farside.co.uk's dedicated full-history page (/bitcoin-etf-flow-all-data/)
 // carries the complete series back to the Jan 2024 launch, but its bot
@@ -221,6 +242,8 @@ function headersFor(rows) {
 }
 
 export default async function handler(req, res) {
+  const seed = loadSeedRows();
+
   let fresh = null; // {source, rows}
   try {
     const bgeoResult = await fetchBgeoEtfFlow();
@@ -235,25 +258,28 @@ export default async function handler(req, res) {
   }
 
   if (!redisConfigured()) {
-    // No persistent archive available — behave exactly as before,
-    // returning whatever this single request managed to fetch (or 502).
-    if (!fresh) {
+    // No persistent archive available — the static seed alone still
+    // covers Jan 2024 through 17 Jul 2026; live fetches (when reachable)
+    // extend the tail past that.
+    const merged = fresh ? mergeRows(seed, fresh.rows) : seed;
+    if (!merged.length) {
       res.status(502).json({ error: "ETF 데이터 조회 실패 (모든 소스 실패)" });
       return;
     }
     res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
     res.status(200).json({
-      source: fresh.source,
+      source: fresh ? fresh.source : "seed",
       fetchedAt: new Date().toISOString(),
-      headers: headersFor(fresh.rows),
-      rows: fresh.rows,
+      headers: headersFor(merged),
+      rows: merged,
     });
     return;
   }
 
   try {
-    const existing = await redisGetArchive();
-    const merged = fresh ? mergeRows(existing, fresh.rows) : existing;
+    const existingArchive = await redisGetArchive();
+    const base = mergeRows(seed, existingArchive);
+    const merged = fresh ? mergeRows(base, fresh.rows) : base;
     if (fresh) await redisSetArchive(merged).catch(() => {});
 
     if (!merged.length) {
@@ -269,15 +295,16 @@ export default async function handler(req, res) {
       rows: merged,
     });
   } catch (err) {
-    // Redis itself failed (rare) — fall back to just this request's fresh
-    // fetch rather than erroring out entirely.
-    if (fresh) {
+    // Redis itself failed (rare) — fall back to seed + this request's
+    // fresh fetch rather than erroring out entirely.
+    const merged = fresh ? mergeRows(seed, fresh.rows) : seed;
+    if (merged.length) {
       res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
       res.status(200).json({
-        source: fresh.source,
+        source: fresh ? fresh.source : "seed",
         fetchedAt: new Date().toISOString(),
-        headers: headersFor(fresh.rows),
-        rows: fresh.rows,
+        headers: headersFor(merged),
+        rows: merged,
       });
       return;
     }
