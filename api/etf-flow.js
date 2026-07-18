@@ -168,24 +168,119 @@ async function fetchFarsideRows() {
   throw err;
 }
 
+// ---- Persistent archive (Upstash Redis) ----
+// farside's full-history page 403s intermittently rather than always —
+// the fix isn't to keep re-fetching it hopefully, it's to permanently
+// keep whatever it gives us the next time it *does* work. Every
+// invocation merges freshly-fetched rows into a Redis-backed archive
+// (fresh values win for overlapping dates, nothing already captured is
+// ever dropped), so one lucky full-history fetch is enough to backfill
+// the Jan 2024 gap for good — after that, the reliably-reachable
+// recent-window page is all that's needed to keep the tail current.
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const ARCHIVE_KEY = "etf-flow-archive";
+
+function redisConfigured() {
+  return Boolean(REDIS_URL && REDIS_TOKEN);
+}
+
+async function redisGetArchive() {
+  const res = await fetch(`${REDIS_URL}/get/${ARCHIVE_KEY}`, {
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`redis GET failed: ${res.status}`);
+  const data = await res.json();
+  if (!data.result) return [];
+  try {
+    const parsed = JSON.parse(data.result);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function redisSetArchive(rows) {
+  await fetch(`${REDIS_URL}/set/${ARCHIVE_KEY}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}`, "content-type": "text/plain" },
+    body: JSON.stringify(rows),
+  });
+}
+
+function mergeRows(existing, fresh) {
+  const byDate = new Map(existing.map((r) => [r.dateMs, r]));
+  fresh.forEach((r) => byDate.set(r.dateMs, r)); // fresh always wins for overlapping dates
+  return [...byDate.values()].sort((a, b) => a.dateMs - b.dateMs);
+}
+
+function headersFor(rows) {
+  const keys = new Set();
+  rows.forEach((r) => Object.keys(r.values || {}).forEach((k) => keys.add(k)));
+  return ["Date", ...keys, "Total"];
+}
+
 export default async function handler(req, res) {
-  const bgeoResult = await fetchBgeoEtfFlow();
-  if (bgeoResult) {
+  let fresh = null; // {source, rows}
+  try {
+    const bgeoResult = await fetchBgeoEtfFlow();
+    if (bgeoResult) {
+      fresh = { source: bgeoResult.source, rows: bgeoResult.rows };
+    } else {
+      const { rawRows, source } = await fetchFarsideRows();
+      fresh = { source, rows: buildResult(rawRows, source).rows };
+    }
+  } catch (err) {
+    fresh = null;
+  }
+
+  if (!redisConfigured()) {
+    // No persistent archive available — behave exactly as before,
+    // returning whatever this single request managed to fetch (or 502).
+    if (!fresh) {
+      res.status(502).json({ error: "ETF 데이터 조회 실패 (모든 소스 실패)" });
+      return;
+    }
     res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
-    res.status(200).json({ ...bgeoResult, fetchedAt: new Date().toISOString() });
+    res.status(200).json({
+      source: fresh.source,
+      fetchedAt: new Date().toISOString(),
+      headers: headersFor(fresh.rows),
+      rows: fresh.rows,
+    });
     return;
   }
 
   try {
-    const { rawRows, source } = await fetchFarsideRows();
-    res.setHeader(
-      "Cache-Control",
-      "public, s-maxage=3600, stale-while-revalidate=1800"
-    );
-    res.status(200).json(buildResult(rawRows, source));
+    const existing = await redisGetArchive();
+    const merged = fresh ? mergeRows(existing, fresh.rows) : existing;
+    if (fresh) await redisSetArchive(merged).catch(() => {});
+
+    if (!merged.length) {
+      res.status(502).json({ error: "ETF 데이터 조회 실패 (아카이브 비어있음, 모든 소스 실패)" });
+      return;
+    }
+
+    res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
+    res.status(200).json({
+      source: fresh ? fresh.source : "cache",
+      fetchedAt: new Date().toISOString(),
+      headers: headersFor(merged),
+      rows: merged,
+    });
   } catch (err) {
-    res
-      .status(502)
-      .json({ error: err.message, details: err.details || [] });
+    // Redis itself failed (rare) — fall back to just this request's fresh
+    // fetch rather than erroring out entirely.
+    if (fresh) {
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
+      res.status(200).json({
+        source: fresh.source,
+        fetchedAt: new Date().toISOString(),
+        headers: headersFor(fresh.rows),
+        rows: fresh.rows,
+      });
+      return;
+    }
+    res.status(502).json({ error: "ETF 데이터 조회 실패: " + err.message });
   }
 }
