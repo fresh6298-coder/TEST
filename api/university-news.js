@@ -91,6 +91,12 @@ function snippet(text, len) {
   return JSON.stringify((text || "").replace(/\s+/g, " ").trim().slice(0, len || 160));
 }
 
+// Bumped whenever the parsing logic changes — included in every response
+// (success or error) so it's immediately obvious from the API output
+// alone whether a given deployment is actually running this version, as
+// opposed to the confusion staying up in the air.
+const PARSER_VERSION = "2026-07-18-backward-scan";
+
 export default async function handler(req, res) {
   try {
     const r = await fetch(READER_URL);
@@ -100,7 +106,7 @@ export default async function handler(req, res) {
     // ?debug=1 dumps the raw rendered markdown so the link/date structure
     // can be inspected directly instead of guessing from a short snippet.
     if (req.query && req.query.debug) {
-      res.status(200).json({ markdown });
+      res.status(200).json({ parserVersion: PARSER_VERSION, markdown });
       return;
     }
 
@@ -110,8 +116,8 @@ export default async function handler(req, res) {
     }
 
     res.setHeader("Cache-Control", "public, s-maxage=1800, stale-while-revalidate=900");
-    res.status(200).json({ fetchedAt: new Date().toISOString(), posts });
+    res.status(200).json({ parserVersion: PARSER_VERSION, fetchedAt: new Date().toISOString(), posts });
   } catch (e) {
-    res.status(502).json({ error: "Bitcoin University feed fetch failed: " + e.message });
+    res.status(502).json({ parserVersion: PARSER_VERSION, error: "Bitcoin University feed fetch failed: " + e.message });
   }
 }
