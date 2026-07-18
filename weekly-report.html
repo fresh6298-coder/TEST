@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>주간 리포트 - bitdash</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:640px;
+    margin:0 auto;
+    padding:20px 20px 80px;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .back-link{
+    color:var(--sub);
+    text-decoration:none;
+    font-size:20px;
+    padding:4px 8px;
+  }
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;
+    flex-shrink:0;
+  }
+  .topbar h1{
+    font-size:18px;margin:0;flex:1;font-weight:700;
+  }
+  .week-range{font-size:12px;color:var(--sub);margin-bottom:16px;}
+
+  .card{
+    border:1px solid var(--track);border-radius:10px;
+    padding:14px 16px;margin-bottom:14px;
+  }
+  .card h2{font-size:13px;margin:0 0 10px;color:var(--sub);font-weight:700;}
+  .stats-list{display:flex;flex-direction:column;gap:6px;font-size:12.5px;line-height:1.6;}
+  .report-body{font-size:13px;line-height:1.75;}
+  .report-body b{color:var(--orange);display:block;margin:12px 0 4px;font-size:13.5px;}
+  .report-body b:first-child{margin-top:0;}
+  .report-body p{margin:0 0 8px;}
+
+  .meta-line{font-size:10.5px;color:var(--sub);text-align:right;margin-top:-4px;margin-bottom:14px;}
+  .refresh-row{display:flex;justify-content:flex-end;margin-bottom:10px;}
+  .refresh-row button{
+    font-family:inherit;font-size:11.5px;color:var(--orange);
+    background:none;border:1px solid var(--orange);border-radius:12px;
+    padding:5px 12px;cursor:pointer;
+  }
+  .refresh-row button:disabled{opacity:.5;cursor:not-allowed;}
+
+  .status-line{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
+  }
+  .empty{color:var(--sub);font-size:13px;text-align:center;padding:60px 20px;}
+
+  .bottom-nav{
+    position:fixed;left:0;right:0;bottom:0;
+    display:flex;
+    background:var(--bg);
+    border-top:1px solid var(--track);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom));
+    z-index:100;
+  }
+  .bottom-nav a{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    color:var(--sub);text-decoration:none;font-size:7px;padding:4px 1px;
+  }
+  .bottom-nav a .icon{font-size:15px;line-height:1;}
+  .bottom-nav a.active{color:var(--orange);}
+
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f0f0f;
+      --text:#f2f2f2;
+      --sub:#8f8f8f;
+      --track:#2a2a2a;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="ask.html" title="Ask로 돌아가기">←</a>
+    <div class="coin-icon">📊</div>
+    <h1>주간 시황 리포트</h1>
+  </header>
+  <div class="week-range" id="weekRange">불러오는 중...</div>
+
+  <div class="refresh-row">
+    <button type="button" id="refreshBtn">↻ 새로고침</button>
+  </div>
+
+  <div id="content">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+  <p class="status-line" id="statusLine">&nbsp;</p>
+</div>
+
+<nav class="bottom-nav">
+  <a href="index.html"><span class="icon">₿</span>Home</a>
+  <a href="etf.html"><span class="icon">💰</span>ETF</a>
+  <a href="assets.html"><span class="icon">🌐</span>Assets</a>
+  <a href="onchain.html"><span class="icon">⛓️</span>On-Chain</a>
+  <a href="news.html"><span class="icon">📰</span>News</a>
+  <a href="university.html"><span class="icon">📚</span>University</a>
+  <a href="cycles.html"><span class="icon">🔄</span>Cycles</a>
+  <a href="dca.html"><span class="icon">🐷</span>DCA</a>
+  <a href="ask.html" class="active"><span class="icon">💬</span>Ask</a>
+</nav>
+
+<script>
+(function(){
+  "use strict";
+
+  const content = document.getElementById("content");
+  const weekRange = document.getElementById("weekRange");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const statusLine = document.getElementById("statusLine");
+
+  function setStatus(msg){ statusLine.textContent = msg || " "; }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  // The report is plain text with "**소제목**" style sub-headings and
+  // blank-line-separated paragraphs — just enough structure to need a
+  // tiny formatter rather than pulling in a full markdown library for
+  // one page.
+  function renderReportBody(text){
+    const escaped = escapeHtml(text);
+    const withHeadings = escaped.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    const paragraphs = withHeadings.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
+    return paragraphs;
+  }
+
+  function renderStats(statsText){
+    if(!statsText) return "";
+    const lines = statsText.split("\n").filter(Boolean);
+    return `<div class="stats-list">${lines.map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>`;
+  }
+
+  async function load(){
+    setStatus("");
+    content.innerHTML = '<div class="empty">불러오는 중... (처음 생성 시 몇십 초 걸릴 수 있어)</div>';
+    refreshBtn.disabled = true;
+    try{
+      const res = await fetch("/api/ask");
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || "리포트를 불러오지 못했습니다.");
+
+      weekRange.textContent = `${data.weekStart} ~ ${data.weekEnd} (한국시간 기준)` + (data.cached ? " · 캐시된 리포트" : " · 방금 생성됨");
+      content.innerHTML = `
+        <div class="card">
+          <h2>이번 주 지표 변화</h2>
+          ${renderStats(data.statsText)}
+        </div>
+        <div class="card">
+          <h2>AI 인사이트</h2>
+          <div class="report-body">${renderReportBody(data.report)}</div>
+        </div>
+      `;
+      setStatus("생성 시각: " + new Date(data.generatedAt).toLocaleString("ko-KR"));
+    }catch(e){
+      content.innerHTML = '<div class="empty">리포트를 불러오지 못했습니다.<br>' + escapeHtml(e.message) + '</div>';
+    }finally{
+      refreshBtn.disabled = false;
+    }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  load();
+})();
+</script>
+</body>
+</html>
