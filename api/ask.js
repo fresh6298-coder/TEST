@@ -405,6 +405,12 @@ async function callGemini(apiKey, systemPrompt, contents) {
   };
 }
 
+// Bumped whenever the cached payload's shape changes (e.g. adding `stats`
+// for charts). A cached entry from an older version is treated as a miss
+// and regenerated, instead of being served forever as stale, schema-less
+// JSON until the week rolls over.
+const REPORT_SCHEMA_VERSION = 2;
+
 async function handleWeeklyReport(req, res, apiKey) {
   const query = req.query || {};
 
@@ -426,7 +432,7 @@ async function handleWeeklyReport(req, res, apiKey) {
 
   if (redisConfigured()) {
     const cached = await redisGetReport(cacheKey).catch(() => null);
-    if (cached && cached.report) {
+    if (cached && cached.report && cached.schemaVersion === REPORT_SCHEMA_VERSION) {
       res.status(200).json({ ...cached, cached: true });
       return;
     }
@@ -455,6 +461,7 @@ async function handleWeeklyReport(req, res, apiKey) {
       statsText,
       postCount,
       generatedAt: new Date().toISOString(),
+      schemaVersion: REPORT_SCHEMA_VERSION,
     };
     if (redisConfigured() && text) {
       await redisSetReport(cacheKey, payload).catch(() => {});
