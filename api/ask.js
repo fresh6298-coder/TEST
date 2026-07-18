@@ -111,7 +111,11 @@ async function buildUniversityArticlesText(host) {
   if (articlesCache.text && Date.now() - articlesCache.builtAt < ARTICLES_TTL_MS) return articlesCache.text;
 
   const data = await fetchJsonSafe(`https://${host}/api/university-news`);
-  const articles = (data && Array.isArray(data.fullArticles) ? data.fullArticles : []).slice(0, 5);
+  // The full corpus is small enough (a few dozen posts at most) that
+  // there's no real reason to only show the AI the most recent handful —
+  // capped at 20 mainly so the prompt doesn't grow unbounded as the
+  // archive keeps accumulating over the coming months/years.
+  const articles = (data && Array.isArray(data.fullArticles) ? data.fullArticles : []).slice(0, 20);
 
   const text = articles.length
     ? articles
