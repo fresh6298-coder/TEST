@@ -101,6 +101,7 @@
   .legend-dot.orange{background:#f7931a;}
   .legend-dot.up{background:#16a34a;}
   .legend-dot.down{background:#ef4444;}
+  .chart-period{text-align:center;font-size:10px;color:var(--sub);margin-top:4px;}
 
   .insight-grid{display:flex;flex-direction:column;gap:8px;}
   .insight-card{
@@ -376,8 +377,13 @@
     const priceSeries = (stats.btc && stats.btc.series) || [];
     const articles = stats.articles || [];
 
+    const fmtDateShort = d => d ? d.slice(5).replace("-", ".") : "";
+    const periodLabel = priceSeries.length >= 2
+      ? `${fmtDateShort(priceSeries[0].date)} ~ ${fmtDateShort(priceSeries[priceSeries.length-1].date)}`
+      : "";
+
     container.innerHTML = `
-      ${priceSeries.length >= 2 ? `<div class="card"><h3>이번 주 가격 추이</h3><div class="chart-legend"><span class="legend-dot orange"></span>BTC 가격 (USD)</div><canvas class="chart" style="height:108px;"></canvas></div>` : ""}
+      ${priceSeries.length >= 2 ? `<div class="card"><h3>이번 주 가격 추이</h3><div class="chart-legend"><span class="legend-dot orange"></span>BTC 가격 (USD)</div><canvas class="chart" style="height:108px;"></canvas><div class="chart-period">${periodLabel}</div></div>` : ""}
       ${rows.length ? `<div class="card"><h3>지표 변화</h3><table class="stat-table">${rows.join("")}</table></div>` : ""}
       ${macroItems.length ? `<div class="card"><h3>자산별 이번 주 성과 비교</h3><div class="chart-legend"><span class="legend-dot up"></span>상승<span class="legend-dot down"></span>하락</div><canvas class="chart macro-chart"></canvas></div>` : ""}
       ${hodlShifts.length ? `<div class="card"><h3>HODL Waves 이번 주 가장 크게 움직인 구간</h3><div class="chart-legend"><span class="legend-dot up"></span>비중 증가<span class="legend-dot down"></span>비중 감소</div><canvas class="chart hodl-chart"></canvas></div>` : ""}

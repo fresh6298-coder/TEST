@@ -254,17 +254,21 @@ async function buildWeeklyStats(host, weekStartMs, weekEndMs) {
   let btcStart = null, btcEnd = null;
   if (btc && btc.prices) {
     const series = Object.entries(btc.prices).map(([d, v]) => ({ dateMs: Date.parse(d), value: v })).sort((a, b) => a.dateMs - b.dateMs);
-    btcStart = valueAtOrBefore(series, weekStartMs);
-    btcEnd = valueAtOrBefore(series, weekEndMs);
-    if (btcStart && btcEnd) {
+    // Derive start/end directly from the same filtered week series that
+    // gets charted, rather than a separate valueAtOrBefore lookup — the
+    // two used to disagree (the stat badge quoted a different day than the
+    // chart's own first point), which made the "+X%" figure not match the
+    // line's visual shape.
+    const weekSeries = series.filter((p) => p.dateMs >= weekStartMs && p.dateMs <= weekEndMs);
+    if (weekSeries.length >= 2) {
+      btcStart = weekSeries[0];
+      btcEnd = weekSeries[weekSeries.length - 1];
       const changePct = pctChange(btcStart.value, btcEnd.value);
       stats.btc = {
         start: btcStart.value,
         end: btcEnd.value,
         changePct,
-        // Daily closes within the week, for a small price chart.
-        series: series.filter((p) => p.dateMs >= weekStartMs && p.dateMs <= weekEndMs)
-          .map((p) => ({ date: kstDateString(p.dateMs), value: p.value })),
+        series: weekSeries.map((p) => ({ date: kstDateString(p.dateMs), value: p.value })),
       };
       lines.push(
         `BTC 가격: $${Math.round(btcStart.value).toLocaleString("en-US")} → $${Math.round(btcEnd.value).toLocaleString("en-US")} (${fmtPct(changePct)})`
@@ -409,7 +413,7 @@ async function callGemini(apiKey, systemPrompt, contents) {
 // for charts). A cached entry from an older version is treated as a miss
 // and regenerated, instead of being served forever as stale, schema-less
 // JSON until the week rolls over.
-const REPORT_SCHEMA_VERSION = 2;
+const REPORT_SCHEMA_VERSION = 3;
 
 async function handleWeeklyReport(req, res, apiKey) {
   const query = req.query || {};
@@ -426,8 +430,13 @@ async function handleWeeklyReport(req, res, apiKey) {
   const isPastWeekRequest = typeof query.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(query.week);
   const weekEndStr = isPastWeekRequest ? query.week : currentWeekEndStr;
   const weekEndMs = Date.parse(weekEndStr + "T23:59:59+09:00");
-  const weekStartMs = weekEndMs - 6 * DAY_MS;
-  const weekStartStr = kstDateString(weekStartMs);
+  // Deriving weekStartStr first and re-parsing at 00:00:00 (rather than
+  // just "weekEndMs - 6*DAY_MS") avoids carrying Sunday's 23:59:59
+  // time-of-day into Monday — that off-by-one made every daily series
+  // filtered by "dateMs >= weekStartMs" silently drop Monday's own
+  // midnight-UTC data point, shifting the plotted week's shape.
+  const weekStartStr = kstDateString(weekEndMs - 6 * DAY_MS);
+  const weekStartMs = Date.parse(weekStartStr + "T00:00:00+09:00");
   const cacheKey = `weekly-report:${weekEndStr}`;
 
   if (redisConfigured()) {
