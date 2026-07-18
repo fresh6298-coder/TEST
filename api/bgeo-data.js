@@ -1,23 +1,20 @@
-// bitcoin-data.com (anonymous, rate-limited to 8 req/hour) was the only
-// access this app had for a while and caps out around a ~4-year rolling
-// window. api.bgeometrics.com is the same provider's authenticated API —
-// confirmed working via a user-provided token (`Authorization: Bearer
-// <token>`) — and is tried first when a token is configured, since it
-// may not carry the same rolling-window cap. Falls back to the
-// anonymous endpoint either way, so this works with or without a token.
+// Consolidates what used to be three separate serverless functions
+// (onchain-metrics, hodl-waves, m2-global) into one. All three share the
+// exact same BGeometrics/bitcoin-data.com fetch+auth+Redis-archive
+// machinery — the only difference was which path(s) got requested and
+// how each row got normalized. Vercel's Hobby plan caps a deployment at
+// 12 Serverless Functions; adding api/ask.js pushed this project to 13
+// root-level function files and every deployment since started failing
+// within ~3-5s (the fast, pre-build "too many functions" rejection, not
+// a real build error). Merging these three back into one function frees
+// up two slots.
+//
+// vercel.json rewrites /api/onchain-metrics, /api/hodl-waves, and
+// /api/m2-global to this file with a `type` query param, so none of the
+// existing frontend fetch("/api/...") calls needed to change.
 const BGEO_AUTH_BASE = "https://api.bgeometrics.com/v1";
 const BGEO_ANON_BASE = "https://bitcoin-data.com/v1";
 const BGEO_TOKEN = process.env.BGEOMETRICS_API_TOKEN;
-
-const METRICS = {
-  mvrvZscore: { path: "mvrv-zscore", hint: /mvrv/i },
-  nupl: { path: "nupl", hint: /nupl|unrealized/i },
-  puellMultiple: { path: "puell-multiple", hint: /puell/i },
-  sopr: { path: "sopr", hint: /sopr/i },
-  reserveRisk: { path: "reserve-risk", hint: /reserve/i },
-  aviv: { path: "aviv", hint: /aviv/i },
-  stockToFlow: { path: "stock", hint: /stock/i },
-};
 
 const HEADERS = {
   "User-Agent":
@@ -28,14 +25,11 @@ const HEADERS = {
 // history" param, but production evidence across many metrics/requests
 // showed the extra variants never returned more rows than a bare request
 // — they only burned through the anonymous base's rate limit and
-// triggered 429s on the very next variant in the same request (visible
-// in the per-metric debug log). With 7 metrics that was up to 21
-// anonymous requests per page load. Down to one variant each now.
+// triggered 429s on the very next variant in the same request. Down to
+// one variant each now.
 const HISTORY_QUERY_VARIANTS = [""];
 const AUTH_QUERY_VARIANTS = [""];
 
-// Fields that look numeric but are never "the metric" — timestamps,
-// ids, block heights, etc. Excluded from value-field guessing.
 const NON_VALUE_KEY = /^(d|date|id|unix.*|timestamp|ts|epoch|createdat|updatedat|blockheight|height)$/i;
 
 async function fetchJson(url, useAuth) {
@@ -53,18 +47,16 @@ function isNumeric(v) {
   return typeof v === "number" || (typeof v === "string" && v !== "" && !Number.isNaN(parseFloat(v)));
 }
 
-// bitcoin-data.com's exact field names aren't hardcoded here: pick the
-// date-like field, then prefer a value field whose name matches the
-// metric (e.g. "mvrv"), falling back to the first remaining numeric
-// field that isn't a timestamp/id lookalike.
+// Picks the date-like field, then prefers a value field whose name
+// matches `hint`, falling back to the first remaining numeric field
+// that isn't a timestamp/id lookalike. Used for single-value datasets
+// (on-chain metrics, Global M2).
 function normalizeRecord(row, hint) {
   if (!row || typeof row !== "object") return null;
   const keys = Object.keys(row);
   const dateKey = keys.find((k) => /^(d|date)$/i.test(k)) || keys.find((k) => /time|timestamp/i.test(k)) || keys[0];
-
   const candidates = keys.filter((k) => k !== dateKey && !NON_VALUE_KEY.test(k) && isNumeric(row[k]));
   const valueKey = (hint && candidates.find((k) => hint.test(k))) || candidates[0];
-
   if (!dateKey || !valueKey) return null;
   const value = parseFloat(row[valueKey]);
   if (Number.isNaN(value)) return null;
@@ -77,12 +69,32 @@ function normalizeSeries(json, hint) {
   return rows.map((row) => normalizeRecord(row, hint)).filter(Boolean);
 }
 
-// The anonymous endpoint seems to cap out around ~4 years of daily
-// records (a rolling window, not a hard data-availability limit — this
-// provider markets full history back to genesis). Try the authenticated
-// base first (if a token is configured), then the anonymous one, each
-// with a couple of plausible query variants; whichever combination
-// returns the most rows wins.
+// HODL Waves keeps every numeric band field found on a row instead of
+// picking just one — the frontend discovers band keys from the data
+// itself rather than a hardcoded list.
+function normalizeBandRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const keys = Object.keys(row);
+  const dateKey = keys.find((k) => /^(d|date)$/i.test(k)) || keys.find((k) => /time|timestamp/i.test(k)) || keys[0];
+  if (!dateKey) return null;
+  const dateMs = Date.parse(row[dateKey]);
+  if (Number.isNaN(dateMs)) return null;
+
+  const bands = {};
+  keys.forEach((k) => {
+    if (k === dateKey || NON_VALUE_KEY.test(k) || !isNumeric(row[k])) return;
+    bands[k] = parseFloat(row[k]);
+  });
+  if (!Object.keys(bands).length) return null;
+
+  return { date: row[dateKey], dateMs, bands };
+}
+
+function normalizeBandSeries(json) {
+  const rows = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+  return rows.map(normalizeBandRow).filter(Boolean);
+}
+
 async function fetchFullHistory(path) {
   const attempts = [];
   if (BGEO_TOKEN) {
@@ -127,13 +139,7 @@ async function fetchFullHistory(path) {
   return best;
 }
 
-// ---- Persistent archive (Upstash Redis), same pattern as api/etf-flow.js ----
-// Whatever window bitcoin-data.com gives us on a given request is merged
-// into a Redis-backed archive (fresh values win on overlapping dates,
-// nothing already captured is ever dropped) and the merged archive is
-// what gets served. This also means every request no longer needs to
-// refetch bitcoin-data.com at all if Redis already has fresh-enough
-// data — helpful given the 8-requests/hour anonymous rate limit.
+// ---- Persistent archive (Upstash Redis) ----
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -141,10 +147,6 @@ function redisConfigured() {
   return Boolean(REDIS_URL && REDIS_TOKEN);
 }
 
-// Stores {authAttempted, rows} rather than a bare array — see the
-// authAttempted check in loadMetric for why: a cached archive built
-// before a token existed must not silently keep hiding a longer history
-// just because it happens to already have "today"'s date in it.
 async function redisGetArchive(key) {
   const res = await fetch(`${REDIS_URL}/get/${key}`, {
     headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
@@ -176,9 +178,14 @@ function mergeHistory(existing, fresh) {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
 
-async function loadMetric(key, path, hint) {
-  const archiveKey = `onchain-archive:${path}`;
+// Shared "load one dataset, merging into its Redis archive" routine.
+// `normalize` turns the raw upstream JSON into rows; `freshnessMs`
+// controls how long an archive is trusted before re-fetching (on-chain
+// metrics/HODL waves update daily, Global M2 is monthly-ish so a week is
+// plenty).
+async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs }) {
   let existing = { authAttempted: false, rows: [] };
   if (redisConfigured()) {
     try {
@@ -194,15 +201,9 @@ async function loadMetric(key, path, hint) {
   // (built before the token existed) would silently keep serving the
   // old, shorter window forever.
   const needsAuthAttempt = Boolean(BGEO_TOKEN) && !existing.authAttempted;
-
-  // These metrics only update once a day at most, and anonymous access to
-  // bitcoin-data.com is rate-limited (8 req/hour, 15/day) — once the
-  // archive already has today-or-yesterday's data (and doesn't need the
-  // auth check above), skip hitting the origin again this request and
-  // just serve what's cached.
   const rows = existing.rows;
   const latestMs = rows.length ? rows[rows.length - 1].dateMs : null;
-  const archiveIsFreshEnough = !needsAuthAttempt && latestMs != null && Date.now() - latestMs < DAY_MS;
+  const archiveIsFreshEnough = !needsAuthAttempt && latestMs != null && Date.now() - latestMs < freshnessMs;
 
   let fresh = null;
   let fetchDebug = archiveIsFreshEnough ? ["skipped (archive already fresh)"] : null;
@@ -211,7 +212,7 @@ async function loadMetric(key, path, hint) {
   if (!archiveIsFreshEnough) {
     try {
       const best = await fetchFullHistory(path);
-      fresh = normalizeSeries(best.json, hint);
+      fresh = normalize(best.json, hint);
       fetchDebug = best.debug;
       freshSource = best.source;
       authResolved = Boolean(best.authResolved);
@@ -226,37 +227,55 @@ async function loadMetric(key, path, hint) {
   // or the other — a 429 (rate limit) must NOT get recorded as "tried",
   // or a future request (once the provider's quota resets) would never
   // attempt auth again.
-  let authAttempted = existing.authAttempted || (Boolean(BGEO_TOKEN) && authResolved);
+  const authAttempted = existing.authAttempted || (Boolean(BGEO_TOKEN) && authResolved);
   if (fresh) {
     history = mergeHistory(rows, fresh);
     if (redisConfigured()) await redisSetArchive(archiveKey, history, authAttempted).catch(() => {});
   }
 
-  if (!history.length) throw new Error(`${path}: no parseable records`);
-  return {
-    current: history[history.length - 1],
-    history,
-    count: history.length,
-    earliest: history[0].date,
-    latest: history[history.length - 1].date,
-    source: freshSource || "cache",
-    debug: fetchDebug,
-  };
+  return { history, source: freshSource, debug: fetchDebug };
 }
 
-export default async function handler(req, res) {
-  const entries = Object.entries(METRICS);
-  const results = await Promise.allSettled(entries.map(([key, cfg]) => loadMetric(key, cfg.path, cfg.hint)));
+const ONCHAIN_METRICS = {
+  mvrvZscore: { path: "mvrv-zscore", hint: /mvrv/i },
+  nupl: { path: "nupl", hint: /nupl|unrealized/i },
+  puellMultiple: { path: "puell-multiple", hint: /puell/i },
+  sopr: { path: "sopr", hint: /sopr/i },
+  reserveRisk: { path: "reserve-risk", hint: /reserve/i },
+  aviv: { path: "aviv", hint: /aviv/i },
+  stockToFlow: { path: "stock", hint: /stock/i },
+};
+
+async function handleOnchainMetrics(req, res) {
+  const entries = Object.entries(ONCHAIN_METRICS);
+  const results = await Promise.allSettled(
+    entries.map(async ([key, cfg]) => {
+      const { history, source, debug } = await loadDataset({
+        archiveKey: `onchain-archive:${cfg.path}`,
+        path: cfg.path,
+        hint: cfg.hint,
+        normalize: normalizeSeries,
+        freshnessMs: DAY_MS,
+      });
+      if (!history.length) throw new Error(`${cfg.path}: no parseable records`);
+      return {
+        current: history[history.length - 1],
+        history,
+        count: history.length,
+        earliest: history[0].date,
+        latest: history[history.length - 1].date,
+        source: source || "cache",
+        debug,
+      };
+    })
+  );
 
   const metrics = {};
   const errors = [];
   entries.forEach(([key], i) => {
     const r = results[i];
-    if (r.status === "fulfilled") {
-      metrics[key] = r.value;
-    } else {
-      errors.push(`${key}: ${r.reason.message}`);
-    }
+    if (r.status === "fulfilled") metrics[key] = r.value;
+    else errors.push(`${key}: ${r.reason.message}`);
   });
 
   if (!Object.keys(metrics).length) {
@@ -282,4 +301,70 @@ export default async function handler(req, res) {
     metrics: outMetrics,
     errors,
   });
+}
+
+async function handleHodlWaves(req, res) {
+  const { history, source, debug } = await loadDataset({
+    archiveKey: "hodl-waves-archive",
+    path: "hodl-waves-supply",
+    normalize: normalizeBandSeries,
+    freshnessMs: DAY_MS,
+  });
+
+  if (!history.length) {
+    res.status(502).json({ error: "hodl-waves-supply: no parseable records", debug });
+    return;
+  }
+
+  // Union of band keys across the data (a provider could add/rename a
+  // band over time) so the frontend can build its stacked series and
+  // legend without hardcoding names.
+  const bandKeys = [...new Set(history.flatMap((r) => Object.keys(r.bands)))];
+
+  res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
+  res.status(200).json({
+    tokenConfigured: Boolean(BGEO_TOKEN),
+    fetchedAt: new Date().toISOString(),
+    bandKeys,
+    history,
+    count: history.length,
+    earliest: history[0].date,
+    latest: history[history.length - 1].date,
+    source: source || "cache",
+    debug,
+  });
+}
+
+async function handleM2Global(req, res) {
+  const { history, source, debug } = await loadDataset({
+    archiveKey: "m2-global-archive",
+    path: "m2global",
+    hint: /m2/i,
+    normalize: normalizeSeries,
+    freshnessMs: WEEK_MS,
+  });
+
+  if (!history.length) {
+    res.status(502).json({ error: "m2global: no parseable records", debug });
+    return;
+  }
+
+  res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
+  res.status(200).json({
+    tokenConfigured: Boolean(BGEO_TOKEN),
+    fetchedAt: new Date().toISOString(),
+    history,
+    count: history.length,
+    earliest: history[0].date,
+    latest: history[history.length - 1].date,
+    source: source || "cache",
+    debug,
+  });
+}
+
+export default async function handler(req, res) {
+  const type = req.query && req.query.type;
+  if (type === "hodl-waves") return handleHodlWaves(req, res);
+  if (type === "m2-global") return handleM2Global(req, res);
+  return handleOnchainMetrics(req, res);
 }
