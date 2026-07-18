@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>저장한 노트 - Ask bitdash</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:640px;
+    margin:0 auto;
+    padding:20px 20px 80px;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:22px;
+  }
+  .back-link{
+    color:var(--sub);
+    text-decoration:none;
+    font-size:20px;
+    padding:4px 8px;
+  }
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;
+    flex-shrink:0;
+  }
+  .topbar h1{
+    font-size:19px;margin:0;flex:1;font-weight:700;
+  }
+  .sub-line{
+    font-size:12px;color:var(--sub);margin-bottom:16px;
+  }
+
+  .ask-links{display:flex;gap:12px;align-items:baseline;margin-bottom:16px;}
+  .ask-links button, .ask-links a{
+    font-size:12px;color:var(--orange);text-decoration:none;
+    background:none;border:none;padding:0;cursor:pointer;font-family:inherit;
+  }
+
+  .sync-panel{
+    display:none;margin-bottom:16px;
+    border:1px solid var(--track);border-radius:10px;padding:14px;
+  }
+  .sync-panel.open{display:block;}
+  .sync-panel h2{font-size:13px;margin:0 0 8px;}
+  .sync-panel p{font-size:11px;color:var(--sub);margin:0 0 10px;line-height:1.5;}
+  .sync-panel .code-row{display:flex;gap:8px;margin-bottom:8px;}
+  .sync-panel input[type="text"]{
+    flex:1;border:1px solid var(--track);border-radius:8px;padding:8px 10px;
+    font-size:12.5px;background:var(--bg);color:var(--text);font-family:inherit;
+  }
+  .sync-panel .code-row button{
+    border:none;border-radius:8px;padding:0 12px;font-size:11.5px;font-weight:700;cursor:pointer;
+    background:var(--orange);color:#fff;white-space:nowrap;font-family:inherit;
+  }
+  .sync-panel .row2{display:flex;gap:8px;flex-wrap:wrap;}
+  .sync-panel .row2 button{
+    border:1px solid var(--track);border-radius:999px;padding:5px 12px;font-size:11px;
+    background:transparent;color:var(--sub);cursor:pointer;font-family:inherit;
+  }
+  .sync-panel .row2 button.danger{color:var(--red);border-color:var(--red);}
+  .sync-panel .status{margin-top:8px;font-size:11px;}
+  .sync-panel .status.saved{color:var(--green);}
+  .sync-panel .status.err{color:var(--red);}
+
+  .toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;}
+  .toolbar button{
+    background:transparent;border:1px solid var(--track);color:var(--sub);
+    border-radius:999px;padding:5px 12px;font-size:11.5px;cursor:pointer;font-family:inherit;
+  }
+  .toolbar button.danger{border-color:var(--red);color:var(--red);}
+
+  .note-list{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
+  .note-item{
+    border:1px solid var(--track);
+    border-radius:10px;
+    padding:12px 14px;
+    position:relative;
+  }
+  .note-q{font-size:13.5px;font-weight:700;line-height:1.4;padding-right:32px;margin-bottom:6px;}
+  .note-a{font-size:12.5px;color:var(--text);line-height:1.6;white-space:pre-wrap;margin-bottom:8px;}
+  .note-meta{font-size:10.5px;color:var(--sub);}
+  .del-btn{
+    position:absolute;top:10px;right:10px;
+    background:var(--bg);border:none;cursor:pointer;border-radius:6px;
+    font-size:11px;padding:3px 6px;color:var(--red);font-family:inherit;
+  }
+
+  .empty{color:var(--sub);font-size:13px;text-align:center;padding:60px 20px;}
+  .empty a{color:var(--orange);}
+
+  .status-line{
+    text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
+  }
+  .bottom-nav{
+    position:fixed;left:0;right:0;bottom:0;
+    display:flex;
+    background:var(--bg);
+    border-top:1px solid var(--track);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom));
+    z-index:100;
+  }
+  .bottom-nav a{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    color:var(--sub);text-decoration:none;font-size:7px;padding:4px 1px;
+  }
+  .bottom-nav a .icon{font-size:15px;line-height:1;}
+  .bottom-nav a.active{color:var(--orange);}
+
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f0f0f;
+      --text:#f2f2f2;
+      --sub:#8f8f8f;
+      --track:#2a2a2a;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="ask.html" title="Ask로 돌아가기">←</a>
+    <div class="coin-icon">📒</div>
+    <h1>저장한 노트</h1>
+  </header>
+  <div class="sub-line" id="storageNote">이 노트는 이 브라우저(로컬 저장소)에만 저장됩니다. 다른 기기나 브라우저에서는 보이지 않으며, 브라우저 데이터를 지우면 함께 삭제됩니다.</div>
+
+  <div class="ask-links">
+    <button type="button" id="syncToggle">🔗 동기화</button>
+    <a href="ask.html">💬 Ask로</a>
+  </div>
+
+  <div class="sync-panel" id="syncPanel">
+    <h2>🔗 여러 기기에서 동기화</h2>
+    <p>
+      동기화 코드를 만들고 다른 기기에도 똑같이 입력하면, 저장한 노트를 어디서든 볼 수 있습니다.
+      이 코드는 비밀번호처럼 작동하니 다른 사람과 공유하지 마세요.
+    </p>
+    <div class="code-row">
+      <input type="text" id="syncCodeInput" placeholder="동기화 코드 (예: ab3f-9k2m-plq7-8zxt)" autocomplete="off">
+      <button type="button" id="syncConnectBtn">연결</button>
+    </div>
+    <div class="row2">
+      <button type="button" id="syncNewBtn">새 코드 만들기</button>
+      <button type="button" id="syncCopyBtn">코드 복사</button>
+      <button type="button" class="danger" id="syncDisconnectBtn">연결 해제</button>
+    </div>
+    <div class="status" id="syncStatus"></div>
+  </div>
+
+  <div class="toolbar" id="toolbar" style="display:none;">
+    <button type="button" id="refreshBtn">↻ 새로고침</button>
+    <button type="button" class="danger" id="clearAll">전체 삭제</button>
+  </div>
+
+  <div id="list">불러오는 중...</div>
+
+  <p class="status-line" id="statusLine">&nbsp;</p>
+</div>
+
+<nav class="bottom-nav">
+  <a href="index.html"><span class="icon">₿</span>Home</a>
+  <a href="etf.html"><span class="icon">💰</span>ETF</a>
+  <a href="assets.html"><span class="icon">🌐</span>Assets</a>
+  <a href="onchain.html"><span class="icon">⛓️</span>On-Chain</a>
+  <a href="news.html"><span class="icon">📰</span>News</a>
+  <a href="university.html"><span class="icon">📚</span>University</a>
+  <a href="cycles.html"><span class="icon">🔄</span>Cycles</a>
+  <a href="dca.html"><span class="icon">🐷</span>DCA</a>
+  <a href="ask.html" class="active"><span class="icon">💬</span>Ask</a>
+</nav>
+
+<script>
+(function(){
+  "use strict";
+
+  const NOTES_KEY = "btc_saved_qa_notes";
+  const SYNC_CODE_KEY = "btc_sync_code";
+
+  const list = document.getElementById("list");
+  const toolbar = document.getElementById("toolbar");
+  const clearAllBtn = document.getElementById("clearAll");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const storageNote = document.getElementById("storageNote");
+
+  const syncToggle = document.getElementById("syncToggle");
+  const syncPanel = document.getElementById("syncPanel");
+  const syncCodeInput = document.getElementById("syncCodeInput");
+  const syncConnectBtn = document.getElementById("syncConnectBtn");
+  const syncNewBtn = document.getElementById("syncNewBtn");
+  const syncCopyBtn = document.getElementById("syncCopyBtn");
+  const syncDisconnectBtn = document.getElementById("syncDisconnectBtn");
+  const syncStatus = document.getElementById("syncStatus");
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function getSyncCode(){ return localStorage.getItem(SYNC_CODE_KEY) || ""; }
+
+  function generateSyncCode(){
+    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const chars = Array.from(bytes, b => alphabet[b % alphabet.length]);
+    return [chars.slice(0,4), chars.slice(4,8), chars.slice(8,12), chars.slice(12,16)]
+      .map(g => g.join("")).join("-");
+  }
+
+  function setSyncStatus(text, kind){
+    syncStatus.textContent = text;
+    syncStatus.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function refreshSyncUI(){
+    const code = getSyncCode();
+    syncCodeInput.value = code;
+    syncToggle.textContent = code ? "🔗 동기화 중" : "🔗 동기화";
+    storageNote.textContent = code
+      ? "동기화 코드로 서버에 저장된 노트를 불러오고 있습니다. 같은 코드를 입력한 다른 기기와 공유됩니다."
+      : "이 노트는 이 브라우저(로컬 저장소)에만 저장됩니다. 다른 기기나 브라우저에서는 보이지 않으며, 브라우저 데이터를 지우면 함께 삭제됩니다.";
+  }
+
+  syncToggle.addEventListener("click", () => syncPanel.classList.toggle("open"));
+
+  syncConnectBtn.addEventListener("click", () => {
+    const code = syncCodeInput.value.trim().toLowerCase();
+    if(!/^[a-z0-9-]{6,64}$/.test(code)){ setSyncStatus("코드 형식이 올바르지 않습니다.", "err"); return; }
+    localStorage.setItem(SYNC_CODE_KEY, code);
+    refreshSyncUI();
+    setSyncStatus("✅ 연결되었습니다.", "saved");
+    render();
+  });
+
+  syncNewBtn.addEventListener("click", () => {
+    localStorage.setItem(SYNC_CODE_KEY, generateSyncCode());
+    refreshSyncUI();
+    setSyncStatus("✅ 새 코드가 생성되었습니다. 다른 기기에 이 코드를 입력해 연결하세요.", "saved");
+    render();
+  });
+
+  syncCopyBtn.addEventListener("click", async () => {
+    const code = getSyncCode();
+    if(!code){ setSyncStatus("복사할 코드가 없습니다. 먼저 코드를 만들거나 입력해주세요.", "err"); return; }
+    try{ await navigator.clipboard.writeText(code); setSyncStatus("📋 코드가 복사되었습니다.", "saved"); }
+    catch{ setSyncStatus("복사에 실패했습니다. 코드를 직접 선택해 복사해주세요.", "err"); }
+  });
+
+  syncDisconnectBtn.addEventListener("click", () => {
+    localStorage.removeItem(SYNC_CODE_KEY);
+    refreshSyncUI();
+    setSyncStatus("연결이 해제되었습니다.", "");
+    render();
+  });
+
+  function loadLocalNotes(){
+    try{
+      const raw = JSON.parse(localStorage.getItem(NOTES_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    }catch{ return []; }
+  }
+
+  function saveLocalNotes(notes){
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+  }
+
+  function formatDate(iso){
+    try{
+      const d = new Date(iso);
+      return d.toLocaleString("ko-KR", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" });
+    }catch{ return ""; }
+  }
+
+  function renderList(notes, onDelete){
+    list.innerHTML = "";
+
+    if(notes.length === 0){
+      toolbar.style.display = "none";
+      const emptyEl = document.createElement("div");
+      emptyEl.className = "empty";
+      emptyEl.innerHTML = '아직 저장한 노트가 없습니다.<br><a href="ask.html">Ask 페이지</a>에서 마음에 드는 답변을 "💾 저장"해보세요.';
+      list.appendChild(emptyEl);
+      return;
+    }
+
+    toolbar.style.display = "flex";
+    const wrap = document.createElement("div");
+    wrap.className = "note-list";
+    wrap.innerHTML = notes.map((n, i) => `
+      <div class="note-item">
+        <div class="note-q">Q. ${escapeHtml(n.question)}</div>
+        <div class="note-a">${escapeHtml(n.answer)}</div>
+        <div class="note-meta">${formatDate(n.savedAt)}</div>
+        <button type="button" class="del-btn" data-idx="${i}">삭제</button>
+      </div>
+    `).join("");
+    list.appendChild(wrap);
+
+    list.querySelectorAll(".del-btn").forEach(btn => {
+      btn.addEventListener("click", () => onDelete(notes[Number(btn.dataset.idx)].id));
+    });
+  }
+
+  async function render(){
+    const code = getSyncCode();
+
+    if(!code){
+      renderList(loadLocalNotes(), (id) => {
+        saveLocalNotes(loadLocalNotes().filter(n => n.id !== id));
+        render();
+      });
+      return;
+    }
+
+    list.innerHTML = "불러오는 중...";
+    try{
+      const res = await fetch("/api/scraps?code=" + encodeURIComponent(code) + "&kind=note");
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || "load failed");
+      renderList(data.notes || [], async (id) => {
+        await fetch("/api/scraps", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code, kind: "note", id }),
+        });
+        render();
+      });
+    }catch(e){
+      list.innerHTML = "";
+      const errEl = document.createElement("div");
+      errEl.className = "empty";
+      errEl.textContent = "동기화된 노트를 불러오지 못했습니다. 잠시 후 새로고침 버튼을 눌러 다시 시도해주세요.";
+      list.appendChild(errEl);
+      toolbar.style.display = "flex";
+    }
+  }
+
+  clearAllBtn.addEventListener("click", async () => {
+    if(!confirm("저장한 노트를 모두 삭제할까요? 되돌릴 수 없습니다.")) return;
+    const code = getSyncCode();
+    if(code){
+      await fetch("/api/scraps", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, kind: "note" }),
+      });
+    } else {
+      saveLocalNotes([]);
+    }
+    render();
+  });
+
+  refreshBtn.addEventListener("click", render);
+
+  refreshSyncUI();
+  render();
+})();
+</script>
+</body>
+</html>

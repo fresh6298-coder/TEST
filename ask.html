@@ -65,6 +65,39 @@
     padding:8px 12px;margin-bottom:14px;
   }
 
+  .ask-links{display:flex;gap:12px;align-items:baseline;margin-bottom:12px;}
+  .ask-links button{
+    font-size:11.5px;color:var(--orange);text-decoration:none;
+    background:none;border:none;padding:0;cursor:pointer;font-family:inherit;
+  }
+  .ask-links a{font-size:11.5px;color:var(--orange);text-decoration:none;}
+
+  .sync-panel{
+    display:none;margin-bottom:14px;
+    border:1px solid var(--track);border-radius:10px;padding:14px;
+  }
+  .sync-panel.open{display:block;}
+  .sync-panel h2{font-size:13px;margin:0 0 8px;}
+  .sync-panel p{font-size:11px;color:var(--sub);margin:0 0 10px;line-height:1.5;}
+  .sync-panel .code-row{display:flex;gap:8px;margin-bottom:8px;}
+  .sync-panel input[type="text"]{
+    flex:1;border:1px solid var(--track);border-radius:8px;padding:8px 10px;
+    font-size:12.5px;background:var(--bg);color:var(--text);font-family:inherit;
+  }
+  .sync-panel .code-row button{
+    border:none;border-radius:8px;padding:0 12px;font-size:11.5px;font-weight:700;cursor:pointer;
+    background:var(--orange);color:#fff;white-space:nowrap;font-family:inherit;
+  }
+  .sync-panel .row2{display:flex;gap:8px;flex-wrap:wrap;}
+  .sync-panel .row2 button{
+    border:1px solid var(--track);border-radius:999px;padding:5px 12px;font-size:11px;
+    background:transparent;color:var(--sub);cursor:pointer;font-family:inherit;
+  }
+  .sync-panel .row2 button.danger{color:var(--red);border-color:var(--red);}
+  .sync-panel .status{margin-top:8px;font-size:11px;}
+  .sync-panel .status.saved{color:var(--green);}
+  .sync-panel .status.err{color:var(--red);}
+
   .chat{
     flex:1;overflow-y:auto;
     display:flex;flex-direction:column;gap:10px;
@@ -87,6 +120,12 @@
     color:var(--red);border-bottom-left-radius:3px;
   }
   .msg.pending{color:var(--sub);font-style:italic;}
+  .msg .save-btn{
+    display:inline-flex;align-items:center;gap:4px;margin-top:8px;padding:4px 10px;
+    background:transparent;border:1px solid var(--track);border-radius:999px;
+    font-size:11px;color:var(--sub);cursor:pointer;font-family:inherit;
+  }
+  .msg .save-btn.saved{color:var(--orange);border-color:var(--orange);}
 
   .empty{color:var(--sub);font-size:12.5px;text-align:center;padding:36px 16px;}
   .empty .ex{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
@@ -149,6 +188,29 @@
   </header>
   <div class="sub-note">On-Chain·ETF·Cycles 지표 개념과 방금 서버에서 가져온 실시간 수치를 바탕으로 AI가 답변해. 투자 조언이 아니라 지표 해석 참고용이야.</div>
 
+  <div class="ask-links">
+    <button type="button" id="syncToggle">🔗 동기화</button>
+    <a href="notes.html">📒 저장한 노트</a>
+  </div>
+
+  <div class="sync-panel" id="syncPanel">
+    <h2>🔗 여러 기기에서 동기화</h2>
+    <p>
+      동기화 코드를 만들고 다른 기기에도 똑같이 입력하면, 저장한 답변을 어디서든 볼 수 있습니다.
+      이 코드는 비밀번호처럼 작동하니 다른 사람과 공유하지 마세요. 코드를 잃어버리면 그 노트는 다시 불러올 수 없습니다.
+    </p>
+    <div class="code-row">
+      <input type="text" id="syncCodeInput" placeholder="동기화 코드 (예: ab3f-9k2m-plq7-8zxt)" autocomplete="off">
+      <button type="button" id="syncConnectBtn">연결</button>
+    </div>
+    <div class="row2">
+      <button type="button" id="syncNewBtn">새 코드 만들기</button>
+      <button type="button" id="syncCopyBtn">코드 복사</button>
+      <button type="button" class="danger" id="syncDisconnectBtn">연결 해제</button>
+    </div>
+    <div class="status" id="syncStatus"></div>
+  </div>
+
   <div class="chat" id="chat">
     <div class="empty" id="empty">
       궁금한 걸 자유롭게 물어보세요.
@@ -190,6 +252,122 @@
   const sendBtn = document.getElementById("send");
   const history = [];
 
+  const NOTES_KEY = "btc_saved_qa_notes";
+  const SYNC_CODE_KEY = "btc_sync_code";
+  const MAX_LOCAL_NOTES = 300;
+
+  const syncToggle = document.getElementById("syncToggle");
+  const syncPanel = document.getElementById("syncPanel");
+  const syncCodeInput = document.getElementById("syncCodeInput");
+  const syncConnectBtn = document.getElementById("syncConnectBtn");
+  const syncNewBtn = document.getElementById("syncNewBtn");
+  const syncCopyBtn = document.getElementById("syncCopyBtn");
+  const syncDisconnectBtn = document.getElementById("syncDisconnectBtn");
+  const syncStatus = document.getElementById("syncStatus");
+
+  // Same sync-code mechanism as scraps.html — shares api/scraps.js's
+  // Redis-backed store (kind: "note") so a code the user already made
+  // for scraps also carries their saved Q&A over automatically.
+  function getSyncCode(){ return localStorage.getItem(SYNC_CODE_KEY) || ""; }
+
+  function generateSyncCode(){
+    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const chars = Array.from(bytes, b => alphabet[b % alphabet.length]);
+    return [chars.slice(0,4), chars.slice(4,8), chars.slice(8,12), chars.slice(12,16)]
+      .map(g => g.join("")).join("-");
+  }
+
+  function setSyncStatus(text, kind){
+    syncStatus.textContent = text;
+    syncStatus.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function refreshSyncUI(){
+    const code = getSyncCode();
+    syncCodeInput.value = code;
+    syncToggle.textContent = code ? "🔗 동기화 중" : "🔗 동기화";
+    setSyncStatus(code ? "✅ 이 코드로 동기화되고 있습니다." : "", code ? "saved" : "");
+  }
+
+  syncToggle.addEventListener("click", () => syncPanel.classList.toggle("open"));
+
+  syncConnectBtn.addEventListener("click", () => {
+    const code = syncCodeInput.value.trim().toLowerCase();
+    if(!/^[a-z0-9-]{6,64}$/.test(code)){ setSyncStatus("코드 형식이 올바르지 않습니다.", "err"); return; }
+    localStorage.setItem(SYNC_CODE_KEY, code);
+    refreshSyncUI();
+  });
+
+  syncNewBtn.addEventListener("click", () => {
+    localStorage.setItem(SYNC_CODE_KEY, generateSyncCode());
+    refreshSyncUI();
+    setSyncStatus("✅ 새 코드가 생성되었습니다. 다른 기기에 이 코드를 입력해 연결하세요.", "saved");
+  });
+
+  syncCopyBtn.addEventListener("click", async () => {
+    const code = getSyncCode();
+    if(!code){ setSyncStatus("복사할 코드가 없습니다. 먼저 코드를 만들거나 입력해주세요.", "err"); return; }
+    try{ await navigator.clipboard.writeText(code); setSyncStatus("📋 코드가 복사되었습니다.", "saved"); }
+    catch{ setSyncStatus("복사에 실패했습니다. 코드를 직접 선택해 복사해주세요.", "err"); }
+  });
+
+  syncDisconnectBtn.addEventListener("click", () => {
+    localStorage.removeItem(SYNC_CODE_KEY);
+    refreshSyncUI();
+    setSyncStatus("연결이 해제되었습니다. (기존 노트는 서버에 그대로 남아있고, 코드로 다시 연결하면 볼 수 있습니다.)", "");
+  });
+
+  refreshSyncUI();
+
+  function loadLocalNotes(){
+    try{
+      const raw = JSON.parse(localStorage.getItem(NOTES_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    }catch{ return []; }
+  }
+
+  function saveNoteLocal(question, answer){
+    const notes = loadLocalNotes();
+    notes.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2,8), question, answer, savedAt: new Date().toISOString() });
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes.slice(0, MAX_LOCAL_NOTES)));
+  }
+
+  async function saveNoteRemote(code, question, answer){
+    const res = await fetch("/api/scraps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, kind: "note", question, answer }),
+    });
+    if(!res.ok) throw new Error("save failed");
+  }
+
+  function attachSaveButton(bubble, question, answer){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "save-btn";
+    btn.textContent = "💾 저장";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      saveNoteLocal(question, answer);
+      const code = getSyncCode();
+      if(code){
+        try{
+          await saveNoteRemote(code, question, answer);
+          btn.textContent = "✅ 저장됨 (동기화됨)";
+        }catch{
+          btn.textContent = "⚠️ 로컬에만 저장됨";
+        }
+      }else{
+        btn.textContent = "✅ 저장됨";
+      }
+      btn.classList.add("saved");
+    });
+    bubble.appendChild(document.createElement("br"));
+    bubble.appendChild(btn);
+  }
+
   function scrollToBottom(){ chat.scrollTop = chat.scrollHeight; }
 
   function addMessage(role, text, extraClass){
@@ -222,6 +400,7 @@
         pending.textContent = data.answer;
         pending.className = "msg ai";
         history.push({ role: "assistant", content: data.answer });
+        attachSaveButton(pending, question, data.answer);
       }
     }catch(e){
       pending.textContent = "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
