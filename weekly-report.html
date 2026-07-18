@@ -97,10 +97,23 @@
 
   canvas.chart{width:100%;display:block;}
 
-  .report-body{font-size:13px;line-height:1.75;}
-  .report-body b{color:var(--orange);display:block;margin:12px 0 4px;font-size:13.5px;}
-  .report-body b:first-child{margin-top:0;}
-  .report-body p{margin:0 0 8px;}
+  .insight-grid{display:flex;flex-direction:column;gap:8px;}
+  .insight-card{
+    border-left:3px solid var(--orange);
+    background:rgba(247,147,26,0.06);
+    border-radius:0 8px 8px 0;
+    padding:8px 12px;
+  }
+  .insight-card.highlight{
+    border-left-color:#8b5cf6;
+    background:rgba(139,92,246,0.08);
+  }
+  .insight-head{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;margin-bottom:3px;}
+  .insight-head .insight-icon{font-size:14px;}
+  .insight-text{font-size:12.5px;line-height:1.65;color:var(--text);}
+  .insight-text mark{background:none;color:var(--orange);font-weight:700;}
+  .insight-text p{margin:0 0 6px;}
+  .insight-text p:last-child{margin-bottom:0;}
 
   .article-list{font-size:12px;line-height:1.6;padding-left:16px;margin:0;}
 
@@ -189,12 +202,40 @@
 
   printBtn.addEventListener("click", () => window.print());
 
-  // The report is plain text with "**소제목**" style sub-headings and
-  // blank-line-separated paragraphs.
+  const SECTION_ICONS = [
+    [/가격\s*요약/, "💰"],
+    [/온체인/, "⛓️"],
+    [/ETF/, "🏦"],
+    [/HODL/i, "🌊"],
+    [/멱법칙|매크로|상대\s*성과/, "📐"],
+    [/University|칼럼/, "📚"],
+    [/종합\s*인사이트/, "💡"],
+  ];
+  function iconFor(title){
+    const hit = SECTION_ICONS.find(([re]) => re.test(title));
+    return hit ? hit[1] : "📌";
+  }
+
+  // The report is plain text with "**소제목**" style sub-headings, each
+  // followed by one or more paragraphs. Split it into per-section cards
+  // instead of one flowing block so it reads visually, not as a text wall.
   function renderReportBody(text){
-    const escaped = escapeHtml(text || "");
-    const withHeadings = escaped.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
-    return withHeadings.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
+    const raw = String(text || "");
+    const parts = raw.split(/\*\*(.+?)\*\*/g); // odd indices = headings, even = body chunks
+    const sections = [];
+    if(parts[0] && parts[0].trim()) sections.push({ title: null, body: parts[0] });
+    for(let i = 1; i < parts.length; i += 2){
+      sections.push({ title: parts[i], body: parts[i+1] || "" });
+    }
+    if(!sections.length) return '<div class="insight-card"><div class="insight-text">(리포트 내용 없음)</div></div>';
+
+    return `<div class="insight-grid">${sections.map(sec => {
+      const isFinal = sec.title && /종합\s*인사이트/.test(sec.title);
+      const bodyHtml = escapeHtml(sec.body.trim())
+        .replace(/([+-]?\$?[\d][\d,]*\.?\d*%?)/g, '<mark>$1</mark>')
+        .split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
+      return `<div class="insight-card${isFinal ? " highlight" : ""}">${sec.title ? `<div class="insight-head"><span class="insight-icon">${iconFor(sec.title)}</span>${escapeHtml(sec.title)}</div>` : ""}<div class="insight-text">${bodyHtml}</div></div>`;
+    }).join("")}</div>`;
   }
 
   // ---- Small canvas charts (static, no zoom/pan — just an at-a-glance
