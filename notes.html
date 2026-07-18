@@ -94,18 +94,30 @@
   }
   .toolbar button.danger{border-color:var(--red);color:var(--red);}
 
-  .note-list{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
+  .note-list{display:flex;flex-direction:column;gap:10px;margin-bottom:20px;}
   .note-item{
     border:1px solid var(--track);
     border-radius:10px;
-    padding:12px 14px;
+    padding:0;
+  }
+  .note-item summary{
+    list-style:none;cursor:pointer;
+    padding:12px 40px 12px 14px;
     position:relative;
   }
-  .note-q{font-size:13.5px;font-weight:700;line-height:1.4;padding-right:32px;margin-bottom:6px;}
+  .note-item summary::-webkit-details-marker{display:none;}
+  .note-item summary::after{
+    content:"▾";position:absolute;right:14px;top:50%;transform:translateY(-50%) rotate(-90deg);
+    color:var(--sub);font-size:11px;transition:transform .15s ease;
+  }
+  .note-item[open] summary::after{transform:translateY(-50%) rotate(0deg);}
+  .note-q{font-size:13.5px;font-weight:700;line-height:1.4;padding-right:32px;}
+  .note-item[open] summary{border-bottom:1px solid var(--track);margin-bottom:0;}
+  .note-body{padding:10px 14px 12px;}
   .note-a{font-size:12.5px;color:var(--text);line-height:1.6;white-space:pre-wrap;margin-bottom:8px;}
   .note-meta{font-size:10.5px;color:var(--sub);}
   .del-btn{
-    position:absolute;top:10px;right:10px;
+    position:absolute;top:10px;right:36px;
     background:var(--bg);border:none;cursor:pointer;border-radius:6px;
     font-size:11px;padding:3px 6px;color:var(--red);font-family:inherit;
   }
@@ -312,17 +324,27 @@
     const wrap = document.createElement("div");
     wrap.className = "note-list";
     wrap.innerHTML = notes.map((n, i) => `
-      <div class="note-item">
-        <div class="note-q">Q. ${escapeHtml(n.question)}</div>
-        <div class="note-a">${escapeHtml(n.answer)}</div>
-        <div class="note-meta">${formatDate(n.savedAt)}</div>
-        <button type="button" class="del-btn" data-idx="${i}">삭제</button>
-      </div>
+      <details class="note-item">
+        <summary>
+          <div class="note-q">Q. ${escapeHtml(n.question)}</div>
+          <button type="button" class="del-btn" data-idx="${i}">삭제</button>
+        </summary>
+        <div class="note-body">
+          <div class="note-a">${escapeHtml(n.answer)}</div>
+          <div class="note-meta">${formatDate(n.savedAt)}</div>
+        </div>
+      </details>
     `).join("");
     list.appendChild(wrap);
 
     list.querySelectorAll(".del-btn").forEach(btn => {
-      btn.addEventListener("click", () => onDelete(notes[Number(btn.dataset.idx)].id));
+      // Delete lives inside <summary> — stop the click from also toggling
+      // the <details> open/closed before the item disappears.
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDelete(notes[Number(btn.dataset.idx)].id);
+      });
     });
   }
 
