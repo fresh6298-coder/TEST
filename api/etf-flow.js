@@ -1,12 +1,21 @@
 import { fetchTableWithFallback, parseNumber } from "./_lib/scrape.js";
 
 // farside.co.uk's dedicated full-history page (/bitcoin-etf-flow-all-data/)
-// 403s server-side fetches outright (its bot protection is stricter there
-// than on the main page), so scrape the regular /btc/ page instead — it
-// may only carry a recent window server-rendered, but it's the one that
-// actually responds.
-const SOURCE_URL = "https://farside.co.uk/btc/";
-const READER_URL = "https://r.jina.ai/https://farside.co.uk/btc/";
+// carries the complete series back to the Jan 2024 launch, but its bot
+// protection is intermittent — it 403s sometimes and not other times,
+// rather than being blocked outright. So it's tried first (for the full
+// history when it's reachable), falling back to the regular /btc/ page
+// (only a recent window, but far more reliably reachable) when it isn't.
+const FARSIDE_SOURCES = [
+  {
+    source: "https://farside.co.uk/bitcoin-etf-flow-all-data/",
+    reader: "https://r.jina.ai/https://farside.co.uk/bitcoin-etf-flow-all-data/",
+  },
+  {
+    source: "https://farside.co.uk/btc/",
+    reader: "https://r.jina.ai/https://farside.co.uk/btc/",
+  },
+];
 
 // bitcoin-data.com (BGeometrics — the same provider api/onchain-metrics.js
 // already uses successfully for MVRV/NUPL/Puell) also tracks ETF flows,
@@ -144,6 +153,21 @@ function buildResult(rawRows, source) {
   };
 }
 
+async function fetchFarsideRows() {
+  const errors = [];
+  for (const { source, reader } of FARSIDE_SOURCES) {
+    try {
+      const result = await fetchTableWithFallback(source, reader);
+      if (result.rawRows && result.rawRows.length > 2) return result;
+    } catch (err) {
+      errors.push(`${source}: ${err.message}`);
+    }
+  }
+  const err = new Error("All farside sources failed");
+  err.details = errors;
+  throw err;
+}
+
 export default async function handler(req, res) {
   const bgeoResult = await fetchBgeoEtfFlow();
   if (bgeoResult) {
@@ -153,10 +177,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { rawRows, source } = await fetchTableWithFallback(
-      SOURCE_URL,
-      READER_URL
-    );
+    const { rawRows, source } = await fetchFarsideRows();
     res.setHeader(
       "Cache-Control",
       "public, s-maxage=3600, stale-while-revalidate=1800"
