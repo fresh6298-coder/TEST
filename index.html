@@ -297,6 +297,7 @@
       <span class="item" id="legendMa200d"><span class="swatch" style="background:#3b82f6;"></span>MA 200D</span>
       <span class="item" id="legendMa200w"><span class="swatch" style="background:#14b8a6;"></span>MA 200W</span>
       <span class="item" id="legendEtfFlow"><span class="swatch" style="background:#16a34a;"></span>ETF 순유입</span>
+      <span class="item" id="legendM2"><span class="swatch" style="background:#a855f7;"></span>Global M2</span>
     </div>
     <div class="chart-canvas-wrap">
       <div class="chart-tooltip" id="chartTooltip"></div>
@@ -461,6 +462,7 @@
     ma200d: [],
     ma200w: [],
     etfFlow: [], // [{t, v}] daily net ETF flow, US$M
+    m2Global: [], // [{t, v}] Global M2 money supply, own scale
     rsiPoints: [],
     viewRange: null // {start,end} indices into chartPoints/rsiPoints; null = full range
   };
@@ -1504,6 +1506,30 @@
     }catch(e){ /* keep previous (empty = no overlay) */ }
   }
 
+  // Global M2 money supply — a slow-moving macro liquidity series, fetched
+  // once (like ETF flow above) and refreshed hourly; the exact unit isn't
+  // assumed (could be an index or a raw currency amount), so it's shown on
+  // its own auto-scaled axis rather than sharing the price's.
+  async function fetchM2Global(){
+    try{
+      const data = await fetchJson("/api/m2-global");
+      state.m2Global = (data.history || [])
+        .map(r => ({ t: r.dateMs, v: r.value }))
+        .filter(p => p.t != null && !Number.isNaN(p.t) && p.v != null)
+        .sort((a,b) => a.t - b.t);
+      drawChart();
+    }catch(e){ /* keep previous (empty = no overlay) */ }
+  }
+
+  function fmtCompactNum(n){
+    const abs = Math.abs(n);
+    if(abs >= 1e12) return (n/1e12).toFixed(2) + "T";
+    if(abs >= 1e9) return (n/1e9).toFixed(2) + "B";
+    if(abs >= 1e6) return (n/1e6).toFixed(2) + "M";
+    if(abs >= 1e3) return (n/1e3).toFixed(2) + "K";
+    return n.toFixed(2);
+  }
+
   // Step-function lookup: latest value in `series` at or before time `t`.
   function valueAtOrBefore(series, t){
     if(!series.length || t < series[0].t) return null;
@@ -1808,6 +1834,33 @@
     strokeMaLine(ma200dLine, "#3b82f6");
     strokeMaLine(ma200wLine, "#14b8a6");
 
+    // Global M2 liquidity overlay, on its own scale (the unit isn't
+    // assumed to match price, and M2 barely moves day-to-day so sharing
+    // the price scale would flatten it to a near-invisible line). Hidden
+    // on short ranges like the long-term MAs, since M2 is a monthly-ish
+    // series and would just render as a flat segment.
+    const showM2 = showMa && state.m2Global.length > 0;
+    document.getElementById("legendM2").classList.toggle("dimmed", !showM2);
+    if(showM2){
+      const tMin = points[0].t, tMax = points[points.length-1].t;
+      const visibleM2 = state.m2Global.filter(p => p.t >= tMin && p.t <= tMax);
+      if(visibleM2.length >= 2){
+        const m2Vals = visibleM2.map(p => p.v);
+        const m2Min = Math.min(...m2Vals), m2Max = Math.max(...m2Vals);
+        const m2Range = (m2Max - m2Min) || 1;
+        const tSpan = (tMax - tMin) || 1;
+        const m2XAt = t => ((t - tMin) / tSpan) * w;
+        const m2YAt = v => padTop + plotH - ((v - m2Min) / m2Range) * plotH;
+        ctx.beginPath();
+        visibleM2.forEach((p,i) => i === 0 ? ctx.moveTo(m2XAt(p.t), m2YAt(p.v)) : ctx.lineTo(m2XAt(p.t), m2YAt(p.v)));
+        ctx.strokeStyle = "#a855f7";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5,3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
     // Most recent ETF flow at-or-before time `t` — the series only has
     // trading days, so this is "that day's flow" for any timestamp.
     function etfFlowLine(t){
@@ -1817,6 +1870,14 @@
       const sign = v >= 0 ? "+" : "";
       const color = v >= 0 ? "var(--green)" : "var(--red)";
       return `<div class="tooltip-etf" style="color:${color}">ETF ${sign}${fmtUsd(v)}M</div>`;
+    }
+
+    // Most recent Global M2 value at-or-before time `t`.
+    function m2Line(t){
+      if(!showM2) return "";
+      const v = valueAtOrBefore(state.m2Global, t);
+      if(v == null) return "";
+      return `<div class="tooltip-etf" style="color:#a855f7">M2 ${fmtCompactNum(v)}</div>`;
     }
 
     // date ticks along the bottom axis
@@ -1844,7 +1905,7 @@
     ctx.fill();
 
     els.tooltip.style.display = "block";
-    els.tooltip.innerHTML = "$" + fmtUsd(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>` + etfFlowLine(points[peakIdx].t);
+    els.tooltip.innerHTML = "$" + fmtUsd(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>` + etfFlowLine(points[peakIdx].t) + m2Line(points[peakIdx].t);
     let peakX = xAt(peakIdx) - els.tooltip.offsetWidth/2;
     peakX = Math.max(0, Math.min(w - els.tooltip.offsetWidth, peakX));
     els.tooltip.style.left = peakX + "px";
@@ -1861,7 +1922,7 @@
       ctx.arc(xAt(highlightIndex), yAt(p.v), 4, 0, Math.PI*2);
       ctx.fillStyle = "#111";
       ctx.fill();
-      els.tooltip.innerHTML = "$" + fmtUsd(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>` + etfFlowLine(p.t);
+      els.tooltip.innerHTML = "$" + fmtUsd(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>` + etfFlowLine(p.t) + m2Line(p.t);
       let hx = xAt(highlightIndex) - els.tooltip.offsetWidth/2;
       hx = Math.max(0, Math.min(w - els.tooltip.offsetWidth, hx));
       els.tooltip.style.left = hx + "px";
@@ -1980,6 +2041,7 @@
     updateLongTermMAs();
     updateBtcGoldLatestGold();
     fetchEtfFlow();
+    fetchM2Global();
     updateChart(state.range);
 
     setInterval(updatePrice, 5000);
@@ -1991,6 +2053,7 @@
     setInterval(updateLongTermMAs, 30 * 60000);
     setInterval(updateBtcGoldLatestGold, 600000);
     setInterval(fetchEtfFlow, 30 * 60000);
+    setInterval(fetchM2Global, 60 * 60000);
     setInterval(() => updateChart(state.range), 60000);
   }
 

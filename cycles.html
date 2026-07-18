@@ -190,6 +190,17 @@
   </section>
 
   <section class="panel">
+    <h2>Stock-to-Flow 비율</h2>
+    <div class="desc">"유통량(Stock)"을 "연간 신규 발행량(Flow)"으로 나눈 값. 반감기마다 신규 발행량이 절반으로 줄어서 값이 계단식으로 뛰어올라. 이 비율이 높을수록 기존 유통량 대비 신규 공급이 희소하다는 뜻이야. 그래프를 탭/클릭하면 그 시점의 값을 보여줘.</div>
+    <div id="stockToFlowStats" class="stats-row"></div>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="stockToFlowChart"></canvas>
+      <div class="pricelaw-tooltip" id="stockToFlowTooltip"></div>
+    </div>
+    <div class="metric-range" id="stockToFlowRange" style="font-size:10px;color:var(--sub);text-align:right;margin-top:2px;"></div>
+  </section>
+
+  <section class="panel">
     <h2>비트코인 4년 이동평균 (금 기준)</h2>
     <div class="desc">비트코인 가격을 금 온스로 환산한 뒤(BTC/XAU), 1460일(4년) 추세 이동평균을 그려. 반감기 사이클의 등락을 평활화해서 장기 추세만 보여줘. (Yahoo Finance의 비트코인 일봉이 2014년 9월부터 시작이라, 이동평균이 꽉 채워지는 시점부터만 표시돼 — 원본 참고 차트의 2016년보다 늦게 시작해.)</div>
     <div id="goldRatioStats" class="stats-row"></div>
@@ -1514,9 +1525,128 @@
     }
   }
 
+  // ---- Stock-to-Flow ratio ----
+  // Simpler than the other panels: a single raw ratio series on a log
+  // scale, with a tap/hover tooltip only (no pinch-zoom) — the value
+  // itself only changes meaningfully at halvings, so a zoomable window
+  // isn't as useful here as it is for the daily-resolution charts above.
+  let stockToFlowPoints = null;
+  let stockToFlowFullRange = null;
+  let stockToFlowHighlightX = null;
+
+  function renderStockToFlow(){
+    if(!stockToFlowPoints || !stockToFlowFullRange) return;
+    const allYs = stockToFlowPoints.map(p => p.y);
+    const minY = Math.min(...allYs), maxY = Math.max(...allYs);
+    const yTicks = [1,2,5,10,25,50,100,200,500,1000]
+      .filter(v => v >= minY * 0.5 && v <= maxY * 2)
+      .map(v => ({ value: v, label: String(v) }));
+    drawLineChart(document.getElementById("stockToFlowChart"), [
+      { points: stockToFlowPoints, color: "#f7931a", lineWidth: 1.5 }
+    ], {
+      logScale: true, yTicks, xTicks: yearlyXTicks(stockToFlowFullRange.min, stockToFlowFullRange.max),
+      highlightX: stockToFlowHighlightX,
+    });
+  }
+
+  function stockToFlowNearest(ms){
+    const points = stockToFlowPoints;
+    if(ms <= points[0].x) return points[0];
+    if(ms >= points[points.length-1].x) return points[points.length-1];
+    let lo = 0, hi = points.length - 1;
+    while(lo < hi){
+      const mid = (lo+hi) >> 1;
+      if(points[mid].x < ms) lo = mid + 1; else hi = mid;
+    }
+    const a = points[lo-1], b = points[lo];
+    if(!a) return b;
+    return (ms - a.x) <= (b.x - ms) ? a : b;
+  }
+
+  function updateStockToFlowTooltip(ms){
+    stockToFlowHighlightX = ms;
+    renderStockToFlow();
+    const tooltip = document.getElementById("stockToFlowTooltip");
+    if(ms == null || !stockToFlowPoints || !stockToFlowPoints.length){ tooltip.style.display = "none"; return; }
+    const p = stockToFlowNearest(ms);
+    tooltip.innerHTML = `<div><b>${new Date(p.x).toISOString().slice(0,10)}</b></div><div>S2F: ${p.y.toFixed(2)}</div>`;
+    tooltip.style.display = "block";
+    const canvas = document.getElementById("stockToFlowChart");
+    const rect = canvas.getBoundingClientRect();
+    const frac = (ms - stockToFlowFullRange.min) / (stockToFlowFullRange.max - stockToFlowFullRange.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function stockToFlowXToMs(clientX){
+    const canvas = document.getElementById("stockToFlowChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = stockToFlowFullRange;
+    return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+  }
+
+  (function initStockToFlowInteraction(){
+    const canvas = document.getElementById("stockToFlowChart");
+    canvas.addEventListener("mousemove", e => { if(stockToFlowFullRange) updateStockToFlowTooltip(stockToFlowXToMs(e.clientX)); });
+    canvas.addEventListener("mouseleave", () => updateStockToFlowTooltip(null));
+    canvas.addEventListener("touchstart", e => {
+      if(stockToFlowFullRange && e.touches.length === 1) updateStockToFlowTooltip(stockToFlowXToMs(e.touches[0].clientX));
+    }, { passive: true });
+    canvas.addEventListener("touchmove", e => {
+      if(!stockToFlowFullRange || e.touches.length !== 1) return;
+      updateStockToFlowTooltip(stockToFlowXToMs(e.touches[0].clientX));
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateStockToFlowTooltip(null); });
+  })();
+
+  async function loadStockToFlow(){
+    try{
+      const res = await fetch("/api/onchain-metrics");
+      if(!res.ok) throw new Error("API " + res.status);
+      const data = await res.json();
+      const m = data.metrics && data.metrics.stockToFlow;
+      if(!m || !m.history || !m.history.length) throw new Error("데이터 없음");
+
+      const points = m.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value })).filter(p => p.y > 0);
+      if(!points.length) throw new Error("유효한 값 없음");
+
+      stockToFlowPoints = points;
+      stockToFlowFullRange = { min: points[0].x, max: points[points.length-1].x };
+      renderStockToFlow();
+
+      const latest = points[points.length-1];
+      const first = points[0];
+      const peak = points.reduce((a,b) => b.y > a.y ? b : a, points[0]);
+      const spanYears = (latest.x - first.x) / (365.25 * 86400000);
+      const multiple = first.y > 0 ? latest.y / first.y : null;
+      const cagr = (multiple != null && spanYears > 0.5) ? (Math.pow(multiple, 1/spanYears) - 1) * 100 : null;
+      const oneYearAgoMs = latest.x - 365 * 86400000;
+      const yoyPoint = [...points].reverse().find(p => p.x <= oneYearAgoMs);
+      const yoyPct = (yoyPoint && yoyPoint.y > 0) ? ((latest.y / yoyPoint.y) - 1) * 100 : null;
+      const fmtPct = v => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+      const pctColor = v => v == null ? "inherit" : (v >= 0 ? "var(--green)" : "var(--red)");
+
+      document.getElementById("stockToFlowStats").innerHTML = `
+        <div class="stat-box">
+          <div class="label">현재</div><div class="value">${latest.y.toFixed(1)}</div>
+          ${yoyPct != null ? `<div class="label" style="color:${pctColor(yoyPct)}">${fmtPct(yoyPct)} YoY</div>` : ""}
+        </div>
+        <div class="stat-box"><div class="label">최고값</div><div class="value">${peak.y.toFixed(1)}</div></div>
+        <div class="stat-box"><div class="label">${spanYears.toFixed(0)}년 배수</div><div class="value">${multiple != null ? multiple.toFixed(1) + "×" : "-"}</div></div>
+        <div class="stat-box"><div class="label">연환산</div><div class="value" style="color:${pctColor(cagr)}">${cagr != null ? fmtPct(cagr) : "-"}</div></div>
+      `;
+      document.getElementById("stockToFlowRange").textContent =
+        m.earliest + " ~ " + m.latest + " (" + m.count.toLocaleString("en-US") + "pts)";
+    }catch(e){
+      document.getElementById("stockToFlowRange").textContent = "Stock-to-Flow 로드 실패: " + e.message;
+    }
+  }
+
   async function load(){
     document.getElementById("updatedLine").textContent = "갱신 중...";
-    await Promise.all([loadCycles(), loadPriceLaw(), loadGoldRatio(), loadMacro()]);
+    await Promise.all([loadCycles(), loadPriceLaw(), loadGoldRatio(), loadMacro(), loadStockToFlow()]);
     document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date().toLocaleString("ko-KR");
   }
 
@@ -1792,7 +1922,7 @@
       `즉 다른 기술들처럼 조만간 성장이 꺾일 것이라는 근거는 아직 나타나지 않았어.`;
   }
 
-  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); });
+  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); renderStockToFlow(); });
   attachMacroZoomPan();
   attachPriceLawZoomPan();
   attachGoldRatioZoomPan();

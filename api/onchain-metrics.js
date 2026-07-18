@@ -13,6 +13,10 @@ const METRICS = {
   mvrvZscore: { path: "mvrv-zscore", hint: /mvrv/i },
   nupl: { path: "nupl", hint: /nupl|unrealized/i },
   puellMultiple: { path: "puell-multiple", hint: /puell/i },
+  sopr: { path: "sopr", hint: /sopr/i },
+  reserveRisk: { path: "reserve-risk", hint: /reserve/i },
+  aviv: { path: "aviv", hint: /aviv/i },
+  stockToFlow: { path: "stock", hint: /stock/i },
 };
 
 const HEADERS = {
