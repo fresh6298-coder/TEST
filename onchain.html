@@ -278,22 +278,6 @@
   </div>
 
   <div class="metric-card">
-    <div class="metric-head"><span class="metric-name-row"><span class="metric-name">거래소 보유량</span><button type="button" class="info-btn" data-metric="exchangeReserve">i</button></span><span class="metric-value" id="exchangeReserveValue">-</span></div>
-    <div class="metric-zone" id="exchangeReserveZone">-</div>
-    <div class="metric-desc">거래소 지갑에 남아있는 비트코인 총량. 꾸준히 줄어들면 거래소에서 개인 지갑으로 빠져나가는 코인이 많다는 뜻으로, 매도 가능 물량이 줄어드는 장기 강세 신호로 흔히 해석돼.</div>
-    <div class="chart-canvas-wrap">
-      <canvas class="metric-chart" id="exchangeReserveChart"></canvas>
-      <div class="chart-tooltip" id="exchangeReserveTooltip"></div>
-    </div>
-    <div class="zoom-bar">
-      <span id="exchangeReserveRangeLabel"></span>
-      <button id="exchangeReserveResetZoom" type="button" style="display:none;">전체 기간 보기</button>
-    </div>
-    <div class="metric-range" id="exchangeReserveRange"></div>
-    <p class="source-note" style="margin-top:6px;text-align:right;"><a href="https://www.coinglass.com/Balance" target="_blank" rel="noopener">CoinGlass에서 실시간으로 보기 →</a></p>
-  </div>
-
-  <div class="metric-card">
     <div class="metric-head"><span class="metric-name-row"><span class="metric-name">HODL Waves</span><button type="button" class="info-btn" data-metric="hodlWaves">i</button></span></div>
     <div class="metric-desc">보유 기간별 공급량 분포. 따뜻한 색(빨강/주황)일수록 최근 움직인 코인, 차가운 색(파랑)일수록 오래 잠들어있는 코인의 비중이야.</div>
     <div class="chart-canvas-wrap">
@@ -880,12 +864,10 @@
   const soprChart = createMetricChart({ canvasId: "soprChart", tooltipId: "soprTooltip", rangeLabelId: "soprRangeLabel", resetBtnId: "soprResetZoom", formatValue: v => v.toFixed(3) });
   const reserveRiskChart = createMetricChart({ canvasId: "reserveRiskChart", tooltipId: "reserveRiskTooltip", rangeLabelId: "reserveRiskRangeLabel", resetBtnId: "reserveRiskResetZoom", formatValue: v => v.toFixed(4) });
   const avivChart = createMetricChart({ canvasId: "avivChart", tooltipId: "avivTooltip", rangeLabelId: "avivRangeLabel", resetBtnId: "avivResetZoom", formatValue: v => v.toFixed(2) });
-  const exchangeReserveChart = createMetricChart({ canvasId: "exchangeReserveChart", tooltipId: "exchangeReserveTooltip", rangeLabelId: "exchangeReserveRangeLabel", resetBtnId: "exchangeReserveResetZoom", formatValue: v => (v/1e6).toFixed(3) + "M BTC" });
 
   window.addEventListener("resize", () => {
     mvrvChart.redraw(); nuplChart.redraw(); puellChart.redraw();
     soprChart.redraw(); reserveRiskChart.redraw(); avivChart.redraw();
-    exchangeReserveChart.redraw();
   });
 
   function setZone(el, label, color){
@@ -925,19 +907,6 @@
     if(v <= 0.5) return ["저평가 (저점권 근접)", "var(--green)"];
     return ["중립", "var(--sub)"];
   }
-  // Not an oscillator with fixed thresholds like the others above, so
-  // instead of a zone label this reports the change since the series'
-  // own all-time high — a falling reserve is the commonly-cited bullish
-  // reading, but framed as "vs. ATH" rather than asserting that directly.
-  function exchangeReserveZone(history){
-    if(!history.length) return null;
-    let ath = history[0];
-    history.forEach(p => { if(p.value > ath.value) ath = p; });
-    const latest = history[history.length - 1];
-    const changePct = ((latest.value - ath.value) / ath.value) * 100;
-    return { changePct, athDate: ath.date };
-  }
-
   // ---- Info modal: plain-language explanations for each indicator ----
   const INFO_CONTENT = {
     mvrv: {
@@ -1078,20 +1047,6 @@
         <p><b>한 줄 요약:</b> MVRV의 "실제로 살아있는 시장" 버전이야. 오래 잠든 코인들의 노이즈를 걷어내고 지금 활동하는 참여자들의 평가손익을 보여줘.</p>
       `,
     },
-    exchangeReserve: {
-      title: "거래소 보유량",
-      body: `
-        <p><b>이게 뭘 재는 지표야?</b><br>
-        전 세계 주요 거래소들의 지갑에 남아있는 비트코인 총량이야. 거래소는 사람들이 사고팔기 위해 코인을 맡겨두는 곳이라, 이 잔고가 곧 "당장 시장에 매도될 수 있는 물량"에 가까워.</p>
-
-        <p><b>왜 이 그래프가 유용해?</b><br>
-        거래소 보유량이 꾸준히 줄어들면, 사람들이 코인을 사서 거래소 밖(개인 지갑, 콜드월렛)으로 옮기고 있다는 뜻이야 — 당장 팔 생각이 없다는 신호로 흔히 해석돼. 반대로 거래소 보유량이 늘어나면, 매도 압력이 커질 수 있다는 경계 신호로 보는 경우가 많아.</p>
-
-        <p><b>참고:</b> 다만 거래소 자체의 콜드월렛 이동이나 지갑 라벨링 오차 등으로 단기 변동이 생길 수 있어서, 하루이틀의 급변보다는 몇 달 단위의 큰 추세로 보는 게 더 안정적인 해석이야.</p>
-
-        <p><b>한 줄 요약:</b> "지금 거래소에 팔릴 준비가 된 코인이 얼마나 있는지"를 보여주는 지표야. 꾸준히 줄어드는 추세는 장기 보유 심리가 강해지고 있다는 신호로 흔히 해석돼.</p>
-      `,
-    },
     hodlWaves: {
       title: "HODL Waves",
       body: `
@@ -1183,17 +1138,6 @@
         setZone(document.getElementById("avivZone"), label, color);
         avivChart.setData(m.aviv.history, [{at:2,color:"rgba(239,68,68,0.5)"},{at:0.5,color:"rgba(22,163,74,0.5)"}]);
         setRange(document.getElementById("avivRange"), m.aviv);
-      }
-      if(m.exchangeReserve){
-        document.getElementById("exchangeReserveValue").textContent = (m.exchangeReserve.current.value/1e6).toFixed(2) + "M BTC";
-        const info = exchangeReserveZone(m.exchangeReserve.history);
-        if(info){
-          const color = info.changePct < 0 ? "var(--green)" : "var(--red)";
-          setZone(document.getElementById("exchangeReserveZone"),
-            `ATH 대비 ${info.changePct >= 0 ? "+" : ""}${info.changePct.toFixed(1)}% (고점 ${info.athDate})`, color);
-        }
-        exchangeReserveChart.setData(m.exchangeReserve.history, []);
-        setRange(document.getElementById("exchangeReserveRange"), m.exchangeReserve);
       }
       if(m.realizedPrice){
         const priceSeries = await fetchBtcHistoryForHodl();

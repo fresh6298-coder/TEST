@@ -195,7 +195,7 @@ const WEEK_MS = 7 * DAY_MS;
 // self-exhaust the hourly quota and auth never gets a chance to recover.
 const AUTH_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
 
-async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs }) {
+async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs, forceAuth }) {
   let existing = { authAttempted: false, authLastAttemptMs: null, rows: [] };
   if (redisConfigured()) {
     try {
@@ -211,7 +211,11 @@ async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs }) {
   // (built before the token existed) would silently keep serving the
   // old, shorter window forever. But once a 429 has been hit, wait out
   // the cooldown before trying again instead of retrying every request.
-  const authCooldownActive = Boolean(existing.authLastAttemptMs) && Date.now() - existing.authLastAttemptMs < AUTH_RETRY_COOLDOWN_MS;
+  // `forceAuth` (?refresh=1) bypasses the cooldown for manual verification
+  // right after a token change, since Redis remembers the last-attempt
+  // timestamp across deploys and would otherwise make a just-fixed token
+  // look like it's still not working for up to an hour.
+  const authCooldownActive = !forceAuth && Boolean(existing.authLastAttemptMs) && Date.now() - existing.authLastAttemptMs < AUTH_RETRY_COOLDOWN_MS;
   const needsAuthAttempt = Boolean(BGEO_TOKEN) && !existing.authAttempted && !authCooldownActive;
   const rows = existing.rows;
   const latestMs = rows.length ? rows[rows.length - 1].dateMs : null;
@@ -259,19 +263,16 @@ const ONCHAIN_METRICS = {
   reserveRisk: { path: "reserve-risk", hint: /reserve/i },
   aviv: { path: "aviv", hint: /aviv/i },
   stockToFlow: { path: "stock", hint: /stock/i },
-  // Best-effort path guesses (unverified against bitcoin-data.com's actual
-  // endpoint list). Degrades to the existing per-metric error in `errors`
-  // below if either 404s, rather than failing the whole
-  // /api/onchain-metrics call.
-  exchangeReserve: { path: "exchange-reserve", hint: /exchange|reserve|balance|supply/i },
-  // The aggregate on-chain cost basis MVRV Z-Score is itself derived
-  // from — a single $ value per day, unlike the reverted per-cohort
-  // breakdown (realized-price-age-bands, confirmed 404). This is a much
-  // more fundamental/commonly-offered metric, so more likely to exist.
+  // Confirmed working (anon tier returned 1461 rows). Not in bgeometrics'
+  // own published endpoint list, but reachable anyway.
   realizedPrice: { path: "realized-price", hint: /realized/i },
 };
 
 async function handleOnchainMetrics(req, res) {
+  // ?refresh=1 bypasses the auth-retry cooldown — for manually verifying
+  // a just-changed BGEOMETRICS_API_TOKEN without waiting out the cooldown
+  // window Redis remembers from the previous token's failed attempts.
+  const forceAuth = "refresh" in (req.query || {});
   const entries = Object.entries(ONCHAIN_METRICS);
   const results = await Promise.allSettled(
     entries.map(async ([key, cfg]) => {
@@ -281,6 +282,7 @@ async function handleOnchainMetrics(req, res) {
         hint: cfg.hint,
         normalize: normalizeSeries,
         freshnessMs: DAY_MS,
+        forceAuth,
       });
       if (!history.length) throw new Error(`${cfg.path}: no parseable records`);
       return {
