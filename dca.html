@@ -207,6 +207,21 @@
 
   function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
 
+  // Flips the tooltip to whichever vertical half of the canvas the
+  // pointer ISN'T currently in, so it never sits directly on top of the
+  // point being touched/scrubbed. clientY is the raw event coordinate;
+  // rect is the canvas's getBoundingClientRect().
+  function positionTooltipY(tooltip, clientY, rect){
+    const fracY = (clientY - rect.top) / rect.height;
+    if(fracY < 0.5){
+      tooltip.style.top = "auto";
+      tooltip.style.bottom = "4px";
+    }else{
+      tooltip.style.top = "4px";
+      tooltip.style.bottom = "auto";
+    }
+  }
+
   function fmtKrw(n){
     return "₩" + Math.round(n).toLocaleString("en-US");
   }
@@ -351,7 +366,7 @@
     });
   }
 
-  function updateDcaTooltip(clientX){
+  function updateDcaTooltip(clientX, clientY){
     const canvas = document.getElementById("dcaChart");
     const tooltip = document.getElementById("dcaTooltip");
     if(!dcaChartData || !dcaChartData.dates.length){ tooltip.style.display = "none"; return; }
@@ -367,6 +382,7 @@
       `<div><span class="label">누적 투자금:</span> ${fmtKrw(dcaChartData.invested[idx])}</div>` +
       `<div><span class="label">평가금액:</span> ${fmtKrw(dcaChartData.value[idx])}</div>`;
     tooltip.style.display = "block";
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const frac = dcaChartData.dates.length > 1 ? idx / (dcaChartData.dates.length - 1) : 0.5;
     let left = frac * rect.width - tooltip.offsetWidth / 2;
     left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
@@ -381,14 +397,14 @@
   function attachDcaTooltip(){
     const canvas = document.getElementById("dcaChart");
     canvas.addEventListener("touchstart", e => {
-      if(e.touches.length === 1) updateDcaTooltip(e.touches[0].clientX);
+      if(e.touches.length === 1) updateDcaTooltip(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
     canvas.addEventListener("touchmove", e => {
-      if(e.touches.length === 1) updateDcaTooltip(e.touches[0].clientX);
+      if(e.touches.length === 1) updateDcaTooltip(e.touches[0].clientX, e.touches[0].clientY);
       e.preventDefault();
     }, { passive: false });
     canvas.addEventListener("touchend", () => clearDcaTooltip());
-    canvas.addEventListener("mousemove", e => updateDcaTooltip(e.clientX));
+    canvas.addEventListener("mousemove", e => updateDcaTooltip(e.clientX, e.clientY));
     canvas.addEventListener("mouseleave", () => clearDcaTooltip());
   }
 

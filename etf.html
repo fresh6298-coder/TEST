@@ -187,6 +187,21 @@
 
   function setStatus(msg){ els.statusLine.textContent = msg || " "; }
 
+  // Flips the tooltip to whichever vertical half of the canvas the
+  // pointer ISN'T currently in, so it never sits directly on top of the
+  // point being touched/scrubbed. clientY is the raw event coordinate;
+  // rect is the canvas's getBoundingClientRect().
+  function positionTooltipY(tooltip, clientY, rect){
+    const fracY = (clientY - rect.top) / rect.height;
+    if(fracY < 0.5){
+      tooltip.style.top = "auto";
+      tooltip.style.bottom = "4px";
+    }else{
+      tooltip.style.top = "4px";
+      tooltip.style.bottom = "auto";
+    }
+  }
+
   function fmt(n){
     if(n == null || Number.isNaN(n)) return "–";
     const sign = n > 0 ? "+" : "";
@@ -276,7 +291,7 @@
     });
   }
 
-  function updateFlowTooltip(clientX){
+  function updateFlowTooltip(clientX, clientY){
     const tooltip = document.getElementById("flowTooltip");
     if(!lastRows || !lastPoints.length){ tooltip.style.display = "none"; return; }
     const rect = chartCanvas.getBoundingClientRect();
@@ -288,6 +303,7 @@
     const p = lastPoints[idx];
     tooltip.innerHTML = `<div><b>${p.date}</b></div><div class="${cls(p.v)}">${fmt(p.v)}M</div>`;
     tooltip.style.display = "block";
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const frac = (idx + 0.5) / lastPoints.length;
     let left = frac * rect.width - tooltip.offsetWidth / 2;
     left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
@@ -301,14 +317,14 @@
 
   function attachFlowTooltip(){
     chartCanvas.addEventListener("touchstart", e => {
-      if(e.touches.length === 1) updateFlowTooltip(e.touches[0].clientX);
+      if(e.touches.length === 1) updateFlowTooltip(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
     chartCanvas.addEventListener("touchmove", e => {
-      if(e.touches.length === 1) updateFlowTooltip(e.touches[0].clientX);
+      if(e.touches.length === 1) updateFlowTooltip(e.touches[0].clientX, e.touches[0].clientY);
       e.preventDefault();
     }, { passive: false });
     chartCanvas.addEventListener("touchend", () => clearFlowTooltip());
-    chartCanvas.addEventListener("mousemove", e => updateFlowTooltip(e.clientX));
+    chartCanvas.addEventListener("mousemove", e => updateFlowTooltip(e.clientX, e.clientY));
     chartCanvas.addEventListener("mouseleave", () => clearFlowTooltip());
   }
 

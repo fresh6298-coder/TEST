@@ -267,6 +267,21 @@
 
   function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
 
+  // Flips the tooltip to whichever vertical half of the canvas the
+  // pointer ISN'T currently in, so it never sits directly on top of the
+  // point being touched/scrubbed. clientY is the raw event coordinate;
+  // rect is the canvas's getBoundingClientRect().
+  function positionTooltipY(tooltip, clientY, rect){
+    const fracY = (clientY - rect.top) / rect.height;
+    if(fracY < 0.5){
+      tooltip.style.top = "auto";
+      tooltip.style.bottom = "4px";
+    }else{
+      tooltip.style.top = "4px";
+      tooltip.style.bottom = "auto";
+    }
+  }
+
   function drawLineChart(canvas, seriesList, opts){
     opts = opts || {};
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 180;
@@ -493,7 +508,7 @@
     document.getElementById("cycleResetZoom").style.display = cycleViewRange ? "inline-block" : "none";
   }
 
-  function updateCycleTooltip(x){
+  function updateCycleTooltip(x, clientY){
     cycleHighlightX = x;
     renderCycles();
 
@@ -511,6 +526,7 @@
 
     const canvas = document.getElementById("cycleChart");
     const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const range = cycleViewRange || cycleFullRange;
     const frac = (x - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -553,7 +569,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateCycleTooltip(xToDay(e.touches[0].clientX));
+        updateCycleTooltip(xToDay(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -566,7 +582,7 @@
       if(!touchState || !cycleFullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateCycleTooltip(xToDay(e.touches[0].clientX));
+        updateCycleTooltip(xToDay(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -611,7 +627,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !cycleFullRange) return;
-      updateCycleTooltip(xToDay(e.clientX));
+      updateCycleTooltip(xToDay(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateCycleTooltip(null); });
 
@@ -771,7 +787,7 @@
   // from the formula (exact for any ms, no interpolation needed); the
   // actual price is looked up from the real daily series and only shown
   // if a data point exists at or before that date.
-  function updatePriceLawTooltip(ms){
+  function updatePriceLawTooltip(ms, clientY){
     priceLawHighlightX = ms;
     renderPriceLaw();
 
@@ -805,6 +821,7 @@
 
     const canvas = document.getElementById("priceLawChart");
     const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const range = priceLawViewRange || priceLawFullRange;
     const frac = (ms - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -850,7 +867,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updatePriceLawTooltip(xToMs(canvas, e.touches[0].clientX));
+        updatePriceLawTooltip(xToMs(canvas, e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -863,7 +880,7 @@
       if(!touchState || !priceLawFullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updatePriceLawTooltip(xToMs(canvas, e.touches[0].clientX));
+        updatePriceLawTooltip(xToMs(canvas, e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -916,7 +933,7 @@
     // a desktop crosshair — separate from the click-drag pan above.
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !priceLawFullRange) return;
-      updatePriceLawTooltip(xToMs(canvas, e.clientX));
+      updatePriceLawTooltip(xToMs(canvas, e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updatePriceLawTooltip(null); });
 
@@ -1061,7 +1078,7 @@
 
   // Mirrors the reference chart's own annotation style ("21.52 OZ -1.95%
   // YoY") rather than a multi-row breakdown, since there's only one series.
-  function updateGoldRatioTooltip(ms){
+  function updateGoldRatioTooltip(ms, clientY){
     goldRatioHighlightX = ms;
     renderGoldRatio();
 
@@ -1082,6 +1099,7 @@
 
     const canvas = document.getElementById("goldRatioChart");
     const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const range = goldRatioViewRange || goldRatioFullRange;
     const frac = (ms - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -1103,7 +1121,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateGoldRatioTooltip(xToMs(e.touches[0].clientX));
+        updateGoldRatioTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1116,7 +1134,7 @@
       if(!touchState || !goldRatioFullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateGoldRatioTooltip(xToMs(e.touches[0].clientX));
+        updateGoldRatioTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1160,7 +1178,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !goldRatioFullRange) return;
-      updateGoldRatioTooltip(xToMs(e.clientX));
+      updateGoldRatioTooltip(xToMs(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateGoldRatioTooltip(null); });
 
@@ -1258,7 +1276,7 @@
     return (ms - a.x) <= (b.x - ms) ? a : b;
   }
 
-  function updateMacroTooltip(ms){
+  function updateMacroTooltip(ms, clientY){
     macroHighlightX = ms;
     renderMacro();
 
@@ -1276,6 +1294,7 @@
 
     const canvas = document.getElementById("macroChart");
     const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const range = macroViewRange || macroFullRange;
     const frac = (ms - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -1359,7 +1378,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateMacroTooltip(xToMs(e.touches[0].clientX));
+        updateMacroTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1372,7 +1391,7 @@
       if(!touchState || !macroFullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateMacroTooltip(xToMs(e.touches[0].clientX));
+        updateMacroTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1417,7 +1436,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !macroFullRange) return;
-      updateMacroTooltip(xToMs(e.clientX));
+      updateMacroTooltip(xToMs(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateMacroTooltip(null); });
 
@@ -1564,7 +1583,7 @@
     return (ms - a.x) <= (b.x - ms) ? a : b;
   }
 
-  function updateStockToFlowTooltip(ms){
+  function updateStockToFlowTooltip(ms, clientY){
     stockToFlowHighlightX = ms;
     renderStockToFlow();
     const tooltip = document.getElementById("stockToFlowTooltip");
@@ -1574,6 +1593,7 @@
     tooltip.style.display = "block";
     const canvas = document.getElementById("stockToFlowChart");
     const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const frac = (ms - stockToFlowFullRange.min) / (stockToFlowFullRange.max - stockToFlowFullRange.min);
     let left = frac * rect.width - tooltip.offsetWidth / 2;
     left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
@@ -1589,14 +1609,14 @@
 
   (function initStockToFlowInteraction(){
     const canvas = document.getElementById("stockToFlowChart");
-    canvas.addEventListener("mousemove", e => { if(stockToFlowFullRange) updateStockToFlowTooltip(stockToFlowXToMs(e.clientX)); });
+    canvas.addEventListener("mousemove", e => { if(stockToFlowFullRange) updateStockToFlowTooltip(stockToFlowXToMs(e.clientX), e.clientY); });
     canvas.addEventListener("mouseleave", () => updateStockToFlowTooltip(null));
     canvas.addEventListener("touchstart", e => {
-      if(stockToFlowFullRange && e.touches.length === 1) updateStockToFlowTooltip(stockToFlowXToMs(e.touches[0].clientX));
+      if(stockToFlowFullRange && e.touches.length === 1) updateStockToFlowTooltip(stockToFlowXToMs(e.touches[0].clientX), e.touches[0].clientY);
     }, { passive: true });
     canvas.addEventListener("touchmove", e => {
       if(!stockToFlowFullRange || e.touches.length !== 1) return;
-      updateStockToFlowTooltip(stockToFlowXToMs(e.touches[0].clientX));
+      updateStockToFlowTooltip(stockToFlowXToMs(e.touches[0].clientX), e.touches[0].clientY);
       e.preventDefault();
     }, { passive: false });
     canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateStockToFlowTooltip(null); });
@@ -1774,7 +1794,7 @@
     document.getElementById("adoptionResetZoom").style.display = adoptionViewRange ? "inline-block" : "none";
   }
 
-  function updateAdoptionTooltip(x){
+  function updateAdoptionTooltip(x, clientY){
     adoptionHighlightX = x;
     renderAdoption();
 
@@ -1792,6 +1812,7 @@
 
     const canvas = document.getElementById("adoptionChart");
     const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const range = adoptionViewRange || adoptionFullRange;
     const frac = (x - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -1832,7 +1853,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateAdoptionTooltip(xToYears(e.touches[0].clientX));
+        updateAdoptionTooltip(xToYears(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1845,7 +1866,7 @@
       if(!touchState) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateAdoptionTooltip(xToYears(e.touches[0].clientX));
+        updateAdoptionTooltip(xToYears(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1889,7 +1910,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging) return;
-      updateAdoptionTooltip(xToYears(e.clientX));
+      updateAdoptionTooltip(xToYears(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateAdoptionTooltip(null); });
 

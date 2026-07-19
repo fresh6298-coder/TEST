@@ -532,6 +532,21 @@
     els.statusLine.textContent = msg || " ";
   }
 
+  // Flips the tooltip to whichever vertical half of the canvas the
+  // pointer ISN'T currently in, so it never sits directly on top of the
+  // point being touched/scrubbed. clientY is the raw event coordinate;
+  // rect is the canvas's getBoundingClientRect().
+  function positionTooltipY(tooltip, clientY, rect){
+    const fracY = (clientY - rect.top) / rect.height;
+    if(fracY < 0.5){
+      tooltip.style.top = "auto";
+      tooltip.style.bottom = "4px";
+    }else{
+      tooltip.style.top = "4px";
+      tooltip.style.bottom = "auto";
+    }
+  }
+
   async function fetchJson(url, timeoutMs){
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeoutMs || 8000);
@@ -863,7 +878,7 @@
     document.getElementById("fngResetZoom").style.display = fngViewRange ? "inline-block" : "none";
   }
 
-  function updateFngTooltip(ms){
+  function updateFngTooltip(ms, clientY){
     fngHighlightT = ms;
     drawFngChart(ms);
 
@@ -877,6 +892,7 @@
 
     const canvas = document.getElementById("fngChart");
     const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
     const range = fngViewRange || fngFullRange;
     const frac = (p.t - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth/2;
@@ -942,7 +958,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateFngTooltip(xToMs(e.touches[0].clientX));
+        updateFngTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -954,7 +970,7 @@
     canvas.addEventListener("touchmove", e => {
       if(!touchState || !fngFullRange) return;
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateFngTooltip(xToMs(e.touches[0].clientX));
+        updateFngTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1001,7 +1017,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !fngFullRange) return;
-      updateFngTooltip(xToMs(e.clientX));
+      updateFngTooltip(xToMs(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateFngTooltip(null); });
 
@@ -1179,7 +1195,7 @@
       return (ms - a.t) <= (b.t - ms) ? a : b;
     }
 
-    function updateTooltip(ms){
+    function updateTooltip(ms, clientY){
       state.highlightT = ms;
       draw();
       const tooltip = document.getElementById(cfg.tooltipId);
@@ -1189,6 +1205,7 @@
       tooltip.style.display = "block";
       const canvas = document.getElementById(cfg.canvasId);
       const rect = canvas.getBoundingClientRect();
+      if(clientY != null) positionTooltipY(tooltip, clientY, rect);
       const range = state.viewRange || state.fullRange;
       const frac = (p.t - range.min) / (range.max - range.min);
       let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -1231,7 +1248,7 @@
       canvas.addEventListener("touchstart", e => {
         if(e.touches.length === 1){
           touchState = { mode: "scrub" };
-          updateTooltip(xToMs(e.touches[0].clientX));
+          updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
         } else if(e.touches.length === 2){
           const dx = e.touches[0].clientX - e.touches[1].clientX;
           const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1243,7 +1260,7 @@
       canvas.addEventListener("touchmove", e => {
         if(!touchState || !state.fullRange) return;
         if(touchState.mode === "scrub" && e.touches.length === 1){
-          updateTooltip(xToMs(e.touches[0].clientX));
+          updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
         } else if(touchState.mode === "pinch" && e.touches.length === 2){
           const dx = e.touches[0].clientX - e.touches[1].clientX;
           const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1283,7 +1300,7 @@
       window.addEventListener("mouseup", () => { mouseDragging = false; });
       canvas.addEventListener("mousemove", e => {
         if(mouseDragging || !state.fullRange) return;
-        updateTooltip(xToMs(e.clientX));
+        updateTooltip(xToMs(e.clientX), e.clientY);
       });
       canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
 
@@ -1633,14 +1650,14 @@
 
   // Shows the value under a point via a crosshair, used both by one-finger
   // touch scrub and by desktop mouse hover.
-  function scrubChart(clientX){
+  function scrubChart(clientX, clientY){
     const rect = chartCanvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const points = visibleSlice(state.chartPoints);
     if(!points || !points.length) return;
     const idx = Math.round((x / rect.width) * (points.length - 1));
     const clamped = Math.max(0, Math.min(points.length - 1, idx));
-    drawChart(clamped);
+    drawChart(clamped, clientY);
     drawRsi(clamped);
   }
 
@@ -1655,7 +1672,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        scrubChart(e.touches[0].clientX);
+        scrubChart(e.touches[0].clientX, e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1670,7 +1687,7 @@
       if(!touchState || !state.chartPoints.length) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        scrubChart(e.touches[0].clientX);
+        scrubChart(e.touches[0].clientX, e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1730,7 +1747,7 @@
     return { isDragging: () => mouseDragging };
   }
 
-  function drawChart(highlightIndex){
+  function drawChart(highlightIndex, clientY){
     const points = visibleSlice(state.chartPoints);
     if(!points || points.length === 0) return;
     const dpr = window.devicePixelRatio || 1;
@@ -1927,6 +1944,7 @@
       let hx = xAt(highlightIndex) - els.tooltip.offsetWidth/2;
       hx = Math.max(0, Math.min(w - els.tooltip.offsetWidth, hx));
       els.tooltip.style.left = hx + "px";
+      if(clientY != null) positionTooltipY(els.tooltip, clientY, chartCanvas.getBoundingClientRect());
     }
   }
 
@@ -1989,7 +2007,7 @@
     // scrubs the crosshair tooltip; click-drag pans instead (see
     // attachChartZoomPan's mousedown/mousemove handlers).
     const zoomPan = attachChartZoomPan();
-    chartCanvas.addEventListener("mousemove", e => { if(!zoomPan.isDragging()) scrubChart(e.clientX); });
+    chartCanvas.addEventListener("mousemove", e => { if(!zoomPan.isDragging()) scrubChart(e.clientX, e.clientY); });
     chartCanvas.addEventListener("mouseleave", () => { if(!zoomPan.isDragging()){ drawChart(); drawRsi(); } });
   }
 
