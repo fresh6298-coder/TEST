@@ -1672,11 +1672,24 @@
     if(e.target.id === "infoModal") closeInfoModal();
   });
 
-  // SOPR and Realized Price both overlay the same BTC price series — fetch
-  // it once per load() call instead of twice.
+  // SOPR, MVRV, and Realized Price all overlay the same BTC price series —
+  // fetch it once per load() call instead of three times. `extraSeries` is
+  // an optional supplemental source (BGeometrics' own btc-crypto endpoint,
+  // if it exists) used to fill in dates before Yahoo Finance's ~2014-09-17
+  // start; Yahoo still wins on any overlapping date since it's the
+  // longer-trusted source here and on other pages.
   let btcSeriesCache = null;
-  async function getBtcSeriesCached(){
-    if(!btcSeriesCache) btcSeriesCache = await fetchBtcHistoryForHodl();
+  async function getBtcSeriesCached(extraSeries){
+    if(!btcSeriesCache){
+      const yahoo = await fetchBtcHistoryForHodl();
+      if(extraSeries && extraSeries.length){
+        const byDate = new Map(extraSeries.filter(p => p.y > 0).map(p => [p.x, p]));
+        yahoo.forEach(p => byDate.set(p.x, p));
+        btcSeriesCache = [...byDate.values()].sort((a,b) => a.x - b.x);
+      }else{
+        btcSeriesCache = yahoo;
+      }
+    }
     return btcSeriesCache;
   }
 
@@ -1696,6 +1709,9 @@
       }
 
       const m = data.metrics;
+      const btcCryptoSeries = m.btcCrypto
+        ? m.btcCrypto.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value }))
+        : null;
       if(m.mvrvZscore){
         document.getElementById("mvrvValue").textContent = m.mvrvZscore.current.value.toFixed(2);
         const [label, color] = mvrvZone(m.mvrvZscore.current.value);
@@ -1711,7 +1727,7 @@
           mvrvLines.push({ key: "sthMvrv", label: "STH-MVRV", color: "#16a34a", visible: false, points: m.sthMvrv.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value })) });
         }
 
-        const mvrvBtcSeries = await getBtcSeriesCached();
+        const mvrvBtcSeries = await getBtcSeriesCached(btcCryptoSeries);
         mvrvChart.setData(mvrvBtcSeries, mvrvLines);
       }
       if(m.nupl){
@@ -1745,7 +1761,7 @@
         soprLines.push({ key: "ma7", label: "SOPR 7일 이평", color: "rgba(140,140,140,0.9)", dashed: true, visible: false, points: computeSMA(soprSeries, 7) });
         soprLines.push({ key: "ema7", label: "SOPR 7일 지수이평", color: "rgba(90,90,90,0.9)", dashed: true, visible: false, points: computeEMA(soprSeries, 7) });
 
-        const soprBtcSeries = await getBtcSeriesCached();
+        const soprBtcSeries = await getBtcSeriesCached(btcCryptoSeries);
         soprChart.setData(soprBtcSeries, soprLines);
       }
       if(m.reserveRisk){
@@ -1763,7 +1779,7 @@
         setRange(document.getElementById("avivRange"), m.aviv);
       }
       if(m.realizedPrice){
-        const priceSeries = await getBtcSeriesCached();
+        const priceSeries = await getBtcSeriesCached(btcCryptoSeries);
         const realizedSeries = m.realizedPrice.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value }));
         const latestPrice = priceSeries.length ? priceSeries[priceSeries.length - 1].y : null;
         document.getElementById("realizedPriceValue").textContent = "$" + Math.round(m.realizedPrice.current.value).toLocaleString("en-US");

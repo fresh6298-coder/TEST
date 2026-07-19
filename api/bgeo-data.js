@@ -290,6 +290,14 @@ const ONCHAIN_METRICS = {
   // Confirmed working (anon tier returned 1461 rows). Not in bgeometrics'
   // own published endpoint list, but reachable anyway.
   realizedPrice: { path: "realized-price", hint: /realized/i },
+  // Unverified best-effort guess: "btc-crypto" was in bgeometrics' own
+  // endpoint list. If this is BTC/USD price, it likely shares the same
+  // 2009+ coverage as their other metrics, which would let the frontend
+  // fill in BTC price for dates before Yahoo Finance's ~2014-09-17 start
+  // (see onchain.html's getBtcSeriesCached). If the path is wrong or the
+  // value field isn't actually price, this just fails and gets dropped
+  // like any other failed metric — nothing downstream assumes it exists.
+  btcCrypto: { path: "btc-crypto", hint: /price|close|usd|btc/i },
 };
 
 async function handleOnchainMetrics(req, res) {
