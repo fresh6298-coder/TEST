@@ -260,6 +260,12 @@ const ONCHAIN_METRICS = {
   nupl: { path: "nupl", hint: /nupl|unrealized/i },
   puellMultiple: { path: "puell-multiple", hint: /puell/i },
   sopr: { path: "sopr", hint: /sopr/i },
+  // Best-effort paths (not in bgeometrics' published endpoint list, but
+  // "lth_sopr.html"/"sth_sopr.html" graphics endpoints exist, suggesting
+  // these JSON siblings do too, following the kebab-case convention every
+  // other /v1 path here uses).
+  lthSopr: { path: "lth-sopr", hint: /sopr/i },
+  sthSopr: { path: "sth-sopr", hint: /sopr/i },
   reserveRisk: { path: "reserve-risk", hint: /reserve/i },
   aviv: { path: "aviv", hint: /aviv/i },
   stockToFlow: { path: "stock", hint: /stock/i },

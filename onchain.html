@@ -154,6 +154,15 @@
   .hodl-legend{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;font-size:9.5px;color:var(--sub);}
   .hodl-legend span{display:flex;align-items:center;gap:3px;white-space:nowrap;}
   .hodl-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;}
+  .toggle-legend span{cursor:pointer;user-select:none;}
+  .toggle-legend span.off{opacity:.4;text-decoration:line-through;}
+  .preset-zoom-bar{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;}
+  .preset-zoom-bar button{
+    font-family:inherit;font-size:10px;color:var(--sub);
+    background:none;border:1px solid var(--track);border-radius:10px;
+    padding:3px 9px;cursor:pointer;
+  }
+  .preset-zoom-bar button.active{color:var(--orange);border-color:var(--orange);}
 
   @media (prefers-color-scheme:dark){
     :root{
@@ -241,8 +250,17 @@
     <div class="metric-zone" id="soprZone">-</div>
     <div class="metric-desc">오늘 이동한 코인들이 팔릴 때 평균적으로 이익(1 이상) 상태인지 손실(1 이하) 상태인지를 보여주는 지표. 1을 기준으로 지지/저항처럼 작동하는 경우가 많아.</div>
     <div class="chart-canvas-wrap">
-      <canvas class="metric-chart" id="soprChart"></canvas>
+      <canvas class="metric-chart" id="soprChart" style="height:160px;"></canvas>
       <div class="chart-tooltip" id="soprTooltip"></div>
+    </div>
+    <div class="hodl-legend toggle-legend" id="soprLegend"></div>
+    <div class="preset-zoom-bar" id="soprPresetZoom">
+      <button type="button" data-range="1m">1개월</button>
+      <button type="button" data-range="3m">3개월</button>
+      <button type="button" data-range="6m">6개월</button>
+      <button type="button" data-range="ytd">YTD</button>
+      <button type="button" data-range="1y">1년</button>
+      <button type="button" data-range="all" class="active">전체</button>
     </div>
     <div class="zoom-bar">
       <span id="soprRangeLabel"></span>
@@ -950,16 +968,323 @@
   const realizedPriceChart = createPriceOverlayChart({ canvasId: "realizedPriceChart", tooltipId: "realizedPriceTooltip", legendId: "realizedPriceLegend", rangeLabelId: "realizedPriceRangeLabel", resetBtnId: "realizedPriceResetZoom" });
   window.addEventListener("resize", () => realizedPriceChart.redraw());
 
+  // ---- SOPR: BTC price (left, log) overlaid with SOPR/LTH SOPR/STH SOPR
+  // and moving averages (right, linear), each toggleable via the legend —
+  // same idea as BGeometrics' own SOPR chart tool.
+  function drawSoprChart(canvas, btc, lines, range, highlightX){
+    const w = canvas.clientWidth, hTotal = canvas.clientHeight || 160;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = hTotal * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,hTotal);
+
+    const padBottom = 14, padTop = 4;
+    const plotW = w;
+    const h = hTotal - padBottom - padTop;
+    const rangeX = (range.max - range.min) || 1;
+    const xAt = x => ((x - range.min) / rangeX) * plotW;
+
+    const visibleBtc = btc.visible ? btc.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0) : [];
+    const visLines = lines.filter(l => l.visible).map(l => ({ ...l, pts: l.points.filter(p => p.x >= range.min && p.x <= range.max) }));
+
+    if(visibleBtc.length >= 2){
+      const logVals = visibleBtc.map(p => Math.log10(p.y));
+      const lMin = Math.min(...logVals), lMax = Math.max(...logVals);
+      const lRange = (lMax - lMin) || 1;
+      const leftYAt = v => padTop + h - ((Math.log10(v) - lMin) / lRange) * h;
+      [{ color: "rgba(0,0,0,0.35)", width: 3 }, { color: "#111", width: 1.3 }].forEach(style => {
+        ctx.beginPath();
+        visibleBtc.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), leftYAt(p.y)) : ctx.lineTo(xAt(p.x), leftYAt(p.y)));
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.width;
+        ctx.stroke();
+      });
+    }
+
+    const allRightVals = visLines.flatMap(l => l.pts.map(p => p.y));
+    if(allRightVals.length){
+      const rMin = Math.min(0, ...allRightVals), rMax = Math.max(...allRightVals);
+      const rRange = (rMax - rMin) || 1;
+      const rightYAt = v => padTop + h - ((v - rMin) / rRange) * h;
+
+      const oneY = rightYAt(1);
+      ctx.beginPath(); ctx.moveTo(0, oneY); ctx.lineTo(plotW, oneY);
+      ctx.strokeStyle = "rgba(140,140,140,0.5)";
+      ctx.setLineDash([3,3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+
+      visLines.forEach(l => {
+        if(l.pts.length < 2) return;
+        ctx.beginPath();
+        l.pts.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), rightYAt(p.y)) : ctx.lineTo(xAt(p.x), rightYAt(p.y)));
+        ctx.strokeStyle = l.color;
+        ctx.lineWidth = l.dashed ? 1 : 1.5;
+        if(l.dashed) ctx.setLineDash([2,3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    }
+
+    if(highlightX != null){
+      const hx = xAt(highlightX);
+      if(hx >= -1 && hx <= plotW + 1){
+        ctx.beginPath();
+        ctx.moveTo(hx, padTop); ctx.lineTo(hx, padTop + h);
+        ctx.strokeStyle = "rgba(140,140,140,0.5)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    const tickXs = [range.min, range.min + rangeX*0.33, range.min + rangeX*0.66, range.max];
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.font = "9px ui-monospace, monospace";
+    tickXs.forEach((tx, idx) => {
+      const x = xAt(tx);
+      ctx.textAlign = idx === 0 ? "left" : idx === tickXs.length - 1 ? "right" : "center";
+      const clampedX = idx === 0 ? Math.max(2, x) : idx === tickXs.length - 1 ? Math.min(plotW - 2, x) : x;
+      ctx.fillText(shortDate(tx), clampedX, hTotal - 2);
+    });
+  }
+
+  function createSoprChart(cfg){
+    const canvas = document.getElementById(cfg.canvasId);
+    const tooltip = document.getElementById(cfg.tooltipId);
+    const rangeLabel = document.getElementById(cfg.rangeLabelId);
+    const resetBtn = document.getElementById(cfg.resetBtnId);
+    const legendEl = document.getElementById(cfg.legendId);
+    const presetEl = document.getElementById(cfg.presetId);
+
+    let btc = { points: [], visible: true, label: "BTC 가격", color: "#111" };
+    let lines = [];
+    let fullRange = null, viewRange = null, highlightX = null;
+
+    function render(){
+      if(!fullRange) return;
+      const range = viewRange || fullRange;
+      drawSoprChart(canvas, btc, lines, range, highlightX);
+      rangeLabel.textContent = new Date(range.min).toISOString().slice(0,10) + " ~ " + new Date(range.max).toISOString().slice(0,10);
+      resetBtn.style.display = viewRange ? "inline-block" : "none";
+    }
+
+    function updateTooltip(ms){
+      highlightX = ms;
+      render();
+      const parts = [];
+      if(ms != null && btc.visible && btc.points.length){
+        const at = nearestPoint(btc.points, ms);
+        parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${btc.color};margin-right:4px;"></i>${btc.label}: $${Math.round(at.y).toLocaleString("en-US")}</div>`);
+      }
+      if(ms != null){
+        lines.filter(l => l.visible && l.points.length).forEach(l => {
+          const at = nearestPoint(l.points, ms);
+          parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${l.color};margin-right:4px;"></i>${l.label}: ${at.y.toFixed(3)}</div>`);
+        });
+      }
+      if(ms == null || !parts.length){ tooltip.style.display = "none"; return; }
+      const anchorPts = (btc.visible && btc.points.length) ? btc.points : ((lines.find(l => l.visible && l.points.length) || {}).points || []);
+      const dateMs = anchorPts.length ? nearestPoint(anchorPts, ms).x : ms;
+      tooltip.innerHTML = `<div><b>${new Date(dateMs).toISOString().slice(0,10)}</b></div>${parts.join("")}`;
+      tooltip.style.display = "block";
+      const rect = canvas.getBoundingClientRect();
+      const range = viewRange || fullRange;
+      const frac = (ms - range.min) / (range.max - range.min);
+      let left = frac * rect.width - tooltip.offsetWidth / 2;
+      left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+      tooltip.style.left = left + "px";
+    }
+
+    function setActivePreset(key){
+      presetEl.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.range === key));
+    }
+
+    function zoom(factor, centerMs){
+      if(!fullRange) return;
+      const cur = viewRange || fullRange;
+      const width = cur.max - cur.min;
+      const fullWidth = fullRange.max - fullRange.min;
+      const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+      const ratio = width ? (centerMs - cur.min) / width : 0.5;
+      const min = centerMs - newWidth * ratio;
+      const next = clampRange({ min, max: min + newWidth }, fullRange);
+      viewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+      setActivePreset(viewRange ? "" : "all");
+      render();
+    }
+
+    function pan(deltaMs){
+      if(!fullRange) return;
+      const cur = viewRange || fullRange;
+      const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, fullRange);
+      viewRange = (next.max - next.min) >= (fullRange.max - fullRange.min) - 1000 ? null : next;
+      setActivePreset(viewRange ? "" : "all");
+      render();
+    }
+
+    const xToMs = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = viewRange || fullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
+    let touchState = null, mouseDragging = false, lastMouseX = 0;
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+        updateTooltip(xToMs(e.touches[0].clientX));
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", e => {
+      if(!touchState || !fullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateTooltip(xToMs(e.touches[0].clientX));
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const range = viewRange || fullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) pan(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoom(touchState.lastDist / dist, xToMs(midX));
+        touchState.lastDist = dist;
+        touchState.lastMidX = midX;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0){
+        touchState = null;
+        updateTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!fullRange) return;
+      e.preventDefault();
+      zoom(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !fullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = viewRange || fullRange;
+      const msPerPx = (range.max - range.min) / rect.width;
+      pan(-dxPx * msPerPx);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !fullRange) return;
+      updateTooltip(xToMs(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
+
+    resetBtn.addEventListener("click", () => { viewRange = null; setActivePreset("all"); render(); });
+
+    presetEl.querySelectorAll("button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if(!fullRange) return;
+        const key = btn.dataset.range;
+        const endMs = fullRange.max;
+        if(key === "all"){
+          viewRange = null;
+        } else {
+          let startMs;
+          if(key === "1m") startMs = endMs - 30 * DAY_MS;
+          else if(key === "3m") startMs = endMs - 90 * DAY_MS;
+          else if(key === "6m") startMs = endMs - 180 * DAY_MS;
+          else if(key === "1y") startMs = endMs - 365 * DAY_MS;
+          else if(key === "ytd") startMs = Date.UTC(new Date(endMs).getUTCFullYear(), 0, 1);
+          viewRange = clampRange({ min: startMs, max: endMs }, fullRange);
+        }
+        setActivePreset(key);
+        render();
+      });
+    });
+
+    legendEl.addEventListener("click", e => {
+      const span = e.target.closest("[data-key]");
+      if(!span) return;
+      const key = span.dataset.key;
+      if(key === "btc"){
+        btc.visible = !btc.visible;
+        span.classList.toggle("off", !btc.visible);
+      } else {
+        const line = lines.find(l => l.key === key);
+        if(!line) return;
+        line.visible = !line.visible;
+        span.classList.toggle("off", !line.visible);
+      }
+      render();
+    });
+
+    return {
+      setData(btcPoints, lineList){
+        btc = { points: btcPoints, visible: true, label: "BTC 가격", color: "#111" };
+        lines = lineList.map(l => ({ ...l, visible: l.visible !== false }));
+        const allPts = btcPoints.concat(...lines.map(l => l.points));
+        if(!allPts.length) return;
+        fullRange = { min: Math.min(...allPts.map(p => p.x)), max: Math.max(...allPts.map(p => p.x)) };
+        viewRange = null; highlightX = null;
+        render();
+        legendEl.innerHTML = `<span data-key="btc"><i style="background:${btc.color}"></i>${btc.label}</span>` +
+          lines.map(l => `<span data-key="${l.key}"${l.visible ? "" : " class=\"off\""}><i style="background:${l.color}"></i>${l.label}</span>`).join("");
+        setActivePreset("all");
+      },
+      redraw: render,
+    };
+  }
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  function computeSMA(series, windowSize){
+    const out = [];
+    const buf = [];
+    let sum = 0;
+    series.forEach(p => {
+      buf.push(p.y); sum += p.y;
+      if(buf.length > windowSize) sum -= buf.shift();
+      if(buf.length === windowSize) out.push({ x: p.x, y: sum / windowSize });
+    });
+    return out;
+  }
+  function computeEMA(series, windowSize){
+    const out = [];
+    const k = 2 / (windowSize + 1);
+    let ema = null;
+    series.forEach(p => {
+      ema = ema == null ? p.y : p.y * k + ema * (1 - k);
+      out.push({ x: p.x, y: ema });
+    });
+    return out;
+  }
+
+  const soprChart = createSoprChart({ canvasId: "soprChart", tooltipId: "soprTooltip", rangeLabelId: "soprRangeLabel", resetBtnId: "soprResetZoom", legendId: "soprLegend", presetId: "soprPresetZoom" });
+  window.addEventListener("resize", () => soprChart.redraw());
+
   const mvrvChart = createMetricChart({ canvasId: "mvrvChart", tooltipId: "mvrvTooltip", rangeLabelId: "mvrvRangeLabel", resetBtnId: "mvrvResetZoom", formatValue: v => v.toFixed(2) });
   const nuplChart = createMetricChart({ canvasId: "nuplChart", tooltipId: "nuplTooltip", rangeLabelId: "nuplRangeLabel", resetBtnId: "nuplResetZoom", formatValue: v => v.toFixed(2) });
   const puellChart = createMetricChart({ canvasId: "puellChart", tooltipId: "puellTooltip", rangeLabelId: "puellRangeLabel", resetBtnId: "puellResetZoom", formatValue: v => v.toFixed(2) });
-  const soprChart = createMetricChart({ canvasId: "soprChart", tooltipId: "soprTooltip", rangeLabelId: "soprRangeLabel", resetBtnId: "soprResetZoom", formatValue: v => v.toFixed(3) });
   const reserveRiskChart = createMetricChart({ canvasId: "reserveRiskChart", tooltipId: "reserveRiskTooltip", rangeLabelId: "reserveRiskRangeLabel", resetBtnId: "reserveRiskResetZoom", formatValue: v => v.toFixed(4) });
   const avivChart = createMetricChart({ canvasId: "avivChart", tooltipId: "avivTooltip", rangeLabelId: "avivRangeLabel", resetBtnId: "avivResetZoom", formatValue: v => v.toFixed(2) });
 
   window.addEventListener("resize", () => {
     mvrvChart.redraw(); nuplChart.redraw(); puellChart.redraw();
-    soprChart.redraw(); reserveRiskChart.redraw(); avivChart.redraw();
+    reserveRiskChart.redraw(); avivChart.redraw();
   });
 
   function setZone(el, label, color){
@@ -1097,6 +1422,9 @@
           <div><b style="color:var(--green)">0.98 이하</b> — 손실 실현이 활발함. 항복성 매도, 바닥 신호 가능성.</div>
         </div>
 
+        <p><b>LTH/STH SOPR은 뭐가 달라?</b><br>
+        전체 SOPR은 모든 보유기간을 섞어서 계산하는데, 단기 보유자(STH, 대략 155일 미만)만 따로 보면 "요즘 산 사람들"의 심리를, 장기 보유자(LTH)만 보면 "오래 버틴 사람들"이 언제 팔기 시작하는지를 따로 볼 수 있어. 아래 범례를 눌러서 원하는 선만 켜고 끌 수 있어.</p>
+
         <p><b>한 줄 요약:</b> "지금 팔리는 코인들이 대체로 이익 실현인지 손절인지"를 보여주는 지표야. 1이라는 기준선을 시장이 어떻게 다루는지가 추세의 강도를 말해줘.</p>
       `,
     },
@@ -1174,7 +1502,16 @@
     if(e.target.id === "infoModal") closeInfoModal();
   });
 
+  // SOPR and Realized Price both overlay the same BTC price series — fetch
+  // it once per load() call instead of twice.
+  let btcSeriesCache = null;
+  async function getBtcSeriesCached(){
+    if(!btcSeriesCache) btcSeriesCache = await fetchBtcHistoryForHodl();
+    return btcSeriesCache;
+  }
+
   async function load(){
+    btcSeriesCache = null;
     try{
       setStatus("");
       const res = await fetch("/api/onchain-metrics");
@@ -1214,8 +1551,21 @@
         document.getElementById("soprValue").textContent = m.sopr.current.value.toFixed(3);
         const [label, color] = soprZone(m.sopr.current.value);
         setZone(document.getElementById("soprZone"), label, color);
-        soprChart.setData(m.sopr.history, [{at:1,color:"rgba(140,140,140,0.6)"}]);
         setRange(document.getElementById("soprRange"), m.sopr);
+
+        const soprSeries = m.sopr.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value }));
+        const soprLines = [{ key: "sopr", label: "SOPR", color: "#f7931a", points: soprSeries }];
+        if(m.lthSopr){
+          soprLines.push({ key: "lthSopr", label: "LTH SOPR", color: "#8b5cf6", points: m.lthSopr.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value })) });
+        }
+        if(m.sthSopr){
+          soprLines.push({ key: "sthSopr", label: "STH SOPR", color: "#16a34a", points: m.sthSopr.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value })) });
+        }
+        soprLines.push({ key: "ma7", label: "SOPR 7일 이평", color: "rgba(140,140,140,0.9)", dashed: true, visible: false, points: computeSMA(soprSeries, 7) });
+        soprLines.push({ key: "ema7", label: "SOPR 7일 지수이평", color: "rgba(90,90,90,0.9)", dashed: true, visible: false, points: computeEMA(soprSeries, 7) });
+
+        const soprBtcSeries = await getBtcSeriesCached();
+        soprChart.setData(soprBtcSeries, soprLines);
       }
       if(m.reserveRisk){
         document.getElementById("reserveRiskValue").textContent = m.reserveRisk.current.value.toFixed(4);
@@ -1232,7 +1582,7 @@
         setRange(document.getElementById("avivRange"), m.aviv);
       }
       if(m.realizedPrice){
-        const priceSeries = await fetchBtcHistoryForHodl();
+        const priceSeries = await getBtcSeriesCached();
         const realizedSeries = m.realizedPrice.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value }));
         const latestPrice = priceSeries.length ? priceSeries[priceSeries.length - 1].y : null;
         document.getElementById("realizedPriceValue").textContent = "$" + Math.round(m.realizedPrice.current.value).toLocaleString("en-US");
