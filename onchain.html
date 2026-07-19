@@ -552,9 +552,7 @@
       const rect = canvas.getBoundingClientRect();
       if(clientY != null) positionTooltipY(tooltip, clientY, rect);
       const frac = (ms - fullRange.min) / (fullRange.max - fullRange.min);
-      let left = frac * rect.width - tooltip.offsetWidth / 2;
-      left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
-      tooltip.style.left = left + "px";
+      positionTooltipX(tooltip, frac, rect);
     }
 
     const xToMs = clientX => {
@@ -637,6 +635,17 @@
     const fracY = (clientY - rect.top) / rect.height;
     if(fracY < 0.5){ tooltip.style.top = "auto"; tooltip.style.bottom = "4px"; }
     else { tooltip.style.top = "4px"; tooltip.style.bottom = "auto"; }
+  }
+
+  // Anchors the tooltip fully to whichever horizontal side the touched
+  // point ISN'T on, instead of centering it under the point — for tall,
+  // many-line tooltips (lots of bands/series), centering still lets the
+  // box straddle the highlighted crosshair column even after the
+  // top/bottom flip above. frac is the touched x position as a 0-1
+  // fraction of the chart's plotted width.
+  function positionTooltipX(tooltip, frac, rect){
+    if(frac < 0.5){ tooltip.style.left = "auto"; tooltip.style.right = "4px"; }
+    else { tooltip.style.right = "auto"; tooltip.style.left = "4px"; }
   }
 
   const MIN_ZOOM_MS = 30 * 86400000; // don't zoom in past ~1 month
