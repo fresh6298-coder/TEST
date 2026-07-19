@@ -1021,9 +1021,10 @@
     const rangeX = (range.max - range.min) || 1;
     const xAt = x => padLeft + ((x - range.min) / rangeX) * plotW;
 
-    const lMin = Math.log10(DUAL_AXIS_BTC_MIN), lMax = Math.log10(DUAL_AXIS_BTC_MAX);
+    const leftMin = axisCfg.leftMin, leftMax = axisCfg.leftMax;
+    const lMin = Math.log10(leftMin), lMax = Math.log10(leftMax);
     const lRange = lMax - lMin;
-    const leftYAt = v => padTop + h - ((Math.log10(Math.max(v, DUAL_AXIS_BTC_MIN)) - lMin) / lRange) * h;
+    const leftYAt = v => padTop + h - ((Math.log10(Math.max(v, leftMin)) - lMin) / lRange) * h;
 
     const rMin = axisCfg.rightMin, rMax = axisCfg.rightMax;
     const rRange = rMax - rMin;
@@ -1040,7 +1041,7 @@
     ctx.font = "8.5px ui-monospace, monospace";
     ctx.strokeStyle = "rgba(140,140,140,0.15)";
     ctx.lineWidth = 1;
-    DUAL_AXIS_LEFT_TICKS.forEach(v => {
+    axisCfg.leftTicks.forEach(v => {
       const y = leftYAt(v);
       ctx.beginPath(); ctx.moveTo(padLeft, y); ctx.lineTo(w - padRight, y); ctx.stroke();
       ctx.fillStyle = "rgba(140,140,140,0.9)";
@@ -1142,24 +1143,44 @@
     const resetBtn = document.getElementById(cfg.resetBtnId);
     const legendEl = document.getElementById(cfg.legendId);
     const presetEl = document.getElementById(cfg.presetId);
-    const staticAxisCfg = { rightMin: cfg.rightMin, rightMax: cfg.rightMax, rightTicks: cfg.rightTicks, bands: cfg.bands, referenceLines: cfg.referenceLines };
+    const staticAxisCfg = {
+      rightMin: cfg.rightMin, rightMax: cfg.rightMax, rightTicks: cfg.rightTicks,
+      bands: cfg.bands, referenceLines: cfg.referenceLines,
+      leftMin: DUAL_AXIS_BTC_MIN, leftMax: DUAL_AXIS_BTC_MAX, leftTicks: DUAL_AXIS_LEFT_TICKS,
+    };
     const valueFormat = cfg.valueFormat || (v => v.toFixed(2));
 
     let btc = { points: [], visible: true, label: "BTC 가격", color: "#888888" };
     let lines = [];
     let fullRange = null, viewRange = null, highlightX = null;
 
-    // Some charts (MVRV) re-scale the right axis to whatever's currently
-    // toggled on — MVRV Z-Score alone stays in a tight -2~8-ish band, but
-    // turning on LTH-MVRV/STH-MVRV (which can spike far higher in early
-    // history) needs a much wider axis to fit them. SOPR stays fixed.
+    // Some charts (MVRV) re-scale the right axis (and, with
+    // dynamicLeftAxis, the BTC price axis too) to whatever's currently
+    // visible in the zoomed/panned range — MVRV Z-Score alone stays in a
+    // tight -2~8-ish band, but turning on LTH-MVRV/STH-MVRV (which can
+    // spike far higher in early history) needs a much wider axis to fit
+    // them, and zooming into a single year shouldn't leave BTC's price
+    // line squashed against a fixed 1~100k scale. SOPR stays fixed.
     function currentAxisCfg(range){
-      if(!cfg.dynamicRightAxis) return staticAxisCfg;
-      const visVals = lines.filter(l => l.visible).flatMap(l => l.points.filter(p => p.x >= range.min && p.x <= range.max).map(p => p.y));
-      if(!visVals.length) return staticAxisCfg;
-      const rawMin = Math.min(0, ...visVals), rawMax = Math.max(...visVals);
-      const { min, max, ticks } = niceAxisRange(rawMin, rawMax, 6);
-      return { rightMin: min, rightMax: max, rightTicks: ticks, bands: cfg.bands, referenceLines: cfg.referenceLines };
+      let result = staticAxisCfg;
+      if(cfg.dynamicRightAxis){
+        const visVals = lines.filter(l => l.visible).flatMap(l => l.points.filter(p => p.x >= range.min && p.x <= range.max).map(p => p.y));
+        if(visVals.length){
+          const rawMin = Math.min(0, ...visVals), rawMax = Math.max(...visVals);
+          const { min, max, ticks } = niceAxisRange(rawMin, rawMax, 6);
+          result = { ...result, rightMin: min, rightMax: max, rightTicks: ticks };
+        }
+      }
+      if(cfg.dynamicLeftAxis && btc.visible){
+        const visBtc = btc.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0).map(p => p.y);
+        if(visBtc.length){
+          const rawMin = Math.min(...visBtc), rawMax = Math.max(...visBtc);
+          const { min, max, ticks } = niceAxisRange(rawMin, rawMax, 6);
+          const leftMin = Math.max(min, 1);
+          result = { ...result, leftMin, leftMax: Math.max(max, leftMin * 1.01), leftTicks: ticks.filter(t => t > 0) };
+        }
+      }
+      return result;
     }
 
     function render(){
@@ -1393,9 +1414,12 @@
     canvasId: "mvrvChart", tooltipId: "mvrvTooltip", rangeLabelId: "mvrvRangeLabel", resetBtnId: "mvrvResetZoom", legendId: "mvrvLegend", presetId: "mvrvPresetZoom",
     // Fallback bounds only (used if nothing's visible yet) — the real
     // range is recomputed every render from whichever lines are toggled
-    // on, since LTH-MVRV/STH-MVRV need a much wider axis than MVRV
-    // Z-Score alone.
+    // on and the current zoom/pan window, since LTH-MVRV/STH-MVRV need a
+    // much wider axis than MVRV Z-Score alone, and BTC price shouldn't
+    // stay squashed against a fixed 1~100k scale when zoomed into a
+    // single year.
     dynamicRightAxis: true,
+    dynamicLeftAxis: true,
     rightMin: -2, rightMax: 8, rightTicks: [-2, 0, 2, 4, 6, 8],
     bands: [
       { from: 7, to: 60, color: "rgba(239,68,68,0.12)" },
