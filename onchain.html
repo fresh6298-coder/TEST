@@ -199,6 +199,10 @@
       <div class="chart-tooltip" id="realizedPriceTooltip"></div>
     </div>
     <div class="hodl-legend" id="realizedPriceLegend"></div>
+    <div class="zoom-bar">
+      <span id="realizedPriceRangeLabel"></span>
+      <button id="realizedPriceResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
     <div class="metric-range" id="realizedPriceRange"></div>
   </div>
 
@@ -793,14 +797,22 @@
     });
   }
 
-  function createPriceOverlayChart(canvasId, tooltipId, legendId){
-    const canvas = document.getElementById(canvasId);
-    const tooltip = document.getElementById(tooltipId);
-    let seriesList = [], fullRange = null, highlightX = null;
+  // Same pinch-zoom/pan/wheel interaction model as createMetricChart,
+  // adapted for multiple full time series (BTC price + realized price)
+  // instead of one series plus fixed threshold bands.
+  function createPriceOverlayChart(cfg){
+    const canvas = document.getElementById(cfg.canvasId);
+    const tooltip = document.getElementById(cfg.tooltipId);
+    const rangeLabel = document.getElementById(cfg.rangeLabelId);
+    const resetBtn = document.getElementById(cfg.resetBtnId);
+    let seriesList = [], fullRange = null, viewRange = null, highlightX = null;
 
     function render(){
       if(!fullRange) return;
-      drawPriceOverlay(canvas, seriesList, fullRange, highlightX);
+      const range = viewRange || fullRange;
+      drawPriceOverlay(canvas, seriesList, range, highlightX);
+      rangeLabel.textContent = new Date(range.min).toISOString().slice(0,10) + " ~ " + new Date(range.max).toISOString().slice(0,10);
+      resetBtn.style.display = viewRange ? "inline-block" : "none";
     }
 
     function updateTooltip(ms){
@@ -817,28 +829,108 @@
       tooltip.innerHTML = `<div><b>${new Date(dateMs).toISOString().slice(0,10)}</b></div>${lines}`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
-      const frac = (ms - fullRange.min) / (fullRange.max - fullRange.min);
+      const range = viewRange || fullRange;
+      const frac = (ms - range.min) / (range.max - range.min);
       let left = frac * rect.width - tooltip.offsetWidth / 2;
       left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
       tooltip.style.left = left + "px";
     }
 
+    function zoom(factor, centerMs){
+      if(!fullRange) return;
+      const cur = viewRange || fullRange;
+      const width = cur.max - cur.min;
+      const fullWidth = fullRange.max - fullRange.min;
+      const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+      const ratio = width ? (centerMs - cur.min) / width : 0.5;
+      const min = centerMs - newWidth * ratio;
+      const next = clampRange({ min, max: min + newWidth }, fullRange);
+      viewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+      render();
+    }
+
+    function pan(deltaMs){
+      if(!fullRange) return;
+      const cur = viewRange || fullRange;
+      const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, fullRange);
+      viewRange = (next.max - next.min) >= (fullRange.max - fullRange.min) - 1000 ? null : next;
+      render();
+    }
+
     const xToMs = clientX => {
       const rect = canvas.getBoundingClientRect();
-      return fullRange.min + ((clientX - rect.left) / rect.width) * (fullRange.max - fullRange.min);
+      const range = viewRange || fullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
     };
 
+    let touchState = null, mouseDragging = false, lastMouseX = 0;
+
     canvas.addEventListener("touchstart", e => {
-      if(e.touches.length === 1) updateTooltip(xToMs(e.touches[0].clientX));
+      if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+        updateTooltip(xToMs(e.touches[0].clientX));
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+      }
     }, { passive: true });
+
     canvas.addEventListener("touchmove", e => {
-      if(!fullRange || e.touches.length !== 1) return;
-      updateTooltip(xToMs(e.touches[0].clientX));
+      if(!touchState || !fullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateTooltip(xToMs(e.touches[0].clientX));
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const range = viewRange || fullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) pan(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoom(touchState.lastDist / dist, xToMs(midX));
+        touchState.lastDist = dist;
+        touchState.lastMidX = midX;
+      }
       e.preventDefault();
     }, { passive: false });
-    canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateTooltip(null); });
-    canvas.addEventListener("mousemove", e => updateTooltip(xToMs(e.clientX)));
-    canvas.addEventListener("mouseleave", () => updateTooltip(null));
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0){
+        touchState = null;
+        updateTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!fullRange) return;
+      e.preventDefault();
+      zoom(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !fullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = viewRange || fullRange;
+      const msPerPx = (range.max - range.min) / rect.width;
+      pan(-dxPx * msPerPx);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !fullRange) return;
+      updateTooltip(xToMs(e.clientX));
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
+
+    resetBtn.addEventListener("click", () => { viewRange = null; render(); });
 
     return {
       setData(list){
@@ -846,16 +938,16 @@
         const allPts = list.flatMap(s => s.points);
         if(!allPts.length) return;
         fullRange = { min: Math.min(...allPts.map(p => p.x)), max: Math.max(...allPts.map(p => p.x)) };
-        highlightX = null;
+        viewRange = null; highlightX = null;
         render();
-        const legend = document.getElementById(legendId);
+        const legend = document.getElementById(cfg.legendId);
         legend.innerHTML = list.map(s => `<span><i style="background:${s.color}"></i>${s.label}</span>`).join("");
       },
       redraw: render,
     };
   }
 
-  const realizedPriceChart = createPriceOverlayChart("realizedPriceChart", "realizedPriceTooltip", "realizedPriceLegend");
+  const realizedPriceChart = createPriceOverlayChart({ canvasId: "realizedPriceChart", tooltipId: "realizedPriceTooltip", legendId: "realizedPriceLegend", rangeLabelId: "realizedPriceRangeLabel", resetBtnId: "realizedPriceResetZoom" });
   window.addEventListener("resize", () => realizedPriceChart.redraw());
 
   const mvrvChart = createMetricChart({ canvasId: "mvrvChart", tooltipId: "mvrvTooltip", rangeLabelId: "mvrvRangeLabel", resetBtnId: "mvrvResetZoom", formatValue: v => v.toFixed(2) });
