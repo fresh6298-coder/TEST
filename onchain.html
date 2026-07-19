@@ -1339,10 +1339,10 @@
 
   const mvrvChart = createDualAxisChart({
     canvasId: "mvrvChart", tooltipId: "mvrvTooltip", rangeLabelId: "mvrvRangeLabel", resetBtnId: "mvrvResetZoom", legendId: "mvrvLegend", presetId: "mvrvPresetZoom",
-    rightMin: -2, rightMax: 8, rightTicks: [-2, 0, 2, 4, 6, 8],
+    rightMin: -15, rightMax: 60, rightTicks: [-15, 0, 15, 30, 45, 60],
     bands: [
-      { from: 6, to: 8, color: "rgba(239,68,68,0.12)" },
-      { from: -2, to: 0, color: "rgba(22,163,74,0.12)" },
+      { from: 7, to: 60, color: "rgba(239,68,68,0.12)" },
+      { from: -15, to: 0, color: "rgba(22,163,74,0.12)" },
     ],
     valueFormat: v => v.toFixed(2),
   });
