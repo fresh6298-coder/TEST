@@ -1674,17 +1674,19 @@
 
   // SOPR, MVRV, and Realized Price all overlay the same BTC price series —
   // fetch it once per load() call instead of three times. `extraSeries` is
-  // an optional supplemental source (BGeometrics' own btc-crypto endpoint,
-  // if it exists) used to fill in dates before Yahoo Finance's ~2014-09-17
-  // start; Yahoo still wins on any overlapping date since it's the
-  // longer-trusted source here and on other pages.
+  // BGeometrics' own btc-crypto endpoint (if it works), which takes over
+  // as the primary source for any date it covers; Yahoo Finance is now
+  // just the fallback for dates btc-crypto's archive hasn't backfilled
+  // yet. As btc-crypto's history grows further into the past, it
+  // naturally displaces more and more of Yahoo without any further code
+  // change.
   let btcSeriesCache = null;
   async function getBtcSeriesCached(extraSeries){
     if(!btcSeriesCache){
       const yahoo = await fetchBtcHistoryForHodl();
       if(extraSeries && extraSeries.length){
-        const byDate = new Map(extraSeries.filter(p => p.y > 0).map(p => [p.x, p]));
-        yahoo.forEach(p => byDate.set(p.x, p));
+        const byDate = new Map(yahoo.map(p => [p.x, p]));
+        extraSeries.filter(p => p.y > 0).forEach(p => byDate.set(p.x, p));
         btcSeriesCache = [...byDate.values()].sort((a,b) => a.x - b.x);
       }else{
         btcSeriesCache = yahoo;
