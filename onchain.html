@@ -993,7 +993,11 @@
       const lMin = Math.min(...logVals), lMax = Math.max(...logVals);
       const lRange = (lMax - lMin) || 1;
       const leftYAt = v => padTop + h - ((Math.log10(v) - lMin) / lRange) * h;
-      [{ color: "rgba(0,0,0,0.35)", width: 3 }, { color: "#111", width: 1.3 }].forEach(style => {
+      // Dark halo + white core (same trick HODL Waves' price overlay uses)
+      // so the line stays visible on both light and dark backgrounds —
+      // a single dark color here would vanish against the app's near-black
+      // dark-mode background.
+      [{ color: "rgba(0,0,0,0.45)", width: 3 }, { color: "#ffffff", width: 1.3 }].forEach(style => {
         ctx.beginPath();
         visibleBtc.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), leftYAt(p.y)) : ctx.lineTo(xAt(p.x), leftYAt(p.y)));
         ctx.strokeStyle = style.color;
@@ -1055,7 +1059,7 @@
     const legendEl = document.getElementById(cfg.legendId);
     const presetEl = document.getElementById(cfg.presetId);
 
-    let btc = { points: [], visible: true, label: "BTC 가격", color: "#111" };
+    let btc = { points: [], visible: true, label: "BTC 가격", color: "#888888" };
     let lines = [];
     let fullRange = null, viewRange = null, highlightX = null;
 
@@ -1235,7 +1239,7 @@
 
     return {
       setData(btcPoints, lineList){
-        btc = { points: btcPoints, visible: true, label: "BTC 가격", color: "#111" };
+        btc = { points: btcPoints, visible: true, label: "BTC 가격", color: "#888888" };
         lines = lineList.map(l => ({ ...l, visible: l.visible !== false }));
         const allPts = btcPoints.concat(...lines.map(l => l.points));
         if(!allPts.length) return;
