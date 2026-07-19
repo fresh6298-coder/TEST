@@ -189,8 +189,17 @@
     <div class="metric-zone" id="mvrvZone">-</div>
     <div class="metric-desc">시가총액과 실현시가총액의 괴리를 표준편차로 정규화한 지표. 역사적으로 7 이상이면 과열(사이클 고점권), 0 이하면 저평가(사이클 저점권) 구간으로 해석돼.</div>
     <div class="chart-canvas-wrap">
-      <canvas class="metric-chart" id="mvrvChart"></canvas>
+      <canvas class="metric-chart" id="mvrvChart" style="height:160px;"></canvas>
       <div class="chart-tooltip" id="mvrvTooltip"></div>
+    </div>
+    <div class="hodl-legend toggle-legend" id="mvrvLegend"></div>
+    <div class="preset-zoom-bar" id="mvrvPresetZoom">
+      <button type="button" data-range="1m">1개월</button>
+      <button type="button" data-range="3m">3개월</button>
+      <button type="button" data-range="6m">6개월</button>
+      <button type="button" data-range="ytd">YTD</button>
+      <button type="button" data-range="1y">1년</button>
+      <button type="button" data-range="all" class="active">전체</button>
     </div>
     <div class="zoom-bar">
       <span id="mvrvRangeLabel"></span>
@@ -971,22 +980,21 @@
   // ---- SOPR: BTC price (left, log) overlaid with SOPR/LTH SOPR/STH SOPR
   // and moving averages (right, linear), each toggleable via the legend —
   // same idea as BGeometrics' own SOPR chart tool.
-  // Fixed axis bounds matching BGeometrics' own SOPR chart tool, instead
-  // of auto-fitting to whatever's visible — that tool keeps BTC price at
-  // 1~100k (log) and SOPR at a tight 0.92~1.12 band always, so extreme
-  // early-history SOPR spikes simply run off the top of the chart rather
-  // than stretching the axis and flattening the readable 0.92~1.12 range.
-  const SOPR_BTC_AXIS_MIN = 1, SOPR_BTC_AXIS_MAX = 100000;
-  const SOPR_RIGHT_AXIS_MIN = 0.92, SOPR_RIGHT_AXIS_MAX = 1.12;
-  const SOPR_RIGHT_TICKS = [0.92, 0.96, 1.00, 1.04, 1.08, 1.12];
-  const SOPR_LEFT_TICKS = [1, 10, 100, 1000, 10000, 100000];
+  // Fixed axis bounds matching BGeometrics' own chart tools, instead of
+  // auto-fitting to whatever's visible — those tools keep BTC price at
+  // 1~100k (log) and the right-hand metric at a fixed range always, so
+  // extreme early-history spikes simply run off the top of the chart
+  // rather than stretching the axis and flattening the readable range.
+  // Shared by SOPR and MVRV Z-Score (both overlay BTC price the same way).
+  const DUAL_AXIS_BTC_MIN = 1, DUAL_AXIS_BTC_MAX = 100000;
+  const DUAL_AXIS_LEFT_TICKS = [1, 10, 100, 1000, 10000, 100000];
   // BGeometrics' own "All" zoom defaults to this start date — our data
-  // (bitcoin-data.com) goes back further (2010-07-17) but that earliest
-  // stretch is thin/noisy, so match their convention instead of showing it.
-  const SOPR_CHART_START_MS = Date.UTC(2011, 11, 26);
-  const SOPR_PAD_LEFT = 30, SOPR_PAD_RIGHT = 34;
+  // (bitcoin-data.com) goes back further for some metrics, but that
+  // earliest stretch is thin/noisy, so match their convention instead.
+  const DUAL_AXIS_CHART_START_MS = Date.UTC(2011, 11, 26);
+  const DUAL_AXIS_PAD_LEFT = 30, DUAL_AXIS_PAD_RIGHT = 34;
 
-  function drawSoprChart(canvas, btc, lines, range, highlightX){
+  function drawDualAxisChart(canvas, btc, lines, range, highlightX, axisCfg){
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 160;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = w * dpr; canvas.height = hTotal * dpr;
@@ -994,35 +1002,43 @@
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,w,hTotal);
 
-    const padLeft = SOPR_PAD_LEFT, padRight = SOPR_PAD_RIGHT, padBottom = 14, padTop = 4;
+    const padLeft = DUAL_AXIS_PAD_LEFT, padRight = DUAL_AXIS_PAD_RIGHT, padBottom = 14, padTop = 4;
     const plotW = w - padLeft - padRight;
     const h = hTotal - padBottom - padTop;
     const rangeX = (range.max - range.min) || 1;
     const xAt = x => padLeft + ((x - range.min) / rangeX) * plotW;
 
-    const lMin = Math.log10(SOPR_BTC_AXIS_MIN), lMax = Math.log10(SOPR_BTC_AXIS_MAX);
+    const lMin = Math.log10(DUAL_AXIS_BTC_MIN), lMax = Math.log10(DUAL_AXIS_BTC_MAX);
     const lRange = lMax - lMin;
-    const leftYAt = v => padTop + h - ((Math.log10(Math.max(v, SOPR_BTC_AXIS_MIN)) - lMin) / lRange) * h;
+    const leftYAt = v => padTop + h - ((Math.log10(Math.max(v, DUAL_AXIS_BTC_MIN)) - lMin) / lRange) * h;
 
-    const rMin = SOPR_RIGHT_AXIS_MIN, rMax = SOPR_RIGHT_AXIS_MAX;
+    const rMin = axisCfg.rightMin, rMax = axisCfg.rightMax;
     const rRange = rMax - rMin;
     const rightYAt = v => padTop + h - ((v - rMin) / rRange) * h;
+
+    // Colored background zones (e.g. MVRV's overheated/undervalued bands)
+    (axisCfg.bands || []).forEach(b => {
+      const yTop = rightYAt(Math.min(b.to, rMax));
+      const yBottom = rightYAt(Math.max(b.from, rMin));
+      ctx.fillStyle = b.color;
+      ctx.fillRect(padLeft, yTop, plotW, yBottom - yTop);
+    });
 
     ctx.font = "8.5px ui-monospace, monospace";
     ctx.strokeStyle = "rgba(140,140,140,0.15)";
     ctx.lineWidth = 1;
-    SOPR_LEFT_TICKS.forEach(v => {
+    DUAL_AXIS_LEFT_TICKS.forEach(v => {
       const y = leftYAt(v);
       ctx.beginPath(); ctx.moveTo(padLeft, y); ctx.lineTo(w - padRight, y); ctx.stroke();
       ctx.fillStyle = "rgba(140,140,140,0.9)";
       ctx.textAlign = "right";
       ctx.fillText(v >= 1000 ? (v/1000) + "k" : String(v), padLeft - 4, y + 3);
     });
-    SOPR_RIGHT_TICKS.forEach(v => {
+    axisCfg.rightTicks.forEach(v => {
       const y = rightYAt(v);
       ctx.fillStyle = "rgba(140,140,140,0.9)";
       ctx.textAlign = "left";
-      ctx.fillText(v.toFixed(2), w - padRight + 4, y + 3);
+      ctx.fillText(String(v), w - padRight + 4, y + 3);
     });
 
     const visibleBtc = btc.visible ? btc.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0) : [];
@@ -1042,10 +1058,12 @@
       });
     }
 
-    const oneY = rightYAt(1);
-    ctx.beginPath(); ctx.moveTo(padLeft, oneY); ctx.lineTo(w - padRight, oneY);
-    ctx.strokeStyle = "rgba(140,140,140,0.5)";
-    ctx.setLineDash([3,3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+    (axisCfg.referenceLines || []).forEach(rl => {
+      const y = rightYAt(rl.at);
+      ctx.beginPath(); ctx.moveTo(padLeft, y); ctx.lineTo(w - padRight, y);
+      ctx.strokeStyle = rl.color || "rgba(140,140,140,0.5)";
+      ctx.setLineDash([3,3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+    });
 
     visLines.forEach(l => {
       if(l.pts.length < 2) return;
@@ -1080,13 +1098,15 @@
     });
   }
 
-  function createSoprChart(cfg){
+  function createDualAxisChart(cfg){
     const canvas = document.getElementById(cfg.canvasId);
     const tooltip = document.getElementById(cfg.tooltipId);
     const rangeLabel = document.getElementById(cfg.rangeLabelId);
     const resetBtn = document.getElementById(cfg.resetBtnId);
     const legendEl = document.getElementById(cfg.legendId);
     const presetEl = document.getElementById(cfg.presetId);
+    const axisCfg = { rightMin: cfg.rightMin, rightMax: cfg.rightMax, rightTicks: cfg.rightTicks, bands: cfg.bands, referenceLines: cfg.referenceLines };
+    const valueFormat = cfg.valueFormat || (v => v.toFixed(2));
 
     let btc = { points: [], visible: true, label: "BTC 가격", color: "#888888" };
     let lines = [];
@@ -1095,7 +1115,7 @@
     function render(){
       if(!fullRange) return;
       const range = viewRange || fullRange;
-      drawSoprChart(canvas, btc, lines, range, highlightX);
+      drawDualAxisChart(canvas, btc, lines, range, highlightX, axisCfg);
       rangeLabel.textContent = new Date(range.min).toISOString().slice(0,10) + " ~ " + new Date(range.max).toISOString().slice(0,10);
       resetBtn.style.display = viewRange ? "inline-block" : "none";
     }
@@ -1111,7 +1131,7 @@
       if(ms != null){
         lines.filter(l => l.visible && l.points.length).forEach(l => {
           const at = nearestPoint(l.points, ms);
-          parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${l.color};margin-right:4px;"></i>${l.label}: ${at.y.toFixed(3)}</div>`);
+          parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${l.color};margin-right:4px;"></i>${l.label}: ${valueFormat(at.y)}</div>`);
         });
       }
       if(ms == null || !parts.length){ tooltip.style.display = "none"; return; }
@@ -1121,9 +1141,9 @@
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
       const range = viewRange || fullRange;
-      const plotW = rect.width - SOPR_PAD_LEFT - SOPR_PAD_RIGHT;
+      const plotW = rect.width - DUAL_AXIS_PAD_LEFT - DUAL_AXIS_PAD_RIGHT;
       const frac = (ms - range.min) / (range.max - range.min);
-      let left = SOPR_PAD_LEFT + frac * plotW - tooltip.offsetWidth / 2;
+      let left = DUAL_AXIS_PAD_LEFT + frac * plotW - tooltip.offsetWidth / 2;
       left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
       tooltip.style.left = left + "px";
     }
@@ -1158,8 +1178,8 @@
     const xToMs = clientX => {
       const rect = canvas.getBoundingClientRect();
       const range = viewRange || fullRange;
-      const plotW = rect.width - SOPR_PAD_LEFT - SOPR_PAD_RIGHT;
-      return range.min + ((clientX - rect.left - SOPR_PAD_LEFT) / plotW) * (range.max - range.min);
+      const plotW = rect.width - DUAL_AXIS_PAD_LEFT - DUAL_AXIS_PAD_RIGHT;
+      return range.min + ((clientX - rect.left - DUAL_AXIS_PAD_LEFT) / plotW) * (range.max - range.min);
     };
 
     let touchState = null, mouseDragging = false, lastMouseX = 0;
@@ -1275,7 +1295,7 @@
         const allPts = btcPoints.concat(...lines.map(l => l.points));
         if(!allPts.length) return;
         const rawMax = Math.max(...allPts.map(p => p.x));
-        fullRange = { min: Math.min(SOPR_CHART_START_MS, rawMax), max: rawMax };
+        fullRange = { min: Math.min(DUAL_AXIS_CHART_START_MS, rawMax), max: rawMax };
         viewRange = null; highlightX = null;
         render();
         legendEl.innerHTML = `<span data-key="btc"><i style="background:${btc.color}"></i>${btc.label}</span>` +
@@ -1309,17 +1329,32 @@
     return out;
   }
 
-  const soprChart = createSoprChart({ canvasId: "soprChart", tooltipId: "soprTooltip", rangeLabelId: "soprRangeLabel", resetBtnId: "soprResetZoom", legendId: "soprLegend", presetId: "soprPresetZoom" });
+  const soprChart = createDualAxisChart({
+    canvasId: "soprChart", tooltipId: "soprTooltip", rangeLabelId: "soprRangeLabel", resetBtnId: "soprResetZoom", legendId: "soprLegend", presetId: "soprPresetZoom",
+    rightMin: 0.92, rightMax: 1.12, rightTicks: [0.92, 0.96, 1.00, 1.04, 1.08, 1.12],
+    referenceLines: [{ at: 1 }],
+    valueFormat: v => v.toFixed(3),
+  });
   window.addEventListener("resize", () => soprChart.redraw());
 
-  const mvrvChart = createMetricChart({ canvasId: "mvrvChart", tooltipId: "mvrvTooltip", rangeLabelId: "mvrvRangeLabel", resetBtnId: "mvrvResetZoom", formatValue: v => v.toFixed(2) });
+  const mvrvChart = createDualAxisChart({
+    canvasId: "mvrvChart", tooltipId: "mvrvTooltip", rangeLabelId: "mvrvRangeLabel", resetBtnId: "mvrvResetZoom", legendId: "mvrvLegend", presetId: "mvrvPresetZoom",
+    rightMin: -2, rightMax: 8, rightTicks: [-2, 0, 2, 4, 6, 8],
+    bands: [
+      { from: 6, to: 8, color: "rgba(239,68,68,0.12)" },
+      { from: -2, to: 0, color: "rgba(22,163,74,0.12)" },
+    ],
+    valueFormat: v => v.toFixed(2),
+  });
+  window.addEventListener("resize", () => mvrvChart.redraw());
+
   const nuplChart = createMetricChart({ canvasId: "nuplChart", tooltipId: "nuplTooltip", rangeLabelId: "nuplRangeLabel", resetBtnId: "nuplResetZoom", formatValue: v => v.toFixed(2) });
   const puellChart = createMetricChart({ canvasId: "puellChart", tooltipId: "puellTooltip", rangeLabelId: "puellRangeLabel", resetBtnId: "puellResetZoom", formatValue: v => v.toFixed(2) });
   const reserveRiskChart = createMetricChart({ canvasId: "reserveRiskChart", tooltipId: "reserveRiskTooltip", rangeLabelId: "reserveRiskRangeLabel", resetBtnId: "reserveRiskResetZoom", formatValue: v => v.toFixed(4) });
   const avivChart = createMetricChart({ canvasId: "avivChart", tooltipId: "avivTooltip", rangeLabelId: "avivRangeLabel", resetBtnId: "avivResetZoom", formatValue: v => v.toFixed(2) });
 
   window.addEventListener("resize", () => {
-    mvrvChart.redraw(); nuplChart.redraw(); puellChart.redraw();
+    nuplChart.redraw(); puellChart.redraw();
     reserveRiskChart.redraw(); avivChart.redraw();
   });
 
@@ -1380,6 +1415,9 @@
           <div><b style="color:var(--sub)">0~7</b> — 중립 구간.</div>
           <div><b style="color:var(--green)">0 이하</b> — 저평가. 시장 전체가 손실 상태. 역사적으로 사이클 저점 근처.</div>
         </div>
+
+        <p><b>LTH-MVRV / STH-MVRV는 뭐가 달라?</b><br>
+        전체 MVRV Z-Score는 모든 보유기간을 섞어서 계산하는데, 장기 보유자(LTH)만 따로 보면 "오래 버틴 사람들"이 지금 얼마나 벌고 있는지를, 단기 보유자(STH)만 보면 "최근에 산 사람들"의 평가손익을 따로 볼 수 있어. 차트 아래 범례를 눌러서 켜고 끌 수 있어.</p>
 
         <p><b>한 줄 요약:</b> "지금 비트코인 보유자 전체가 평균적으로 얼마나 벌고(혹은 잃고) 있는지"를 보여주는 온도계야. 다들 너무 많이 벌고 있으면 위험 신호, 다들 손해보고 있으면 오히려 기회일 수 있어.</p>
       `,
@@ -1572,8 +1610,19 @@
         document.getElementById("mvrvValue").textContent = m.mvrvZscore.current.value.toFixed(2);
         const [label, color] = mvrvZone(m.mvrvZscore.current.value);
         setZone(document.getElementById("mvrvZone"), label, color);
-        mvrvChart.setData(m.mvrvZscore.history, [{at:7,color:"rgba(239,68,68,0.5)"},{at:0,color:"rgba(22,163,74,0.5)"}]);
         setRange(document.getElementById("mvrvRange"), m.mvrvZscore);
+
+        const mvrvSeries = m.mvrvZscore.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value }));
+        const mvrvLines = [{ key: "mvrvZscore", label: "MVRV Z-Score", color: "#3b82f6", points: mvrvSeries }];
+        if(m.lthMvrv){
+          mvrvLines.push({ key: "lthMvrv", label: "LTH-MVRV", color: "#8b5cf6", visible: false, points: m.lthMvrv.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value })) });
+        }
+        if(m.sthMvrv){
+          mvrvLines.push({ key: "sthMvrv", label: "STH-MVRV", color: "#16a34a", visible: false, points: m.sthMvrv.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value })) });
+        }
+
+        const mvrvBtcSeries = await getBtcSeriesCached();
+        mvrvChart.setData(mvrvBtcSeries, mvrvLines);
       }
       if(m.nupl){
         document.getElementById("nuplValue").textContent = m.nupl.current.value.toFixed(2);

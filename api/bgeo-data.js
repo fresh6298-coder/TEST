@@ -270,6 +270,11 @@ async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs, for
 
 const ONCHAIN_METRICS = {
   mvrvZscore: { path: "mvrv-zscore", hint: /mvrv/i },
+  // Same "graphics endpoint implies a JSON sibling" reasoning as
+  // lth-sopr/sth-sopr below — bgeometrics' own MVRV chart tool shows
+  // LTH-MVRV/STH-MVRV lines, and "lth_mvrv.html"/"sth_mvrv.html" exist.
+  lthMvrv: { path: "lth-mvrv", hint: /mvrv/i },
+  sthMvrv: { path: "sth-mvrv", hint: /mvrv/i },
   nupl: { path: "nupl", hint: /nupl|unrealized/i },
   puellMultiple: { path: "puell-multiple", hint: /puell/i },
   sopr: { path: "sopr", hint: /sopr/i },
