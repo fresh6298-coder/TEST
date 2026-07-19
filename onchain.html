@@ -276,6 +276,17 @@
     <div class="metric-range" id="hodlWavesRange"></div>
   </div>
 
+  <div class="metric-card">
+    <div class="metric-head"><span class="metric-name-row"><span class="metric-name">코호트별 실현가격</span><button type="button" class="info-btn" data-metric="realizedPriceBands">i</button></span></div>
+    <div class="metric-desc">보유기간별 평균 매입단가(실현가격)와 실제 가격을 겹쳐봐. 가격이 중기 보유자 그룹의 매입단가 아래로 떨어지면 과거 사이클에서 국면 전환 신호로 해석된 적이 많아.</div>
+    <div class="chart-canvas-wrap">
+      <canvas class="metric-chart" id="realizedPriceChart" style="height:160px;"></canvas>
+      <div class="chart-tooltip" id="realizedPriceTooltip"></div>
+    </div>
+    <div class="hodl-legend" id="realizedPriceLegend"></div>
+    <div class="metric-range" id="realizedPriceRange"></div>
+  </div>
+
   <p class="status-line" id="statusLine">&nbsp;</p>
   <p class="source-note" id="rawApiNote" style="display:none;"><a href="/api/onchain-metrics" target="_blank" rel="noopener">raw API 응답 보기 →</a></p>
   <p class="source-note">Data: <a href="https://bitcoin-data.com" target="_blank" rel="noopener">bitcoin-data.com</a></p>
@@ -550,6 +561,139 @@
 
   const hodlWavesChart = createHodlWavesChart();
   window.addEventListener("resize", () => hodlWavesChart.redraw());
+
+  // ---- Realized Price by holder-age cohort, overlaid with BTC price ----
+  // Unlike HODL Waves (supply % vs. a totally separate price scale), every
+  // series here is a dollar amount, so price and every cohort line share
+  // one log-price y-axis — no dual-scale conversion needed.
+  function drawRealizedPriceOverlay(canvas, priceSeries, bandLines, range, highlightX){
+    const w = canvas.clientWidth, hTotal = canvas.clientHeight || 160;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = hTotal * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,hTotal);
+    if(!priceSeries.length) return;
+
+    const padBottom = 14, padTop = 4;
+    const plotW = w;
+    const h = hTotal - padBottom - padTop;
+    const rangeX = (range.max - range.min) || 1;
+    const xAt = x => ((x - range.min) / rangeX) * plotW;
+
+    const visiblePrice = priceSeries.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0);
+    const visibleBandLines = bandLines.map(bl => ({ ...bl, pts: bl.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0) }));
+    const allVals = visiblePrice.map(p => Math.log10(p.y)).concat(...visibleBandLines.map(bl => bl.pts.map(p => Math.log10(p.y))));
+    if(!allVals.length) return;
+    const min = Math.min(...allVals), max = Math.max(...allVals);
+    const valRange = (max - min) || 1;
+    const yAt = v => padTop + h - ((Math.log10(v) - min) / valRange) * h;
+
+    visibleBandLines.forEach(bl => {
+      if(bl.pts.length < 2) return;
+      ctx.beginPath();
+      bl.pts.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), yAt(p.y)) : ctx.lineTo(xAt(p.x), yAt(p.y)));
+      ctx.strokeStyle = bl.color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    if(visiblePrice.length >= 2){
+      [{ color: "rgba(0,0,0,0.55)", width: 3 }, { color: "#f7931a", width: 1.5 }].forEach(style => {
+        ctx.beginPath();
+        visiblePrice.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), yAt(p.y)) : ctx.lineTo(xAt(p.x), yAt(p.y)));
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.width;
+        ctx.stroke();
+      });
+    }
+
+    if(highlightX != null){
+      const hx = xAt(highlightX);
+      if(hx >= -1 && hx <= plotW + 1){
+        ctx.beginPath();
+        ctx.moveTo(hx, padTop); ctx.lineTo(hx, padTop + h);
+        ctx.strokeStyle = "rgba(140,140,140,0.5)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    const tickXs = [range.min, range.min + rangeX*0.33, range.min + rangeX*0.66, range.max];
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.font = "9px ui-monospace, monospace";
+    tickXs.forEach((tx, idx) => {
+      const x = xAt(tx);
+      ctx.textAlign = idx === 0 ? "left" : idx === tickXs.length - 1 ? "right" : "center";
+      const clampedX = idx === 0 ? Math.max(2, x) : idx === tickXs.length - 1 ? Math.min(plotW - 2, x) : x;
+      ctx.fillText(shortDate(tx), clampedX, hTotal - 2);
+    });
+  }
+
+  function createRealizedPriceChart(){
+    const canvas = document.getElementById("realizedPriceChart");
+    const tooltip = document.getElementById("realizedPriceTooltip");
+    let priceSeries = [], bandLines = [], fullRange = null, highlightX = null;
+
+    function render(){
+      if(!fullRange) return;
+      drawRealizedPriceOverlay(canvas, priceSeries, bandLines, fullRange, highlightX);
+    }
+
+    function updateTooltip(ms){
+      highlightX = ms;
+      render();
+      if(ms == null || !priceSeries.length){ tooltip.style.display = "none"; return; }
+      const priceAt = nearestPoint(priceSeries, ms);
+      const lines = bandLines.map(bl => {
+        if(!bl.points.length) return "";
+        const at = nearestPoint(bl.points, ms);
+        return `<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${bl.color};margin-right:4px;"></i>${bl.label}: $${Math.round(at.y).toLocaleString("en-US")}</div>`;
+      }).join("");
+      tooltip.innerHTML = `<div><b>${new Date(priceAt.x).toISOString().slice(0,10)}</b></div><div>BTC 가격: $${Math.round(priceAt.y).toLocaleString("en-US")}</div>${lines}`;
+      tooltip.style.display = "block";
+      const rect = canvas.getBoundingClientRect();
+      const frac = (ms - fullRange.min) / (fullRange.max - fullRange.min);
+      let left = frac * rect.width - tooltip.offsetWidth / 2;
+      left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+      tooltip.style.left = left + "px";
+    }
+
+    const xToMs = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      return fullRange.min + ((clientX - rect.left) / rect.width) * (fullRange.max - fullRange.min);
+    };
+
+    canvas.addEventListener("touchstart", e => {
+      if(e.touches.length === 1) updateTooltip(xToMs(e.touches[0].clientX));
+    }, { passive: true });
+    canvas.addEventListener("touchmove", e => {
+      if(!fullRange || e.touches.length !== 1) return;
+      updateTooltip(xToMs(e.touches[0].clientX));
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateTooltip(null); });
+    canvas.addEventListener("mousemove", e => updateTooltip(xToMs(e.clientX)));
+    canvas.addEventListener("mouseleave", () => updateTooltip(null));
+
+    return {
+      setData(prices, lines){
+        priceSeries = (prices || []).slice().sort((a,b) => a.x - b.x);
+        bandLines = lines || [];
+        if(!priceSeries.length) return;
+        fullRange = { min: priceSeries[0].x, max: priceSeries[priceSeries.length-1].x };
+        highlightX = null;
+        render();
+        const legend = document.getElementById("realizedPriceLegend");
+        legend.innerHTML = `<span><i style="background:#f7931a"></i>BTC 가격</span>` +
+          bandLines.map(bl => `<span><i style="background:${bl.color}"></i>${bl.label}</span>`).join("");
+      },
+      redraw: render,
+    };
+  }
+
+  const realizedPriceChart = createRealizedPriceChart();
+  window.addEventListener("resize", () => realizedPriceChart.redraw());
 
   function clampRange(range, full){
     const width = Math.min(range.max - range.min, full.max - full.min);
@@ -912,6 +1056,21 @@
         <p><b>한 줄 요약:</b> "지금 유통 중인 비트코인이 얼마나 오래 잠들어있었는지"를 색깔 띠로 보여주는 지도야. 오래된 코인(장기 보유자)이 깨어나는지, 계속 잠들어있는지를 보면 사이클의 국면을 가늠할 수 있어.</p>
       `,
     },
+    realizedPriceBands: {
+      title: "코호트별 실현가격",
+      body: `
+        <p><b>이게 뭘 재는 지표야?</b><br>
+        비트코인을 마지막으로 옮긴 지 얼마나 됐는지(보유기간)별로 묶어서, 그 그룹이 평균적으로 얼마에 샀는지(실현가격 = 평균 매입단가)를 실제 가격과 함께 겹쳐 보여주는 그래프야.</p>
+
+        <p><b>왜 이 그래프가 유용해?</b><br>
+        실제 가격이 특정 보유기간 그룹의 평균 매입단가 아래로 떨어지면, 그 그룹은 평균적으로 손실 구간에 들어간다는 뜻이야. 특히 중기 보유자(약 6개월~18개월) 그룹의 매입단가를 가격이 아래로 뚫는 시점은 과거 사이클에서 여러 번 국면 전환(고점 형성이나 하락 가속)의 신호로 해석돼 왔어.</p>
+
+        <p><b>보는 법:</b><br>
+        그래프를 스크럽하면 그 날짜의 BTC 가격과 각 코호트의 평균 매입단가를 정확한 숫자로 볼 수 있어. 가격 선이 코호트 선을 위에서 아래로 뚫고 내려가는 지점을 눈여겨봐.</p>
+
+        <p><b>한 줄 요약:</b> "가격이 중기 보유자들의 평균 매입단가보다 낮아지는가"를 보여주는 그래프야 — 과거 사이클 전환점 근처에서 반복적으로 나타난 패턴이야.</p>
+      `,
+    },
   };
 
   function openInfoModal(metric){
@@ -1032,10 +1191,66 @@
     }
   }
 
+  // Band field names aren't hardcoded (same reasoning as HODL Waves) — a
+  // key's "duration midpoint" in days is estimated from whatever
+  // d/w/m/y tokens appear in its name, then the closest match to each
+  // target window is picked. This survives naming variants like
+  // "6m_12m" vs "180d_365d" without needing an exact string match.
+  function bandMidDays(key){
+    const matches = [...key.matchAll(/(\d+(?:\.\d+)?)\s*([dwmy])/ig)];
+    if(!matches.length) return null;
+    const mult = {d:1,w:7,m:30,y:365};
+    const vals = matches.map(m => parseFloat(m[1]) * (mult[m[2].toLowerCase()] || 1));
+    return vals.reduce((a,b) => a+b, 0) / vals.length;
+  }
+  function pickClosestBand(bandKeys, targetDays, exclude){
+    let best = null, bestDist = Infinity;
+    bandKeys.forEach(k => {
+      if(exclude && exclude.includes(k)) return;
+      const mid = bandMidDays(k);
+      if(mid == null) return;
+      const dist = Math.abs(mid - targetDays);
+      if(dist < bestDist){ bestDist = dist; best = k; }
+    });
+    return best;
+  }
+
+  async function loadRealizedPriceBands(){
+    try{
+      const [res, priceSeries] = await Promise.all([fetch("/api/bgeo-data?type=realized-price-bands"), fetchBtcHistoryForHodl()]);
+      if(!res.ok) throw new Error("API " + res.status);
+      const data = await res.json();
+      if(!data.history || !data.history.length) throw new Error("데이터 없음");
+
+      // ~6-12mo and ~12-18mo cohorts — the pair the reference chart
+      // highlighted, since a price cross below either has historically
+      // marked a cycle-phase turn.
+      const midKey = pickClosestBand(data.bandKeys, 270);
+      const longKey = pickClosestBand(data.bandKeys, 450, midKey ? [midKey] : []);
+      const bandLines = [];
+      if(midKey) bandLines.push({
+        key: midKey, label: prettyBandLabel(midKey), color: "#16a34a",
+        points: data.history.filter(r => r.bands[midKey] != null).map(r => ({ x: r.dateMs, y: r.bands[midKey] })),
+      });
+      if(longKey) bandLines.push({
+        key: longKey, label: prettyBandLabel(longKey), color: "#f59e0b",
+        points: data.history.filter(r => r.bands[longKey] != null).map(r => ({ x: r.dateMs, y: r.bands[longKey] })),
+      });
+
+      realizedPriceChart.setData(priceSeries, bandLines);
+      document.getElementById("realizedPriceRange").textContent =
+        data.earliest + " ~ " + data.latest + " (" + data.count.toLocaleString("en-US") + "pts)";
+    }catch(e){
+      document.getElementById("realizedPriceRange").textContent = "코호트별 실현가격 로드 실패: " + e.message;
+    }
+  }
+
   load();
   loadHodlWaves();
+  loadRealizedPriceBands();
   setInterval(load, 60 * 60 * 1000);
   setInterval(loadHodlWaves, 60 * 60 * 1000);
+  setInterval(loadRealizedPriceBands, 60 * 60 * 1000);
 })();
 </script>
 </body>

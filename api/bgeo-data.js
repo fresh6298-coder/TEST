@@ -335,6 +335,42 @@ async function handleHodlWaves(req, res) {
   });
 }
 
+// Realized price (average on-chain acquisition cost) broken down by
+// holder-age cohort — the counterpart to hodl-waves-supply's "% of
+// supply per age band", but in $ terms instead of %. Path is a
+// best-effort guess at bitcoin-data.com's naming convention (unverified —
+// this provider's exact endpoint list for this metric hasn't been
+// confirmed); if it 404s, this degrades to the same graceful
+// "no parseable records" error every other metric here already handles.
+async function handleRealizedPriceBands(req, res) {
+  const { history, source, debug } = await loadDataset({
+    archiveKey: "realized-price-bands-archive",
+    path: "realized-price-age-bands",
+    normalize: normalizeBandSeries,
+    freshnessMs: DAY_MS,
+  });
+
+  if (!history.length) {
+    res.status(502).json({ error: "realized-price-age-bands: no parseable records", debug });
+    return;
+  }
+
+  const bandKeys = [...new Set(history.flatMap((r) => Object.keys(r.bands)))];
+
+  res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
+  res.status(200).json({
+    tokenConfigured: Boolean(BGEO_TOKEN),
+    fetchedAt: new Date().toISOString(),
+    bandKeys,
+    history,
+    count: history.length,
+    earliest: history[0].date,
+    latest: history[history.length - 1].date,
+    source: source || "cache",
+    debug,
+  });
+}
+
 async function handleM2Global(req, res) {
   const { history, source, debug } = await loadDataset({
     archiveKey: "m2-global-archive",
@@ -366,5 +402,6 @@ export default async function handler(req, res) {
   const type = req.query && req.query.type;
   if (type === "hodl-waves") return handleHodlWaves(req, res);
   if (type === "m2-global") return handleM2Global(req, res);
+  if (type === "realized-price-bands") return handleRealizedPriceBands(req, res);
   return handleOnchainMetrics(req, res);
 }
