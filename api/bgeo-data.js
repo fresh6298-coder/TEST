@@ -195,6 +195,19 @@ const WEEK_MS = 7 * DAY_MS;
 // self-exhaust the hourly quota and auth never gets a chance to recover.
 const AUTH_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
 
+// All ~10 metrics were originally backfilled within minutes of each
+// other, so their plain 24h freshness windows expire at nearly the same
+// moment every day — that synchronized burst (up to 10 auth + 10 anon
+// requests all at once) is what's been exhausting the paid tier's
+// 200/hour cap, not routine daily traffic. A deterministic per-path
+// jitter spreads that burst across a few extra hours instead.
+const STAGGER_WINDOW_MS = 4 * 60 * 60 * 1000;
+function staggerJitter(path) {
+  let hash = 0;
+  for (let i = 0; i < path.length; i++) hash = (hash * 31 + path.charCodeAt(i)) >>> 0;
+  return hash % STAGGER_WINDOW_MS;
+}
+
 async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs, forceAuth }) {
   let existing = { authAttempted: false, authLastAttemptMs: null, rows: [] };
   if (redisConfigured()) {
@@ -219,7 +232,7 @@ async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs, for
   const needsAuthAttempt = Boolean(BGEO_TOKEN) && !existing.authAttempted && !authCooldownActive;
   const rows = existing.rows;
   const latestMs = rows.length ? rows[rows.length - 1].dateMs : null;
-  const archiveIsFreshEnough = !needsAuthAttempt && latestMs != null && Date.now() - latestMs < freshnessMs;
+  const archiveIsFreshEnough = !needsAuthAttempt && latestMs != null && Date.now() - latestMs < freshnessMs + staggerJitter(path);
 
   let fresh = null;
   let fetchDebug = archiveIsFreshEnough ? ["skipped (archive already fresh)"] : null;
