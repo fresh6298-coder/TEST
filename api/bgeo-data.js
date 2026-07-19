@@ -244,6 +244,11 @@ const ONCHAIN_METRICS = {
   reserveRisk: { path: "reserve-risk", hint: /reserve/i },
   aviv: { path: "aviv", hint: /aviv/i },
   stockToFlow: { path: "stock", hint: /stock/i },
+  // Best-effort path guess (unverified against bitcoin-data.com's actual
+  // endpoint list) — same situation as the reverted realized-price-bands
+  // attempt. Degrades to the existing per-metric error in `errors` below
+  // if this 404s, rather than failing the whole /api/onchain-metrics call.
+  exchangeReserve: { path: "exchange-reserve", hint: /exchange|reserve|balance|supply/i },
 };
 
 async function handleOnchainMetrics(req, res) {
