@@ -275,13 +275,22 @@ const ONCHAIN_METRICS = {
 };
 
 async function handleOnchainMetrics(req, res) {
-  // ?refresh=1 bypasses the auth-retry cooldown — for manually verifying
-  // a just-changed BGEOMETRICS_API_TOKEN without waiting out the cooldown
-  // window Redis remembers from the previous token's failed attempts.
-  const forceAuth = "refresh" in (req.query || {});
+  // ?refresh=1 bypasses the auth-retry cooldown for every metric — for
+  // manually verifying a just-changed BGEOMETRICS_API_TOKEN without
+  // waiting out the cooldown window Redis remembers from the previous
+  // token's failed attempts. ?refresh=lthSopr,sthSopr scopes the bypass
+  // to just those metric keys instead, so a targeted re-check doesn't
+  // spend the (fairly tight, 200/hour) paid-tier quota re-attempting
+  // auth on metrics that already succeeded and don't need it.
+  const refreshParam = (req.query || {}).refresh;
+  const forceAuthAll = refreshParam === "1" || refreshParam === "true";
+  const forceAuthKeys = typeof refreshParam === "string" && !forceAuthAll
+    ? new Set(refreshParam.split(",").map((s) => s.trim()).filter(Boolean))
+    : null;
   const entries = Object.entries(ONCHAIN_METRICS);
   const results = await Promise.allSettled(
     entries.map(async ([key, cfg]) => {
+      const forceAuth = forceAuthAll || Boolean(forceAuthKeys && forceAuthKeys.has(key));
       const { history, source, debug } = await loadDataset({
         archiveKey: `onchain-archive:${cfg.path}`,
         path: cfg.path,
