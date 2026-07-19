@@ -532,7 +532,7 @@
       drawHodlWaves(canvas, rows, bandKeys, colors, fullRange, highlightX, priceSeries);
     }
 
-    function updateTooltip(ms){
+    function updateTooltip(ms, clientY){
       highlightX = ms;
       render();
       if(ms == null || !rows.length){ tooltip.style.display = "none"; return; }
@@ -550,6 +550,7 @@
       tooltip.innerHTML = `<div><b>${new Date(r.dateMs).toISOString().slice(0,10)}</b></div>${lines}${priceLine}`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
+      if(clientY != null) positionTooltipY(tooltip, clientY, rect);
       const frac = (ms - fullRange.min) / (fullRange.max - fullRange.min);
       let left = frac * rect.width - tooltip.offsetWidth / 2;
       left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
@@ -562,15 +563,15 @@
     };
 
     canvas.addEventListener("touchstart", e => {
-      if(e.touches.length === 1) updateTooltip(xToMs(e.touches[0].clientX));
+      if(e.touches.length === 1) updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
     }, { passive: true });
     canvas.addEventListener("touchmove", e => {
       if(!fullRange || e.touches.length !== 1) return;
-      updateTooltip(xToMs(e.touches[0].clientX));
+      updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       e.preventDefault();
     }, { passive: false });
     canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateTooltip(null); });
-    canvas.addEventListener("mousemove", e => updateTooltip(xToMs(e.clientX)));
+    canvas.addEventListener("mousemove", e => updateTooltip(xToMs(e.clientX), e.clientY));
     canvas.addEventListener("mouseleave", () => updateTooltip(null));
 
     return {
@@ -616,6 +617,16 @@
     return (ms - a.x) <= (b.x - ms) ? a : b;
   }
 
+  // Flips the tooltip to whichever vertical half of the canvas the
+  // pointer ISN'T currently in, so it never sits directly on top of the
+  // point being touched/scrubbed. clientY is the raw event coordinate;
+  // rect is the canvas's getBoundingClientRect().
+  function positionTooltipY(tooltip, clientY, rect){
+    const fracY = (clientY - rect.top) / rect.height;
+    if(fracY < 0.5){ tooltip.style.top = "auto"; tooltip.style.bottom = "4px"; }
+    else { tooltip.style.top = "4px"; tooltip.style.bottom = "auto"; }
+  }
+
   const MIN_ZOOM_MS = 30 * 86400000; // don't zoom in past ~1 month
 
   // Reusable scrub + two-finger pinch-zoom/pan chart, same interaction
@@ -638,7 +649,7 @@
       resetBtn.style.display = viewRange ? "inline-block" : "none";
     }
 
-    function updateTooltip(ms){
+    function updateTooltip(ms, clientY){
       highlightX = ms;
       render();
       if(ms == null || !points.length){ tooltip.style.display = "none"; return; }
@@ -646,6 +657,7 @@
       tooltip.innerHTML = `<div><b>${new Date(p.x).toISOString().slice(0,10)}</b></div><div>${cfg.formatValue(p.y)}</div>`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
+      if(clientY != null) positionTooltipY(tooltip, clientY, rect);
       const range = viewRange || fullRange;
       const frac = (ms - range.min) / (range.max - range.min);
       let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -685,7 +697,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateTooltip(xToMs(e.touches[0].clientX));
+        updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -698,7 +710,7 @@
       if(!touchState || !fullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateTooltip(xToMs(e.touches[0].clientX));
+        updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -743,7 +755,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !fullRange) return;
-      updateTooltip(xToMs(e.clientX));
+      updateTooltip(xToMs(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
 
@@ -842,7 +854,7 @@
       resetBtn.style.display = viewRange ? "inline-block" : "none";
     }
 
-    function updateTooltip(ms){
+    function updateTooltip(ms, clientY){
       highlightX = ms;
       render();
       if(ms == null || !seriesList.length){ tooltip.style.display = "none"; return; }
@@ -856,6 +868,7 @@
       tooltip.innerHTML = `<div><b>${new Date(dateMs).toISOString().slice(0,10)}</b></div>${lines}`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
+      if(clientY != null) positionTooltipY(tooltip, clientY, rect);
       const range = viewRange || fullRange;
       const frac = (ms - range.min) / (range.max - range.min);
       let left = frac * rect.width - tooltip.offsetWidth / 2;
@@ -895,7 +908,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateTooltip(xToMs(e.touches[0].clientX));
+        updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -908,7 +921,7 @@
       if(!touchState || !fullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateTooltip(xToMs(e.touches[0].clientX));
+        updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -953,7 +966,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !fullRange) return;
-      updateTooltip(xToMs(e.clientX));
+      updateTooltip(xToMs(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
 
@@ -1158,7 +1171,7 @@
       resetBtn.style.display = viewRange ? "inline-block" : "none";
     }
 
-    function updateTooltip(ms){
+    function updateTooltip(ms, clientY){
       highlightX = ms;
       render();
       const parts = [];
@@ -1178,6 +1191,7 @@
       tooltip.innerHTML = `<div><b>${new Date(dateMs).toISOString().slice(0,10)}</b></div>${parts.join("")}`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
+      if(clientY != null) positionTooltipY(tooltip, clientY, rect);
       const range = viewRange || fullRange;
       const plotW = rect.width - DUAL_AXIS_PAD_LEFT - DUAL_AXIS_PAD_RIGHT;
       const frac = (ms - range.min) / (range.max - range.min);
@@ -1225,7 +1239,7 @@
     canvas.addEventListener("touchstart", e => {
       if(e.touches.length === 1){
         touchState = { mode: "scrub" };
-        updateTooltip(xToMs(e.touches[0].clientX));
+        updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1238,7 +1252,7 @@
       if(!touchState || !fullRange) return;
       const rect = canvas.getBoundingClientRect();
       if(touchState.mode === "scrub" && e.touches.length === 1){
-        updateTooltip(xToMs(e.touches[0].clientX));
+        updateTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
       } else if(touchState.mode === "pinch" && e.touches.length === 2){
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1283,7 +1297,7 @@
 
     canvas.addEventListener("mousemove", e => {
       if(mouseDragging || !fullRange) return;
-      updateTooltip(xToMs(e.clientX));
+      updateTooltip(xToMs(e.clientX), e.clientY);
     });
     canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateTooltip(null); });
 
