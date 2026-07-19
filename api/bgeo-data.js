@@ -244,11 +244,16 @@ const ONCHAIN_METRICS = {
   reserveRisk: { path: "reserve-risk", hint: /reserve/i },
   aviv: { path: "aviv", hint: /aviv/i },
   stockToFlow: { path: "stock", hint: /stock/i },
-  // Best-effort path guess (unverified against bitcoin-data.com's actual
-  // endpoint list) — same situation as the reverted realized-price-bands
-  // attempt. Degrades to the existing per-metric error in `errors` below
-  // if this 404s, rather than failing the whole /api/onchain-metrics call.
+  // Best-effort path guesses (unverified against bitcoin-data.com's actual
+  // endpoint list). Degrades to the existing per-metric error in `errors`
+  // below if either 404s, rather than failing the whole
+  // /api/onchain-metrics call.
   exchangeReserve: { path: "exchange-reserve", hint: /exchange|reserve|balance|supply/i },
+  // The aggregate on-chain cost basis MVRV Z-Score is itself derived
+  // from — a single $ value per day, unlike the reverted per-cohort
+  // breakdown (realized-price-age-bands, confirmed 404). This is a much
+  // more fundamental/commonly-offered metric, so more likely to exist.
+  realizedPrice: { path: "realized-price", hint: /realized/i },
 };
 
 async function handleOnchainMetrics(req, res) {
