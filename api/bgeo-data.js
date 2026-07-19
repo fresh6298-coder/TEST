@@ -153,21 +153,25 @@ async function redisGetArchive(key) {
   });
   if (!res.ok) throw new Error(`redis GET failed: ${res.status}`);
   const data = await res.json();
-  if (!data.result) return { authAttempted: false, rows: [] };
+  if (!data.result) return { authAttempted: false, authLastAttemptMs: null, rows: [] };
   try {
     const parsed = JSON.parse(data.result);
-    if (Array.isArray(parsed)) return { authAttempted: false, rows: parsed }; // pre-token archive format
-    return { authAttempted: !!parsed.authAttempted, rows: Array.isArray(parsed.rows) ? parsed.rows : [] };
+    if (Array.isArray(parsed)) return { authAttempted: false, authLastAttemptMs: null, rows: parsed }; // pre-token archive format
+    return {
+      authAttempted: !!parsed.authAttempted,
+      authLastAttemptMs: typeof parsed.authLastAttemptMs === "number" ? parsed.authLastAttemptMs : null,
+      rows: Array.isArray(parsed.rows) ? parsed.rows : [],
+    };
   } catch {
-    return { authAttempted: false, rows: [] };
+    return { authAttempted: false, authLastAttemptMs: null, rows: [] };
   }
 }
 
-async function redisSetArchive(key, rows, authAttempted) {
+async function redisSetArchive(key, rows, authAttempted, authLastAttemptMs) {
   await fetch(`${REDIS_URL}/set/${key}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${REDIS_TOKEN}`, "content-type": "text/plain" },
-    body: JSON.stringify({ authAttempted, rows }),
+    body: JSON.stringify({ authAttempted, authLastAttemptMs, rows }),
   });
 }
 
@@ -185,13 +189,19 @@ const WEEK_MS = 7 * DAY_MS;
 // controls how long an archive is trusted before re-fetching (on-chain
 // metrics/HODL waves update daily, Global M2 is monthly-ish so a week is
 // plenty).
+// BGeometrics' free tier is 10 req/hour, 15/day (confirmed from their
+// pricing page) — a 429 must not be retried on literally every request,
+// or with ~9 metrics all doing that on every page load, we permanently
+// self-exhaust the hourly quota and auth never gets a chance to recover.
+const AUTH_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
+
 async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs }) {
-  let existing = { authAttempted: false, rows: [] };
+  let existing = { authAttempted: false, authLastAttemptMs: null, rows: [] };
   if (redisConfigured()) {
     try {
       existing = await redisGetArchive(archiveKey);
     } catch {
-      existing = { authAttempted: false, rows: [] };
+      existing = { authAttempted: false, authLastAttemptMs: null, rows: [] };
     }
   }
 
@@ -199,8 +209,10 @@ async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs }) {
   // archive must force a fresh attempt regardless of date-freshness —
   // otherwise an archive that already happens to include today's date
   // (built before the token existed) would silently keep serving the
-  // old, shorter window forever.
-  const needsAuthAttempt = Boolean(BGEO_TOKEN) && !existing.authAttempted;
+  // old, shorter window forever. But once a 429 has been hit, wait out
+  // the cooldown before trying again instead of retrying every request.
+  const authCooldownActive = Boolean(existing.authLastAttemptMs) && Date.now() - existing.authLastAttemptMs < AUTH_RETRY_COOLDOWN_MS;
+  const needsAuthAttempt = Boolean(BGEO_TOKEN) && !existing.authAttempted && !authCooldownActive;
   const rows = existing.rows;
   const latestMs = rows.length ? rows[rows.length - 1].dateMs : null;
   const archiveIsFreshEnough = !needsAuthAttempt && latestMs != null && Date.now() - latestMs < freshnessMs;
@@ -209,6 +221,7 @@ async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs }) {
   let fetchDebug = archiveIsFreshEnough ? ["skipped (archive already fresh)"] : null;
   let freshSource = null;
   let authResolved = false;
+  const willAttemptAuth = !archiveIsFreshEnough && Boolean(BGEO_TOKEN);
   if (!archiveIsFreshEnough) {
     try {
       const best = await fetchFullHistory(path);
@@ -226,11 +239,13 @@ async function loadDataset({ archiveKey, path, hint, normalize, freshnessMs }) {
   // Only latch authAttempted once auth has actually been resolved one way
   // or the other — a 429 (rate limit) must NOT get recorded as "tried",
   // or a future request (once the provider's quota resets) would never
-  // attempt auth again.
+  // attempt auth again. authLastAttemptMs tracks *when* we last tried,
+  // regardless of outcome, so the cooldown above has something to check.
   const authAttempted = existing.authAttempted || (Boolean(BGEO_TOKEN) && authResolved);
-  if (fresh) {
-    history = mergeHistory(rows, fresh);
-    if (redisConfigured()) await redisSetArchive(archiveKey, history, authAttempted).catch(() => {});
+  const authLastAttemptMs = willAttemptAuth ? Date.now() : existing.authLastAttemptMs;
+  if (fresh) history = mergeHistory(rows, fresh);
+  if (redisConfigured() && (fresh || willAttemptAuth)) {
+    await redisSetArchive(archiveKey, history, authAttempted, authLastAttemptMs).catch(() => {});
   }
 
   return { history, source: freshSource, debug: fetchDebug };
