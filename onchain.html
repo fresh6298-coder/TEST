@@ -543,7 +543,7 @@
         const pct = ((r.bands[k] || 0) / total * 100).toFixed(1);
         return `<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${color};margin-right:4px;"></i>${prettyBandLabel(k)}: ${pct}%</div>`;
       }).join("");
-      const priceAt = priceSeries.length ? nearestPoint(priceSeries, ms) : null;
+      const priceAt = priceSeries.length ? nearestPointInRange(priceSeries, ms) : null;
       const priceLine = priceAt
         ? `<div style="margin-top:3px;border-top:1px solid rgba(140,140,140,0.35);padding-top:3px;">BTC $${Math.round(priceAt.y).toLocaleString("en-US")}</div>`
         : "";
@@ -615,6 +615,18 @@
     const a = points[lo-1], b = points[lo];
     if(!a) return b;
     return (ms - a.x) <= (b.x - ms) ? a : b;
+  }
+
+  // Different series on the same chart can have genuinely different date
+  // ranges (e.g. BTC price only goes back to ~2014-09-17 via Yahoo, while
+  // MVRV Z-Score now goes back to 2009) — plain nearestPoint() silently
+  // clamps to whichever endpoint is closest, so scrubbing to 2012 would
+  // otherwise show "2014-09-17" for BTC as if that date were actually
+  // nearby. This returns null instead once the real gap exceeds a few days.
+  const TOOLTIP_MAX_GAP_MS = 3 * 24 * 60 * 60 * 1000;
+  function nearestPointInRange(points, ms){
+    const p = nearestPoint(points, ms);
+    return p && Math.abs(p.x - ms) <= TOOLTIP_MAX_GAP_MS ? p : null;
   }
 
   // Flips the tooltip to whichever vertical half of the canvas the
@@ -859,13 +871,12 @@
       render();
       if(ms == null || !seriesList.length){ tooltip.style.display = "none"; return; }
       const lines = seriesList.map(s => {
-        if(!s.points.length) return "";
-        const at = nearestPoint(s.points, ms);
+        const at = nearestPointInRange(s.points, ms);
+        if(!at) return "";
         return `<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${s.color};margin-right:4px;"></i>${s.label}: $${Math.round(at.y).toLocaleString("en-US")}</div>`;
       }).join("");
-      const anchor = seriesList.find(s => s.points.length);
-      const dateMs = anchor ? nearestPoint(anchor.points, ms).x : ms;
-      tooltip.innerHTML = `<div><b>${new Date(dateMs).toISOString().slice(0,10)}</b></div>${lines}`;
+      if(!lines){ tooltip.style.display = "none"; return; }
+      tooltip.innerHTML = `<div><b>${new Date(ms).toISOString().slice(0,10)}</b></div>${lines}`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
       if(clientY != null) positionTooltipY(tooltip, clientY, rect);
@@ -1197,19 +1208,17 @@
       render();
       const parts = [];
       if(ms != null && btc.visible && btc.points.length){
-        const at = nearestPoint(btc.points, ms);
-        parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${btc.color};margin-right:4px;"></i>${btc.label}: $${Math.round(at.y).toLocaleString("en-US")}</div>`);
+        const at = nearestPointInRange(btc.points, ms);
+        if(at) parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${btc.color};margin-right:4px;"></i>${btc.label}: $${Math.round(at.y).toLocaleString("en-US")}</div>`);
       }
       if(ms != null){
         lines.filter(l => l.visible && l.points.length).forEach(l => {
-          const at = nearestPoint(l.points, ms);
-          parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${l.color};margin-right:4px;"></i>${l.label}: ${valueFormat(at.y)}</div>`);
+          const at = nearestPointInRange(l.points, ms);
+          if(at) parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${l.color};margin-right:4px;"></i>${l.label}: ${valueFormat(at.y)}</div>`);
         });
       }
       if(ms == null || !parts.length){ tooltip.style.display = "none"; return; }
-      const anchorPts = (btc.visible && btc.points.length) ? btc.points : ((lines.find(l => l.visible && l.points.length) || {}).points || []);
-      const dateMs = anchorPts.length ? nearestPoint(anchorPts, ms).x : ms;
-      tooltip.innerHTML = `<div><b>${new Date(dateMs).toISOString().slice(0,10)}</b></div>${parts.join("")}`;
+      tooltip.innerHTML = `<div><b>${new Date(ms).toISOString().slice(0,10)}</b></div>${parts.join("")}`;
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
       if(clientY != null) positionTooltipY(tooltip, clientY, rect);
