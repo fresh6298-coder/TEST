@@ -971,6 +971,21 @@
   // ---- SOPR: BTC price (left, log) overlaid with SOPR/LTH SOPR/STH SOPR
   // and moving averages (right, linear), each toggleable via the legend —
   // same idea as BGeometrics' own SOPR chart tool.
+  // Fixed axis bounds matching BGeometrics' own SOPR chart tool, instead
+  // of auto-fitting to whatever's visible — that tool keeps BTC price at
+  // 1~100k (log) and SOPR at a tight 0.92~1.12 band always, so extreme
+  // early-history SOPR spikes simply run off the top of the chart rather
+  // than stretching the axis and flattening the readable 0.92~1.12 range.
+  const SOPR_BTC_AXIS_MIN = 1, SOPR_BTC_AXIS_MAX = 100000;
+  const SOPR_RIGHT_AXIS_MIN = 0.92, SOPR_RIGHT_AXIS_MAX = 1.12;
+  const SOPR_RIGHT_TICKS = [0.92, 0.96, 1.00, 1.04, 1.08, 1.12];
+  const SOPR_LEFT_TICKS = [1, 10, 100, 1000, 10000, 100000];
+  // BGeometrics' own "All" zoom defaults to this start date — our data
+  // (bitcoin-data.com) goes back further (2010-07-17) but that earliest
+  // stretch is thin/noisy, so match their convention instead of showing it.
+  const SOPR_CHART_START_MS = Date.UTC(2011, 11, 26);
+  const SOPR_PAD_LEFT = 30, SOPR_PAD_RIGHT = 34;
+
   function drawSoprChart(canvas, btc, lines, range, highlightX){
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 160;
     const dpr = window.devicePixelRatio || 1;
@@ -979,20 +994,41 @@
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,w,hTotal);
 
-    const padBottom = 14, padTop = 4;
-    const plotW = w;
+    const padLeft = SOPR_PAD_LEFT, padRight = SOPR_PAD_RIGHT, padBottom = 14, padTop = 4;
+    const plotW = w - padLeft - padRight;
     const h = hTotal - padBottom - padTop;
     const rangeX = (range.max - range.min) || 1;
-    const xAt = x => ((x - range.min) / rangeX) * plotW;
+    const xAt = x => padLeft + ((x - range.min) / rangeX) * plotW;
+
+    const lMin = Math.log10(SOPR_BTC_AXIS_MIN), lMax = Math.log10(SOPR_BTC_AXIS_MAX);
+    const lRange = lMax - lMin;
+    const leftYAt = v => padTop + h - ((Math.log10(Math.max(v, SOPR_BTC_AXIS_MIN)) - lMin) / lRange) * h;
+
+    const rMin = SOPR_RIGHT_AXIS_MIN, rMax = SOPR_RIGHT_AXIS_MAX;
+    const rRange = rMax - rMin;
+    const rightYAt = v => padTop + h - ((v - rMin) / rRange) * h;
+
+    ctx.font = "8.5px ui-monospace, monospace";
+    ctx.strokeStyle = "rgba(140,140,140,0.15)";
+    ctx.lineWidth = 1;
+    SOPR_LEFT_TICKS.forEach(v => {
+      const y = leftYAt(v);
+      ctx.beginPath(); ctx.moveTo(padLeft, y); ctx.lineTo(w - padRight, y); ctx.stroke();
+      ctx.fillStyle = "rgba(140,140,140,0.9)";
+      ctx.textAlign = "right";
+      ctx.fillText(v >= 1000 ? (v/1000) + "k" : String(v), padLeft - 4, y + 3);
+    });
+    SOPR_RIGHT_TICKS.forEach(v => {
+      const y = rightYAt(v);
+      ctx.fillStyle = "rgba(140,140,140,0.9)";
+      ctx.textAlign = "left";
+      ctx.fillText(v.toFixed(2), w - padRight + 4, y + 3);
+    });
 
     const visibleBtc = btc.visible ? btc.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0) : [];
     const visLines = lines.filter(l => l.visible).map(l => ({ ...l, pts: l.points.filter(p => p.x >= range.min && p.x <= range.max) }));
 
     if(visibleBtc.length >= 2){
-      const logVals = visibleBtc.map(p => Math.log10(p.y));
-      const lMin = Math.min(...logVals), lMax = Math.max(...logVals);
-      const lRange = (lMax - lMin) || 1;
-      const leftYAt = v => padTop + h - ((Math.log10(v) - lMin) / lRange) * h;
       // Dark halo + white core (same trick HODL Waves' price overlay uses)
       // so the line stays visible on both light and dark backgrounds —
       // a single dark color here would vanish against the app's near-black
@@ -1006,32 +1042,25 @@
       });
     }
 
-    const allRightVals = visLines.flatMap(l => l.pts.map(p => p.y));
-    if(allRightVals.length){
-      const rMin = Math.min(0, ...allRightVals), rMax = Math.max(...allRightVals);
-      const rRange = (rMax - rMin) || 1;
-      const rightYAt = v => padTop + h - ((v - rMin) / rRange) * h;
+    const oneY = rightYAt(1);
+    ctx.beginPath(); ctx.moveTo(padLeft, oneY); ctx.lineTo(w - padRight, oneY);
+    ctx.strokeStyle = "rgba(140,140,140,0.5)";
+    ctx.setLineDash([3,3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
 
-      const oneY = rightYAt(1);
-      ctx.beginPath(); ctx.moveTo(0, oneY); ctx.lineTo(plotW, oneY);
-      ctx.strokeStyle = "rgba(140,140,140,0.5)";
-      ctx.setLineDash([3,3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
-
-      visLines.forEach(l => {
-        if(l.pts.length < 2) return;
-        ctx.beginPath();
-        l.pts.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), rightYAt(p.y)) : ctx.lineTo(xAt(p.x), rightYAt(p.y)));
-        ctx.strokeStyle = l.color;
-        ctx.lineWidth = l.dashed ? 1 : 1.5;
-        if(l.dashed) ctx.setLineDash([2,3]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      });
-    }
+    visLines.forEach(l => {
+      if(l.pts.length < 2) return;
+      ctx.beginPath();
+      l.pts.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), rightYAt(p.y)) : ctx.lineTo(xAt(p.x), rightYAt(p.y)));
+      ctx.strokeStyle = l.color;
+      ctx.lineWidth = l.dashed ? 1 : 1.5;
+      if(l.dashed) ctx.setLineDash([2,3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
 
     if(highlightX != null){
       const hx = xAt(highlightX);
-      if(hx >= -1 && hx <= plotW + 1){
+      if(hx >= padLeft - 1 && hx <= w - padRight + 1){
         ctx.beginPath();
         ctx.moveTo(hx, padTop); ctx.lineTo(hx, padTop + h);
         ctx.strokeStyle = "rgba(140,140,140,0.5)";
@@ -1046,7 +1075,7 @@
     tickXs.forEach((tx, idx) => {
       const x = xAt(tx);
       ctx.textAlign = idx === 0 ? "left" : idx === tickXs.length - 1 ? "right" : "center";
-      const clampedX = idx === 0 ? Math.max(2, x) : idx === tickXs.length - 1 ? Math.min(plotW - 2, x) : x;
+      const clampedX = idx === 0 ? Math.max(padLeft + 2, x) : idx === tickXs.length - 1 ? Math.min(w - padRight - 2, x) : x;
       ctx.fillText(shortDate(tx), clampedX, hTotal - 2);
     });
   }
@@ -1092,8 +1121,9 @@
       tooltip.style.display = "block";
       const rect = canvas.getBoundingClientRect();
       const range = viewRange || fullRange;
+      const plotW = rect.width - SOPR_PAD_LEFT - SOPR_PAD_RIGHT;
       const frac = (ms - range.min) / (range.max - range.min);
-      let left = frac * rect.width - tooltip.offsetWidth / 2;
+      let left = SOPR_PAD_LEFT + frac * plotW - tooltip.offsetWidth / 2;
       left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
       tooltip.style.left = left + "px";
     }
@@ -1128,7 +1158,8 @@
     const xToMs = clientX => {
       const rect = canvas.getBoundingClientRect();
       const range = viewRange || fullRange;
-      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+      const plotW = rect.width - SOPR_PAD_LEFT - SOPR_PAD_RIGHT;
+      return range.min + ((clientX - rect.left - SOPR_PAD_LEFT) / plotW) * (range.max - range.min);
     };
 
     let touchState = null, mouseDragging = false, lastMouseX = 0;
@@ -1243,7 +1274,8 @@
         lines = lineList.map(l => ({ ...l, visible: l.visible !== false }));
         const allPts = btcPoints.concat(...lines.map(l => l.points));
         if(!allPts.length) return;
-        fullRange = { min: Math.min(...allPts.map(p => p.x)), max: Math.max(...allPts.map(p => p.x)) };
+        const rawMax = Math.max(...allPts.map(p => p.x));
+        fullRange = { min: Math.min(SOPR_CHART_START_MS, rawMax), max: rawMax };
         viewRange = null; highlightX = null;
         render();
         legendEl.innerHTML = `<span data-key="btc"><i style="background:${btc.color}"></i>${btc.label}</span>` +
