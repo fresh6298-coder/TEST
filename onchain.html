@@ -1174,19 +1174,23 @@
     let lines = [];
     let fullRange = null, viewRange = null, highlightX = null;
 
-    // Some charts (MVRV) re-scale the right axis (and, with
-    // dynamicLeftAxis, the BTC price axis too) to whatever's currently
-    // visible in the zoomed/panned range — MVRV Z-Score alone stays in a
-    // tight -2~8-ish band, but turning on LTH-MVRV/STH-MVRV (which can
-    // spike far higher in early history) needs a much wider axis to fit
-    // them, and zooming into a single year shouldn't leave BTC's price
-    // line squashed against a fixed 1~100k scale. SOPR stays fixed.
+    // Charts with dynamicRightAxis (MVRV, SOPR) re-scale the right axis
+    // (and, with dynamicLeftAxis, the BTC price axis too) to whatever's
+    // currently visible in the zoomed/panned range, so a fixed scale
+    // never clips a value that falls outside it (e.g. SOPR's early
+    // 2013 spikes past 1.15, well outside a fixed 0.92~1.12 band) and
+    // zooming into a single year doesn't leave BTC's price line squashed
+    // against a fixed 1~100k scale. dynamicRightAxisZeroFloor additionally
+    // forces 0 into the range — meaningful for MVRV Z-Score (which
+    // straddles zero by design) but not for a ratio like SOPR that's
+    // always positive and centered near 1.
     function currentAxisCfg(range){
       let result = staticAxisCfg;
       if(cfg.dynamicRightAxis){
         const visVals = lines.filter(l => l.visible).flatMap(l => l.points.filter(p => p.x >= range.min && p.x <= range.max).map(p => p.y));
         if(visVals.length){
-          const rawMin = Math.min(0, ...visVals), rawMax = Math.max(...visVals);
+          const rawMin = cfg.dynamicRightAxisZeroFloor ? Math.min(0, ...visVals) : Math.min(...visVals);
+          const rawMax = Math.max(...visVals);
           const { min, max, ticks } = niceAxisRange(rawMin, rawMax, 6);
           result = { ...result, rightMin: min, rightMax: max, rightTicks: ticks };
         }
@@ -1422,6 +1426,15 @@
 
   const soprChart = createDualAxisChart({
     canvasId: "soprChart", tooltipId: "soprTooltip", rangeLabelId: "soprRangeLabel", resetBtnId: "soprResetZoom", legendId: "soprLegend", presetId: "soprPresetZoom",
+    // Fallback bounds only (used if nothing's visible yet) — the real
+    // range is recomputed every render from whichever lines are toggled
+    // on and the current zoom/pan window. A fixed 0.92~1.12 band used to
+    // clip real spikes (e.g. SOPR hit 1.158 on 2013-03-27), so this
+    // rescales like MVRV does; unlike MVRV, it does NOT force 0 into the
+    // range since SOPR is a ratio centered near 1, not something that's
+    // meaningfully compared against zero.
+    dynamicRightAxis: true,
+    dynamicLeftAxis: true,
     rightMin: 0.92, rightMax: 1.12, rightTicks: [0.92, 0.96, 1.00, 1.04, 1.08, 1.12],
     referenceLines: [{ at: 1 }],
     valueFormat: v => v.toFixed(3),
@@ -1437,6 +1450,7 @@
     // stay squashed against a fixed 1~100k scale when zoomed into a
     // single year.
     dynamicRightAxis: true,
+    dynamicRightAxisZeroFloor: true,
     dynamicLeftAxis: true,
     rightMin: -2, rightMax: 8, rightTicks: [-2, 0, 2, 4, 6, 8],
     bands: [
