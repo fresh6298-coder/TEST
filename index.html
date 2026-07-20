@@ -565,6 +565,12 @@
   function fmtUsd(n){
     return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
+  // fmtUsd rounds to whole dollars, which shows "$0" for BTC's real
+  // sub-$1 prices from its earliest years (now reachable via the "ALL"
+  // range) — used only where that early-history precision matters.
+  function fmtUsdPrice(n){
+    return n < 1 ? "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : "$" + fmtUsd(n);
+  }
   function fmtPct(n){
     return Math.abs(n).toFixed(2) + "%";
   }
@@ -1564,15 +1570,32 @@
   async function updateChart(range){
     const cfg = RANGE_CONFIG[range];
     try{
-      // Fetch a little extra history so RSI(14) is already "warmed up"
-      // for the very first point shown in the visible range.
-      const fetchLimit = Math.min(1000, cfg.limit + RSI_PERIOD);
-      const klines = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${cfg.interval}&limit=${fetchLimit}`);
-      const allPoints = klines.map(k => ({ t: k[0], v: parseFloat(k[4]) }));
+      let allPoints;
+      if(range === "ALL"){
+        // Binance only lists BTCUSDT from ~2017, so "ALL" needs a source
+        // with real 2009+ history instead — our own /api/btc-history now
+        // merges Yahoo Finance with blockchain.info's public price
+        // archive for exactly this. Pre-market $0 entries (no real price
+        // yet) are dropped rather than plotted.
+        const res = await fetch("/api/btc-history");
+        if(!res.ok) throw new Error("BTC 히스토리 API " + res.status);
+        const data = await res.json();
+        if(!data.prices) throw new Error("데이터 없음");
+        allPoints = Object.entries(data.prices)
+          .map(([d, v]) => ({ t: Date.parse(d), v }))
+          .filter(p => !Number.isNaN(p.t) && p.v > 0)
+          .sort((a, b) => a.t - b.t);
+      } else {
+        // Fetch a little extra history so RSI(14) is already "warmed up"
+        // for the very first point shown in the visible range.
+        const fetchLimit = Math.min(1000, cfg.limit + RSI_PERIOD);
+        const klines = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${cfg.interval}&limit=${fetchLimit}`);
+        allPoints = klines.map(k => ({ t: k[0], v: parseFloat(k[4]) }));
+      }
       const closes = allPoints.map(p => p.v);
       const rsiAll = computeRSI(closes, RSI_PERIOD);
 
-      const sliceStart = Math.max(0, allPoints.length - cfg.limit);
+      const sliceStart = range === "ALL" ? 0 : Math.max(0, allPoints.length - cfg.limit);
       state.chartPoints = allPoints.slice(sliceStart);
       state.rsiPoints = rsiAll.slice(sliceStart);
       drawChart();
@@ -1767,13 +1790,21 @@
     document.getElementById("legendMa200d").classList.toggle("dimmed", !showMa);
     document.getElementById("legendMa200w").classList.toggle("dimmed", !showMa);
     const scaleValues = values.concat(maValues);
-    const max = Math.max(...scaleValues), min = Math.min(...scaleValues);
+    // "ALL" spans $0.07 to six figures — a linear scale would flatten
+    // everything before ~2020 into an indistinguishable sliver near the
+    // bottom, so it uses a log scale like the on-chain BTC price overlays
+    // already do. Every other range stays linear (its narrower price
+    // spread reads fine that way, and it matches prior behavior).
+    const useLogScale = state.range === "ALL";
+    const scaleFn = useLogScale ? Math.log10 : (v => v);
+    const scaledValues = scaleValues.map(scaleFn);
+    const max = Math.max(...scaledValues), min = Math.min(...scaledValues);
     const vRange = (max - min) || 1;
     const padTop = 30, padBottom = 22;
     const plotH = h - padTop - padBottom;
 
     const xAt = i => (i / (points.length - 1)) * w;
-    const yAt = v => padTop + plotH - ((v - min) / vRange) * plotH;
+    const yAt = v => padTop + plotH - ((scaleFn(v) - min) / vRange) * plotH;
 
     // dashed gridlines
     ctx.strokeStyle = "rgba(150,150,150,0.25)";
@@ -1923,7 +1954,7 @@
     ctx.fill();
 
     els.tooltip.style.display = "block";
-    els.tooltip.innerHTML = "$" + fmtUsd(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>` + etfFlowLine(points[peakIdx].t) + m2Line(points[peakIdx].t);
+    els.tooltip.innerHTML = fmtUsdPrice(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>` + etfFlowLine(points[peakIdx].t) + m2Line(points[peakIdx].t);
     let peakX = xAt(peakIdx) - els.tooltip.offsetWidth/2;
     peakX = Math.max(0, Math.min(w - els.tooltip.offsetWidth, peakX));
     els.tooltip.style.left = peakX + "px";
@@ -1940,7 +1971,7 @@
       ctx.arc(xAt(highlightIndex), yAt(p.v), 4, 0, Math.PI*2);
       ctx.fillStyle = "#111";
       ctx.fill();
-      els.tooltip.innerHTML = "$" + fmtUsd(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>` + etfFlowLine(p.t) + m2Line(p.t);
+      els.tooltip.innerHTML = fmtUsdPrice(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>` + etfFlowLine(p.t) + m2Line(p.t);
       let hx = xAt(highlightIndex) - els.tooltip.offsetWidth/2;
       hx = Math.max(0, Math.min(w - els.tooltip.offsetWidth, hx));
       els.tooltip.style.left = hx + "px";
