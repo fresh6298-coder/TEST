@@ -112,6 +112,20 @@
   .corr-card .value{font-size:20px;font-weight:700;}
   .corr-card .interp{font-size:10px;margin-top:2px;}
 
+  .returns-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:10px;border:1px solid var(--track);border-radius:8px;}
+  .returns-table{border-collapse:collapse;font-size:10px;white-space:nowrap;}
+  .returns-table th,.returns-table td{padding:5px 7px;text-align:right;border-bottom:1px solid var(--track);}
+  .returns-table thead th{color:var(--sub);font-weight:600;position:sticky;top:0;background:var(--bg);}
+  .returns-table td:first-child,.returns-table th:first-child{
+    text-align:left;position:sticky;left:0;background:var(--bg);font-weight:700;z-index:1;
+  }
+  .returns-table td.pos{color:var(--green);}
+  .returns-table td.neg{color:var(--red);}
+  .returns-table td.best{background:rgba(22,163,74,0.14);}
+  .returns-table td.worst{background:rgba(239,68,68,0.14);}
+  .returns-table tr.btc-row td{font-weight:700;background:rgba(247,147,26,0.08);}
+  .returns-table tr.btc-row td:first-child{background:rgba(247,147,26,0.14);}
+
   .info-box{
     font-size:11px;color:var(--sub);line-height:1.6;
     background:rgba(247,147,26,0.08);border:1px solid rgba(247,147,26,0.3);
@@ -227,6 +241,17 @@
       <button id="macroResetZoom" type="button" style="display:none;">전체 기간 보기</button>
     </div>
     <div class="corr-grid" id="corrGrid"></div>
+  </section>
+
+  <section class="panel">
+    <h2>자산군별 연간 수익률 비교</h2>
+    <div class="desc">비트코인과 주요 자산군(미국/해외 주식, 채권, 리츠, 원자재, 금, 현금)의 2011년 이후 연간 수익률을 비교해. 표는 가로로 스크롤해서 볼 수 있어.</div>
+    <div class="returns-table-wrap">
+      <table class="returns-table" id="returnsTable"></table>
+    </div>
+    <div class="macro-zoom-bar">
+      <span id="returnsRangeLabel"></span>
+    </div>
   </section>
 
   <section class="panel">
@@ -1679,6 +1704,107 @@
     }
   }
 
+  // ---- Asset-class annual returns comparison ----
+  const RETURNS_START_YEAR = 2011;
+
+  // Last known price at or before targetIso, via binary search over the
+  // date-sorted keys of a {date: price} map. Returns null (not the
+  // nearest-anyway value) when no date that old exists, since a missing
+  // year should read as "no data" rather than a misleadingly-early price.
+  function returnsPriceAtOrBefore(sortedDates, map, targetIso){
+    let lo = 0, hi = sortedDates.length - 1, ans = null;
+    while(lo <= hi){
+      const mid = (lo + hi) >> 1;
+      if(sortedDates[mid] <= targetIso){ ans = sortedDates[mid]; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans ? { date: ans, value: map[ans] } : null;
+  }
+
+  // Computes each calendar year's return (using the price at/before each
+  // Dec 31 as that year's mark), plus cumulative/annualized since the
+  // first requested year. The final year naturally comes out as a
+  // year-to-date figure, since "price at/before Dec 31" just resolves to
+  // the latest available price once Dec 31 hasn't happened yet.
+  function computeAssetReturns(map, years){
+    const dates = Object.keys(map).filter(d => map[d] != null && map[d] > 0).sort();
+    if(!dates.length) return null;
+    const yearlyPct = {};
+    years.forEach(y => {
+      const start = returnsPriceAtOrBefore(dates, map, (y - 1) + "-12-31");
+      const end = returnsPriceAtOrBefore(dates, map, y + "-12-31");
+      yearlyPct[y] = (start && end && start.date !== end.date) ? (end.value / start.value - 1) * 100 : null;
+    });
+    const start = returnsPriceAtOrBefore(dates, map, (years[0] - 1) + "-12-31");
+    const end = returnsPriceAtOrBefore(dates, map, years[years.length - 1] + "-12-31");
+    let cumulative = null, annualized = null;
+    if(start && end && start.date !== end.date){
+      cumulative = (end.value / start.value - 1) * 100;
+      const yearsElapsed = (Date.parse(end.date) - Date.parse(start.date)) / (365.25 * 86400000);
+      annualized = yearsElapsed > 0 ? (Math.pow(end.value / start.value, 1 / yearsElapsed) - 1) * 100 : null;
+    }
+    return { yearlyPct, cumulative, annualized };
+  }
+
+  function renderReturnsTable(assets){
+    const currentYear = new Date().getUTCFullYear();
+    const years = [];
+    for(let y = RETURNS_START_YEAR; y <= currentYear; y++) years.push(y);
+
+    const rows = assets
+      .map(a => { const r = computeAssetReturns(a.map, years); return r ? { label: a.label, ...r } : null; })
+      .filter(Boolean);
+
+    const bestByYear = {}, worstByYear = {};
+    years.forEach(y => {
+      const vals = rows.map(r => r.yearlyPct[y]).filter(v => v != null);
+      if(vals.length){ bestByYear[y] = Math.max(...vals); worstByYear[y] = Math.min(...vals); }
+    });
+
+    const fmtCell = v => v == null ? "-" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+    const cellClass = (v, y) => {
+      if(v == null) return "";
+      const cls = [v >= 0 ? "pos" : "neg"];
+      if(bestByYear[y] === v) cls.push("best");
+      if(worstByYear[y] === v) cls.push("worst");
+      return cls.join(" ");
+    };
+
+    const thead = `<thead><tr><th>자산</th>${years.map(y => `<th>${y === currentYear ? y + " YTD" : y}</th>`).join("")}<th>누적</th><th>연환산</th></tr></thead>`;
+    const tbody = `<tbody>${rows.map(r => `
+      <tr class="${r.label === "비트코인" ? "btc-row" : ""}">
+        <td>${r.label}</td>
+        ${years.map(y => `<td class="${cellClass(r.yearlyPct[y], y)}">${fmtCell(r.yearlyPct[y])}</td>`).join("")}
+        <td class="${r.cumulative == null ? "" : r.cumulative >= 0 ? "pos" : "neg"}">${r.cumulative == null ? "-" : (r.cumulative >= 0 ? "+" : "") + Math.round(r.cumulative).toLocaleString("en-US") + "%"}</td>
+        <td class="${r.annualized == null ? "" : r.annualized >= 0 ? "pos" : "neg"}">${fmtCell(r.annualized)}</td>
+      </tr>`).join("")}</tbody>`;
+
+    document.getElementById("returnsTable").innerHTML = thead + tbody;
+    document.getElementById("returnsRangeLabel").textContent =
+      `${RETURNS_START_YEAR}년 ~ ${currentYear}년 YTD (연말 종가 기준, 마지막 해는 최신 거래일)`;
+  }
+
+  async function loadAssetReturns(){
+    try{
+      const [btcMap, serverData] = await Promise.all([
+        fetchBtcHistory(),
+        fetch("/api/macro-correlation?set=returns").then(r => {
+          if(!r.ok) throw new Error("API " + r.status);
+          return r.json();
+        }),
+      ]);
+      if(!serverData.assets || !Object.keys(serverData.assets).length) throw new Error("데이터 없음");
+
+      const assets = [
+        { label: "비트코인", map: btcMap },
+        ...Object.entries(serverData.assets).map(([label, map]) => ({ label, map })),
+      ];
+      renderReturnsTable(assets);
+    }catch(e){
+      document.getElementById("returnsRangeLabel").textContent = "자산군 수익률 로드 실패: " + e.message;
+    }
+  }
+
   async function load(){
     document.getElementById("updatedLine").textContent = "갱신 중...";
     await Promise.all([loadCycles(), loadPriceLaw(), loadGoldRatio(), loadMacro(), loadStockToFlow()]);
@@ -1964,6 +2090,7 @@
   attachAdoptionZoomPan();
   load();
   initAdoption();
+  loadAssetReturns();
   setInterval(load, 60 * 60 * 1000);
 })();
 </script>

@@ -23,6 +23,35 @@ const YAHOO_SYMBOLS = [
   { symbol: "005930.KS", label: "삼성전자" },
 ];
 
+// A separate, larger symbol set for the "annual returns by asset class"
+// comparison table — kept apart from YAHOO_SYMBOLS so it doesn't also
+// flood the unrelated macro-correlation chart/legend above with 19 extra
+// lines. ETF proxies are used (rather than raw indices/futures) so
+// dividend-adjusted total-return closes are available going back to
+// 2011 for most of these.
+const RETURNS_SYMBOLS = [
+  { symbol: "SPY", label: "US Large Caps" },
+  { symbol: "QQQ", label: "US Nasdaq 100" },
+  { symbol: "IWM", label: "US Small Caps" },
+  { symbol: "MDY", label: "US Mid Caps" },
+  { symbol: "IWD", label: "US Value" },
+  { symbol: "IWF", label: "US Growth" },
+  { symbol: "VNQ", label: "US REITs" },
+  { symbol: "EFA", label: "Developed International" },
+  { symbol: "VWO", label: "Emerging Markets" },
+  { symbol: "BND", label: "US Total Bond Market" },
+  { symbol: "LQD", label: "Investment Grade Bonds" },
+  { symbol: "HYG", label: "High Yield Bonds" },
+  { symbol: "EMB", label: "EM Bonds (USD)" },
+  { symbol: "TIP", label: "TIPS" },
+  { symbol: "TLT", label: "Long Duration Treasuries" },
+  { symbol: "CWB", label: "Convertible Bonds" },
+  { symbol: "PFF", label: "Preferred Stocks" },
+  { symbol: "GLD", label: "Gold" },
+  { symbol: "DBC", label: "Commodities" },
+  { symbol: "BIL", label: "US Cash" },
+];
+
 function snippet(text) {
   return JSON.stringify((text || "").replace(/\s+/g, " ").trim().slice(0, 160));
 }
@@ -62,11 +91,12 @@ async function fetchYahooCloses(symbol) {
 }
 
 export default async function handler(req, res) {
-  const results = await Promise.allSettled(YAHOO_SYMBOLS.map((s) => fetchYahooCloses(s.symbol)));
+  const symbolSet = (req.query || {}).set === "returns" ? RETURNS_SYMBOLS : YAHOO_SYMBOLS;
+  const results = await Promise.allSettled(symbolSet.map((s) => fetchYahooCloses(s.symbol)));
 
   const assets = {};
   const errors = [];
-  YAHOO_SYMBOLS.forEach((s, i) => {
+  symbolSet.forEach((s, i) => {
     const r = results[i];
     if (r.status === "fulfilled") assets[s.label] = r.value;
     else errors.push(r.reason.message);
