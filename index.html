@@ -1495,23 +1495,56 @@
     }catch(e){ /* keep previous */ }
   }
 
+  // Groups daily points into ISO-ish weeks (Mon~Sun) and keeps the last
+  // price seen in each week, the same way a weekly candle's close works.
+  // Used to derive a 200-week MA from daily history without a separate
+  // weekly data source.
+  function resampleWeekly(dailyPoints){
+    const weekly = [];
+    let curWeekKey = null, curPoint = null;
+    dailyPoints.forEach(p => {
+      const d = new Date(p.t);
+      const dayOfWeek = (d.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+      const monday = new Date(d.getTime() - dayOfWeek * 86400000);
+      const key = monday.toISOString().slice(0, 10);
+      if(key !== curWeekKey){
+        if(curPoint) weekly.push(curPoint);
+        curWeekKey = key;
+      }
+      curPoint = p;
+    });
+    if(curPoint) weekly.push(curPoint);
+    return weekly;
+  }
+
   // Fixed 200-day and 200-week moving averages, independent of the
-  // selected range, so they mean the same thing on every tab. Refreshed
-  // on their own slow interval since they barely move within a day.
+  // selected range, so they mean the same thing on every tab. Sourced
+  // from /api/btc-history (2009+, via Yahoo + blockchain.info) rather
+  // than Binance klines — Binance's own daily candles only cover a
+  // rolling ~2.7 years (limit=1000), so a 200-day/200-week MA computed
+  // from them couldn't extend nearly as far back as the price history
+  // now on screen in the "ALL" range. Refreshed on their own slow
+  // interval since they barely move within a day.
   async function updateLongTermMAs(){
     try{
-      const [dailyKlines, weeklyKlines] = await Promise.all([
-        fetchJson("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000"),
-        fetchJson("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1w&limit=1000")
-      ]);
-      const buildSeries = (klines) => {
-        const times = klines.map(k => k[0]);
-        const closes = klines.map(k => parseFloat(k[4]));
+      const res = await fetch("/api/btc-history");
+      if(!res.ok) throw new Error("BTC 히스토리 API " + res.status);
+      const data = await res.json();
+      if(!data.prices) throw new Error("데이터 없음");
+      const dailyPoints = Object.entries(data.prices)
+        .map(([d, v]) => ({ t: Date.parse(d), v }))
+        .filter(p => !Number.isNaN(p.t) && p.v > 0)
+        .sort((a, b) => a.t - b.t);
+      const weeklyPoints = resampleWeekly(dailyPoints);
+
+      const buildSeries = (points) => {
+        const times = points.map(p => p.t);
+        const closes = points.map(p => p.v);
         const ma = computeSMA(closes, MA_PERIOD);
         return times.map((t,i) => ({ t, v: ma[i] })).filter(p => p.v != null);
       };
-      state.ma200d = buildSeries(dailyKlines);
-      state.ma200w = buildSeries(weeklyKlines);
+      state.ma200d = buildSeries(dailyPoints);
+      state.ma200w = buildSeries(weeklyPoints);
       drawChart();
     }catch(e){ /* keep previous */ }
   }
