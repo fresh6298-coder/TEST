@@ -141,11 +141,13 @@
   }
   .source-note a{color:inherit;}
   .bottom-nav{
-    position:fixed;left:0;right:0;bottom:0;
+    position:fixed;left:12px;right:12px;bottom:calc(10px + env(safe-area-inset-bottom));
     display:flex;
     background:var(--bg);
-    border-top:1px solid var(--track);
-    padding:6px 2px calc(6px + env(safe-area-inset-bottom));
+    border:1px solid var(--track);
+    border-radius:20px;
+    box-shadow:0 4px 18px rgba(0,0,0,0.18);
+    padding:6px 2px;
     z-index:100;
   }
   .bottom-nav a{
