@@ -265,6 +265,7 @@
 </head>
 <body>
 <div class="app">
+  <div id="navDebugPanel" style="background:#ff0;color:#000;font-size:11px;line-height:1.6;padding:10px;margin-bottom:14px;border:2px solid red;white-space:pre-wrap;word-break:break-all;">진단 정보 로딩 중...</div>
   <header class="topbar">
     <div class="coin-icon">₿</div>
     <h1>Bitcoin</h1>
@@ -439,6 +440,50 @@
 <script>
 (function(){
   "use strict";
+
+  // TEMPORARY diagnostic panel — reads real values from this exact device
+  // to figure out why the bottom nav renders behind the on-screen Android
+  // nav bar. Safe to remove once the root cause is confirmed.
+  function runNavDebug(){
+    try{
+      const panel = document.getElementById("navDebugPanel");
+      if(!panel) return;
+      const nav = document.querySelector(".bottom-nav");
+      const navRect = nav ? nav.getBoundingClientRect() : null;
+      const navStyle = nav ? getComputedStyle(nav) : null;
+
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;bottom:0;height:0;padding-bottom:env(safe-area-inset-bottom, -999px);visibility:hidden;pointer-events:none;";
+      document.body.appendChild(probe);
+      const safeAreaBottom = getComputedStyle(probe).paddingBottom;
+      document.body.removeChild(probe);
+
+      const vv = window.visualViewport;
+      const lines = [
+        "UA: " + navigator.userAgent,
+        "window.innerWidth/Height: " + window.innerWidth + " / " + window.innerHeight,
+        "document.documentElement clientWidth/Height: " + document.documentElement.clientWidth + " / " + document.documentElement.clientHeight,
+        "visualViewport width/height: " + (vv ? vv.width + " / " + vv.height : "N/A"),
+        "visualViewport offsetTop/scale: " + (vv ? vv.offsetTop + " / " + vv.scale : "N/A"),
+        "devicePixelRatio: " + window.devicePixelRatio,
+        "document.body.scrollHeight: " + document.body.scrollHeight,
+        "env(safe-area-inset-bottom) resolved: " + safeAreaBottom,
+        "--- .bottom-nav ---",
+        "exists: " + !!nav,
+        "computed position: " + (navStyle ? navStyle.position : "N/A"),
+        "computed bottom: " + (navStyle ? navStyle.bottom : "N/A"),
+        "computed height: " + (navStyle ? navStyle.height : "N/A"),
+        "computed paddingBottom: " + (navStyle ? navStyle.paddingBottom : "N/A"),
+        "getBoundingClientRect: " + (navRect ? JSON.stringify({top: Math.round(navRect.top), bottom: Math.round(navRect.bottom), left: Math.round(navRect.left), right: Math.round(navRect.right), height: Math.round(navRect.height)}) : "N/A"),
+      ];
+      panel.textContent = lines.join("\n");
+    }catch(e){
+      const panel = document.getElementById("navDebugPanel");
+      if(panel) panel.textContent = "디버그 에러: " + e.message;
+    }
+  }
+  window.addEventListener("load", () => setTimeout(runNavDebug, 300));
+  if(window.visualViewport) window.visualViewport.addEventListener("resize", runNavDebug);
 
   const LAST_HALVING_BLOCK = 840000;
   const HALVING_INTERVAL = 210000;
