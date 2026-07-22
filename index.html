@@ -236,6 +236,12 @@
     padding:0 12px calc(10px + env(safe-area-inset-bottom));
     z-index:100;
     pointer-events:none;
+    /* Some Android Chrome builds don't composite a newly-painted
+       position:fixed layer until a touch/scroll forces a repaint,
+       leaving this invisible on first paint until interacted with.
+       Promoting it to its own GPU layer up front avoids that. */
+    transform:translateZ(0);
+    will-change:transform;
   }
   .bottom-nav{
     display:flex;
