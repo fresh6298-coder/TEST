@@ -162,7 +162,30 @@
       --track:#2a2a2a;
     }
   }
+  .theme-toggle{
+    background:none;border:none;cursor:pointer;
+    font-size:18px;line-height:1;padding:4px;
+    color:var(--text);flex-shrink:0;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f0f0f;
+    --text:#f2f2f2;
+    --sub:#8f8f8f;
+    --track:#2a2a2a;
+  }
+  :root[data-theme="light"]{
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+    --track:#e5e7eb;
+  }
 </style>
+<script>
+(function(){
+  var saved = localStorage.getItem("bitdash-theme");
+  if(saved === "light" || saved === "dark") document.documentElement.setAttribute("data-theme", saved);
+})();
+</script>
 </head>
 <body>
 <div class="app">
@@ -170,7 +193,25 @@
     <a class="back-link" href="news.html" title="뉴스로 돌아가기">←</a>
     <div class="coin-icon">₿</div>
     <h1>📌 스크랩한 뉴스</h1>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="테마 전환">🌙</button>
   </header>
+  <script>
+  (function(){
+    var btn = document.getElementById("themeToggle");
+    function current(){
+      var attr = document.documentElement.getAttribute("data-theme");
+      if(attr) return attr;
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    function apply(t){
+      document.documentElement.setAttribute("data-theme", t);
+      localStorage.setItem("bitdash-theme", t);
+      btn.textContent = t === "dark" ? "☀️" : "🌙";
+    }
+    btn.addEventListener("click", function(){ apply(current() === "dark" ? "light" : "dark"); });
+    btn.textContent = current() === "dark" ? "☀️" : "🌙";
+  })();
+  </script>
   <div class="sub-line" id="storageNote">이 스크랩은 이 브라우저(로컬 저장소)에만 저장됩니다. 다른 기기나 브라우저에서는 보이지 않으며, 브라우저 데이터를 지우면 함께 삭제됩니다.</div>
 
   <div class="news-links">
