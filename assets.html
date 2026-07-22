@@ -101,16 +101,20 @@
     text-align:center;font-size:11px;color:var(--sub);margin-top:24px;
   }
   .source-note a{color:inherit;}
+  .bottom-nav-wrap{
+    position:fixed;left:0;right:0;bottom:0;
+    padding:0 12px calc(10px + env(safe-area-inset-bottom));
+    z-index:100;
+    pointer-events:none;
+  }
   .bottom-nav{
-    position:fixed;left:12px;right:12px;bottom:0;
-    margin-bottom:calc(10px + env(safe-area-inset-bottom));
     display:flex;
     background:var(--bg);
     border:1px solid var(--track);
     border-radius:20px;
     box-shadow:0 4px 18px rgba(0,0,0,0.18);
     padding:6px 2px;
-    z-index:100;
+    pointer-events:auto;
   }
   .bottom-nav a{
     flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
@@ -170,6 +174,7 @@
   <p class="source-note">Data: <a href="https://companiesmarketcap.com/assets-by-market-cap/" target="_blank" rel="noopener">companiesmarketcap.com</a></p>
 </div>
 
+<div class="bottom-nav-wrap">
 <nav class="bottom-nav">
   <a href="index.html"><span class="icon">₿</span>Home</a>
   <a href="etf.html"><span class="icon">💰</span>ETF</a>
@@ -181,6 +186,7 @@
   <a href="dca.html"><span class="icon">🐷</span>DCA</a>
   <a href="ask.html"><span class="icon">💬</span>Ask</a>
 </nav>
+</div>
 
 <script>
 (function(){
