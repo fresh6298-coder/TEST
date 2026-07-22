@@ -176,6 +176,8 @@
   .tooltip-etf{font-weight:600;font-size:11px;margin-top:2px;}
   .chart-legend .item{display:flex;align-items:center;gap:4px;}
   .chart-legend .item.dimmed{opacity:0.35;}
+  .chart-legend.toggleable .item{cursor:pointer;user-select:none;}
+  .chart-legend.toggleable .item.off{opacity:0.35;text-decoration:line-through;}
   .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
   .rsi-wrap{margin-top:6px;}
   .rsi-header{display:flex;justify-content:space-between;font-size:11px;color:var(--sub);margin-bottom:2px;}
@@ -294,12 +296,12 @@
   </section>
 
   <section class="chart-section">
-    <div class="chart-legend">
-      <span class="item"><span class="swatch" style="background:#f7931a;"></span>Price</span>
-      <span class="item" id="legendMa200d"><span class="swatch" style="background:#3b82f6;"></span>MA 200D</span>
-      <span class="item" id="legendMa200w"><span class="swatch" style="background:#14b8a6;"></span>MA 200W</span>
-      <span class="item" id="legendEtfFlow"><span class="swatch" style="background:#16a34a;"></span>ETF 순유입</span>
-      <span class="item" id="legendM2"><span class="swatch" style="background:#a855f7;"></span>Global M2</span>
+    <div class="chart-legend toggleable" id="mainChartLegend">
+      <span class="item" id="legendPrice" data-key="price"><span class="swatch" style="background:#f7931a;"></span>Price</span>
+      <span class="item" id="legendMa200d" data-key="ma200d"><span class="swatch" style="background:#3b82f6;"></span>MA 200D</span>
+      <span class="item" id="legendMa200w" data-key="ma200w"><span class="swatch" style="background:#14b8a6;"></span>MA 200W</span>
+      <span class="item" id="legendEtfFlow" data-key="etf"><span class="swatch" style="background:#16a34a;"></span>ETF 순유입</span>
+      <span class="item" id="legendM2" data-key="m2"><span class="swatch" style="background:#a855f7;"></span>Global M2</span>
     </div>
     <div class="chart-canvas-wrap">
       <div class="chart-tooltip" id="chartTooltip"></div>
@@ -467,7 +469,8 @@
     etfFlow: [], // [{t, v}] daily net ETF flow, US$M
     m2Global: [], // [{t, v}] Global M2 money supply, own scale
     rsiPoints: [],
-    viewRange: null // {start,end} indices into chartPoints/rsiPoints; null = full range
+    viewRange: null, // {start,end} indices into chartPoints/rsiPoints; null = full range
+    hiddenLegend: new Set(), // legend data-keys the user has manually toggled off: price/ma200d/ma200w/etf/m2
   };
 
   const els = {
@@ -1815,16 +1818,24 @@
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,w,h);
 
+    const showPrice = !state.hiddenLegend.has("price");
     const values = points.map(p=>p.v);
     // Long-term MAs are hidden on very short ranges: they'd sit far off
     // from intraday price action and just compress the visible detail.
-    const showMa = state.range !== "1D" && state.range !== "7D";
-    const ma200dLine = showMa ? points.map(p => valueAtOrBefore(state.ma200d, p.t)) : points.map(() => null);
-    const ma200wLine = showMa ? points.map(p => valueAtOrBefore(state.ma200w, p.t)) : points.map(() => null);
+    // On top of that, each line respects its own legend toggle.
+    const maAllowed = state.range !== "1D" && state.range !== "7D";
+    const showMa200d = maAllowed && !state.hiddenLegend.has("ma200d");
+    const showMa200w = maAllowed && !state.hiddenLegend.has("ma200w");
+    const ma200dLine = showMa200d ? points.map(p => valueAtOrBefore(state.ma200d, p.t)) : points.map(() => null);
+    const ma200wLine = showMa200w ? points.map(p => valueAtOrBefore(state.ma200w, p.t)) : points.map(() => null);
     const maValues = ma200dLine.concat(ma200wLine).filter(v => v != null);
-    document.getElementById("legendMa200d").classList.toggle("dimmed", !showMa);
-    document.getElementById("legendMa200w").classList.toggle("dimmed", !showMa);
-    const scaleValues = values.concat(maValues);
+    document.getElementById("legendPrice").classList.toggle("off", !showPrice);
+    document.getElementById("legendMa200d").classList.toggle("dimmed", !maAllowed);
+    document.getElementById("legendMa200d").classList.toggle("off", maAllowed && !showMa200d);
+    document.getElementById("legendMa200w").classList.toggle("dimmed", !maAllowed);
+    document.getElementById("legendMa200w").classList.toggle("off", maAllowed && !showMa200w);
+    const scaleValues = (showPrice ? values : []).concat(maValues);
+    if(!scaleValues.length) scaleValues.push(...values); // keep the axis sane if everything's toggled off
     // "ALL" spans $0.07 to six figures — a linear scale would flatten
     // everything before ~2020 into an indistinguishable sliver near the
     // bottom, so it uses a log scale like the on-chain BTC price overlays
@@ -1855,8 +1866,10 @@
     // shared with price) so a run of large inflows/outflows doesn't
     // distort the price line. Skipped on 1D: the data is daily, so an
     // intraday view would show at most one sliver of a bar.
-    const showEtf = state.range !== "1D" && state.etfFlow.length > 0;
-    document.getElementById("legendEtfFlow").classList.toggle("dimmed", !showEtf);
+    const etfAllowed = state.range !== "1D" && state.etfFlow.length > 0;
+    const showEtf = etfAllowed && !state.hiddenLegend.has("etf");
+    document.getElementById("legendEtfFlow").classList.toggle("dimmed", !etfAllowed);
+    document.getElementById("legendEtfFlow").classList.toggle("off", etfAllowed && !showEtf);
     if(showEtf){
       const tMin = points[0].t, tMax = points[points.length-1].t;
       const visibleEtf = state.etfFlow.filter(p => p.t >= tMin && p.t <= tMax);
@@ -1882,25 +1895,27 @@
       }
     }
 
-    // area fill
-    const grad = ctx.createLinearGradient(0,padTop,0,h);
-    grad.addColorStop(0, "rgba(247,147,26,0.35)");
-    grad.addColorStop(1, "rgba(247,147,26,0.02)");
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAt(points[0].v));
-    points.forEach((p,i) => ctx.lineTo(xAt(i), yAt(p.v)));
-    ctx.lineTo(w, h - padBottom);
-    ctx.lineTo(0, h - padBottom);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
+    if(showPrice){
+      // area fill
+      const grad = ctx.createLinearGradient(0,padTop,0,h);
+      grad.addColorStop(0, "rgba(247,147,26,0.35)");
+      grad.addColorStop(1, "rgba(247,147,26,0.02)");
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(points[0].v));
+      points.forEach((p,i) => ctx.lineTo(xAt(i), yAt(p.v)));
+      ctx.lineTo(w, h - padBottom);
+      ctx.lineTo(0, h - padBottom);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
 
-    // line
-    ctx.beginPath();
-    points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(i), yAt(p.v)) : ctx.lineTo(xAt(i), yAt(p.v)));
-    ctx.strokeStyle = "#f7931a";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+      // line
+      ctx.beginPath();
+      points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(i), yAt(p.v)) : ctx.lineTo(xAt(i), yAt(p.v)));
+      ctx.strokeStyle = "#f7931a";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
 
     // 200-day / 200-week moving average overlays
     function strokeMaLine(line, color){
@@ -1923,8 +1938,10 @@
     // the price scale would flatten it to a near-invisible line). Hidden
     // on short ranges like the long-term MAs, since M2 is a monthly-ish
     // series and would just render as a flat segment.
-    const showM2 = showMa && state.m2Global.length > 0;
-    document.getElementById("legendM2").classList.toggle("dimmed", !showM2);
+    const m2Allowed = maAllowed && state.m2Global.length > 0;
+    const showM2 = m2Allowed && !state.hiddenLegend.has("m2");
+    document.getElementById("legendM2").classList.toggle("dimmed", !m2Allowed);
+    document.getElementById("legendM2").classList.toggle("off", m2Allowed && !showM2);
     if(showM2){
       const tMin = points[0].t, tMax = points[points.length-1].t;
       const visibleM2 = state.m2Global.filter(p => p.t >= tMin && p.t <= tMax);
@@ -1980,19 +1997,28 @@
       ctx.fillText(fmtAxisDate(points[i].t), clampedX, h - 6);
     });
 
-    // peak marker (based on price high, not the combined price+MA scale)
+    // peak marker (based on price high, not the combined price+MA scale) —
+    // only meaningful while the price line itself is toggled on.
     const priceMax = Math.max(...values);
     const peakIdx = values.indexOf(priceMax);
-    ctx.beginPath();
-    ctx.arc(xAt(peakIdx), yAt(priceMax), 4, 0, Math.PI*2);
-    ctx.fillStyle = "#f7931a";
-    ctx.fill();
+    const priceLine = showPrice ? fmtUsdPrice(priceMax) + " " : "";
+    if(showPrice){
+      ctx.beginPath();
+      ctx.arc(xAt(peakIdx), yAt(priceMax), 4, 0, Math.PI*2);
+      ctx.fillStyle = "#f7931a";
+      ctx.fill();
+    }
 
-    els.tooltip.style.display = "block";
-    els.tooltip.innerHTML = fmtUsdPrice(priceMax) + ` <span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>` + etfFlowLine(points[peakIdx].t) + m2Line(points[peakIdx].t);
-    let peakX = xAt(peakIdx) - els.tooltip.offsetWidth/2;
-    peakX = Math.max(0, Math.min(w - els.tooltip.offsetWidth, peakX));
-    els.tooltip.style.left = peakX + "px";
+    const defaultTooltip = priceLine + `<span class="tooltip-date">${fmtTooltipDate(points[peakIdx].t)}</span>` + etfFlowLine(points[peakIdx].t) + m2Line(points[peakIdx].t);
+    if(showPrice || etfFlowLine(points[peakIdx].t) || m2Line(points[peakIdx].t)){
+      els.tooltip.style.display = "block";
+      els.tooltip.innerHTML = defaultTooltip;
+      let peakX = xAt(peakIdx) - els.tooltip.offsetWidth/2;
+      peakX = Math.max(0, Math.min(w - els.tooltip.offsetWidth, peakX));
+      els.tooltip.style.left = peakX + "px";
+    } else {
+      els.tooltip.style.display = "none";
+    }
 
     if(highlightIndex != null){
       const p = points[highlightIndex];
@@ -2002,15 +2028,24 @@
       ctx.strokeStyle = "rgba(100,100,100,0.5)";
       ctx.lineWidth = 1;
       ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(xAt(highlightIndex), yAt(p.v), 4, 0, Math.PI*2);
-      ctx.fillStyle = "#111";
-      ctx.fill();
-      els.tooltip.innerHTML = fmtUsdPrice(p.v) + ` <span class="tooltip-date">${fmtTooltipDate(p.t)}</span>` + etfFlowLine(p.t) + m2Line(p.t);
-      let hx = xAt(highlightIndex) - els.tooltip.offsetWidth/2;
-      hx = Math.max(0, Math.min(w - els.tooltip.offsetWidth, hx));
-      els.tooltip.style.left = hx + "px";
-      if(clientY != null) positionTooltipY(els.tooltip, clientY, chartCanvas.getBoundingClientRect());
+      if(showPrice){
+        ctx.beginPath();
+        ctx.arc(xAt(highlightIndex), yAt(p.v), 4, 0, Math.PI*2);
+        ctx.fillStyle = "#111";
+        ctx.fill();
+      }
+      const priceValLine = showPrice ? fmtUsdPrice(p.v) + " " : "";
+      const etfPart = etfFlowLine(p.t), m2Part = m2Line(p.t);
+      if(showPrice || etfPart || m2Part){
+        els.tooltip.style.display = "block";
+        els.tooltip.innerHTML = priceValLine + `<span class="tooltip-date">${fmtTooltipDate(p.t)}</span>` + etfPart + m2Part;
+        let hx = xAt(highlightIndex) - els.tooltip.offsetWidth/2;
+        hx = Math.max(0, Math.min(w - els.tooltip.offsetWidth, hx));
+        els.tooltip.style.left = hx + "px";
+        if(clientY != null) positionTooltipY(els.tooltip, clientY, chartCanvas.getBoundingClientRect());
+      } else {
+        els.tooltip.style.display = "none";
+      }
     }
   }
 
@@ -2089,6 +2124,17 @@
     });
   }
 
+  function attachMainLegendToggle(){
+    document.getElementById("mainChartLegend").addEventListener("click", (e) => {
+      const item = e.target.closest(".item[data-key]");
+      if(!item) return;
+      const key = item.dataset.key;
+      if(state.hiddenLegend.has(key)) state.hiddenLegend.delete(key);
+      else state.hiddenLegend.add(key);
+      drawChart();
+    });
+  }
+
   window.addEventListener("resize", () => {
     drawChart(); drawRsi(); drawSparkline.lastCandles && drawSparkline(drawSparkline.lastCandles);
     if(document.getElementById("fngModal").classList.contains("open")) drawFngChart(fngHighlightT);
@@ -2100,6 +2146,7 @@
   function init(){
     attachChartInteraction();
     attachRangeTabs();
+    attachMainLegendToggle();
     attachFngChartInteraction();
     document.getElementById("statFngRow").addEventListener("click", openFngModal);
     document.getElementById("fngModalClose").addEventListener("click", closeFngModal);
