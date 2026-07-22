@@ -154,7 +154,8 @@
   form.composer button:disabled{opacity:.5;cursor:not-allowed;}
 
   .bottom-nav{
-    position:fixed;left:12px;right:12px;bottom:calc(10px + env(safe-area-inset-bottom));
+    position:fixed;left:12px;right:12px;bottom:0;
+    margin-bottom:calc(10px + env(safe-area-inset-bottom));
     display:flex;
     background:var(--bg);
     border:1px solid var(--track);
