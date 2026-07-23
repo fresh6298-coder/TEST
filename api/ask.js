@@ -377,7 +377,7 @@ ${articlesText}
 ${kbText}`;
 }
 
-async function callGemini(apiKey, systemPrompt, contents) {
+async function callGemini(apiKey, systemPrompt, contents, attempt = 1) {
   const upstream = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
     {
@@ -391,8 +391,21 @@ async function callGemini(apiKey, systemPrompt, contents) {
     }
   );
   if (!upstream.ok) {
+    // Gemini's "high demand" 503s are usually a short-lived blip on
+    // Google's end, not a real failure — one quick retry clears most of
+    // them without making the user re-submit. Bounded to a single retry
+    // so a persistent outage still fails fast within Vercel's function
+    // time limit rather than stacking up retries.
+    if (upstream.status === 503 && attempt === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      return callGemini(apiKey, systemPrompt, contents, attempt + 1);
+    }
     const errText = await upstream.text();
-    const err = new Error("AI 응답 생성에 실패했습니다.");
+    const err = new Error(
+      upstream.status === 503
+        ? "AI 서버가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요."
+        : "AI 응답 생성에 실패했습니다."
+    );
     err.detail = errText.slice(0, 500);
     throw err;
   }

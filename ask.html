@@ -436,16 +436,9 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ question, history: history.slice(0, -1) }),
       });
-      const rawText = await res.text();
-      let data;
-      try{ data = JSON.parse(rawText); }catch{ data = null; }
+      const data = await res.json();
       if(!res.ok){
-        pending.textContent = data
-          ? "[HTTP " + res.status + "] " + (data.error || "오류가 발생했습니다.") + (data.detail ? "\n" + data.detail : "")
-          : "[HTTP " + res.status + ", non-JSON 응답]\n" + rawText.slice(0, 500);
-        pending.className = "msg error";
-      }else if(!data){
-        pending.textContent = "[HTTP " + res.status + ", JSON 파싱 실패]\n" + rawText.slice(0, 500);
+        pending.textContent = data.error || "오류가 발생했습니다.";
         pending.className = "msg error";
       }else{
         pending.textContent = data.answer;
@@ -454,7 +447,7 @@
         attachSaveButton(pending, question, data.answer);
       }
     }catch(e){
-      pending.textContent = "네트워크 오류가 발생했습니다: " + (e && e.message ? e.message : String(e));
+      pending.textContent = "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
       pending.className = "msg error";
     }finally{
       sendBtn.disabled = false;
