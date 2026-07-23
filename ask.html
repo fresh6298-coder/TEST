@@ -438,7 +438,7 @@
       });
       const data = await res.json();
       if(!res.ok){
-        pending.textContent = data.error || "오류가 발생했습니다.";
+        pending.textContent = (data.error || "오류가 발생했습니다.") + (data.detail ? "\n" + data.detail : "");
         pending.className = "msg error";
       }else{
         pending.textContent = data.answer;
