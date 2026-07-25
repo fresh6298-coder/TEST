@@ -233,6 +233,13 @@
   .status-line{
     text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;
   }
+  /* While showing values restored from the last visit's cache, the
+     numeric readouts are dimmed so a cached price is never mistaken for
+     a live one. Cleared the moment fresh data lands. */
+  .price-block, .stats-grid, .halving-section{transition:opacity .25s ease;}
+  .app.stale .price-block,
+  .app.stale .stats-grid,
+  .app.stale .halving-section{opacity:0.55;}
   .bottom-nav{
     position:fixed;left:0;right:0;bottom:0;
     display:flex;
@@ -607,6 +614,39 @@
     }
   }
 
+  // /api/btc-history is the single largest payload this page pulls (the
+  // full 2009+ daily series) and four separate features need it: the
+  // "ALL" range chart, the 200D/200W moving averages, the F&G history
+  // modal, and the BTC/Gold modal. Sharing one in-flight promise means a
+  // page load fetches it once instead of up to four times. A rejected
+  // fetch clears the cache so the next caller retries rather than
+  // inheriting the failure forever.
+  const BTC_HISTORY_TTL_MS = 30 * 60000;
+  let btcHistoryPromise = null;
+  let btcHistoryFetchedAt = 0;
+
+  function fetchBtcHistory(){
+    if(btcHistoryPromise && Date.now() - btcHistoryFetchedAt < BTC_HISTORY_TTL_MS) return btcHistoryPromise;
+    btcHistoryFetchedAt = Date.now();
+    btcHistoryPromise = fetch("/api/btc-history")
+      .then(r => {
+        if(!r.ok) throw new Error("BTC 히스토리 API " + r.status);
+        return r.json();
+      })
+      .catch(err => { btcHistoryPromise = null; throw err; });
+    return btcHistoryPromise;
+  }
+
+  // Shared shape conversion for the two callers that want a sorted
+  // {t, v} series with pre-market $0 entries dropped.
+  function btcHistoryToPoints(data){
+    if(!data || !data.prices) throw new Error("데이터 없음");
+    return Object.entries(data.prices)
+      .map(([d, v]) => ({ t: Date.parse(d), v }))
+      .filter(p => !Number.isNaN(p.t) && p.v > 0)
+      .sort((a, b) => a.t - b.t);
+  }
+
   function fmtInt(n){
     return Math.round(n).toLocaleString("en-US");
   }
@@ -663,6 +703,8 @@
       state.krwPrice = u.trade_price;
       els.priceKrw.textContent = fmtInt(u.trade_price);
       applyChangeRow(els.changeKrwRow, els.changeKrw, u.signed_change_rate * 100);
+      snapshot.krwPrice = u.trade_price;
+      snapshot.krwChangePct = u.signed_change_rate * 100;
     }catch(e){
       try{
         // Upbit fails intermittently (CORS/rate-limit flakiness); Bithumb is
@@ -673,6 +715,8 @@
         state.krwPrice = parseFloat(d.closing_price);
         els.priceKrw.textContent = fmtInt(state.krwPrice);
         applyChangeRow(els.changeKrwRow, els.changeKrw, parseFloat(d.fluctate_rate_24H));
+        snapshot.krwPrice = state.krwPrice;
+        snapshot.krwChangePct = parseFloat(d.fluctate_rate_24H);
       }catch(e2){
         failures.push("KRW(Upbit/Bithumb): " + e2.message);
       }
@@ -683,6 +727,8 @@
       state.usdPrice = parseFloat(binance.lastPrice);
       els.priceUsd.textContent = fmtUsd(state.usdPrice);
       applyChangeRow(els.changeUsdRow, els.changeUsd, parseFloat(binance.priceChangePercent));
+      snapshot.usdPrice = state.usdPrice;
+      snapshot.usdChangePct = parseFloat(binance.priceChangePercent);
     }catch(e){
       try{
         // Binance blocks some regions; CoinGecko has no such restriction.
@@ -690,6 +736,8 @@
         state.usdPrice = cg.bitcoin.usd;
         els.priceUsd.textContent = fmtUsd(state.usdPrice);
         applyChangeRow(els.changeUsdRow, els.changeUsd, cg.bitcoin.usd_24h_change);
+        snapshot.usdPrice = state.usdPrice;
+        snapshot.usdChangePct = cg.bitcoin.usd_24h_change;
       }catch(e2){
         failures.push("USD(Binance/CoinGecko): " + e2.message);
       }
@@ -697,7 +745,20 @@
 
     updatePremium();
     updateBtcGoldStat();
-    setStatus(failures.length ? "일부 가격 실패: " + failures.join(" / ") : "");
+    // Any live price at all means the restored values have been
+    // superseded, so drop the dimmed "stale" treatment.
+    if(failures.length < 2) markFresh();
+    saveSnapshot();
+    if(!failures.length){
+      setStatus("");
+    }else if(document.querySelector(".app").classList.contains("stale")){
+      // Still showing cached values and the network isn't cooperating —
+      // "why are these numbers dimmed" is more useful here than the
+      // underlying fetch error.
+      setStatus("연결 실패 · 마지막 기록을 표시 중입니다");
+    }else{
+      setStatus("일부 가격 실패: " + failures.join(" / "));
+    }
   }
 
   // ---- Mini sparkline (Upbit last 10 days) ----
@@ -706,6 +767,13 @@
       const candles = await fetchJson("https://api.upbit.com/v1/candles/days?market=KRW-BTC&count=10");
       candles.reverse();
       drawSparkline(candles);
+      // Only the four fields drawSparkline actually reads are cached —
+      // Upbit's full candle objects carry a dozen unused fields each.
+      snapshot.sparkCandles = candles.map(c => ({
+        opening_price: c.opening_price, trade_price: c.trade_price,
+        high_price: c.high_price, low_price: c.low_price,
+      }));
+      saveSnapshot();
     }catch(e){ /* non-critical */ }
   }
 
@@ -736,6 +804,8 @@
     try{
       const g = await fetchJson("https://api.coingecko.com/api/v3/global");
       els.statDominance.textContent = g.data.market_cap_percentage.btc.toFixed(1) + "%";
+      snapshot.dominance = els.statDominance.textContent;
+      saveSnapshot();
     }catch(e){ /* keep previous */ }
   }
 
@@ -745,22 +815,30 @@
       state.fxRate = fx.rates.KRW;
       els.statFx.textContent = fmtInt(state.fxRate);
       updatePremium();
+      snapshot.fxRate = state.fxRate;
+      saveSnapshot();
     }catch(e){ /* keep previous */ }
+  }
+
+  function fngStatColor(v){
+    if(v <= 24) return "var(--red)";
+    if(v <= 44) return "#f97316";
+    if(v <= 55) return "var(--gray)";
+    if(v <= 75) return "#84cc16";
+    return "var(--green)";
+  }
+
+  function renderFngStat(value){
+    els.statFng.textContent = value;
+    els.statFng.style.color = fngStatColor(parseInt(value, 10));
   }
 
   async function updateFng(){
     try{
       const fng = await fetchJson("https://api.alternative.me/fng/?limit=1");
-      const d = fng.data[0];
-      els.statFng.textContent = d.value;
-      const v = parseInt(d.value, 10);
-      let color = "var(--gray)";
-      if(v <= 24) color = "var(--red)";
-      else if(v <= 44) color = "#f97316";
-      else if(v <= 55) color = "var(--gray)";
-      else if(v <= 75) color = "#84cc16";
-      else color = "var(--green)";
-      els.statFng.style.color = color;
+      renderFngStat(fng.data[0].value);
+      snapshot.fng = fng.data[0].value;
+      saveSnapshot();
     }catch(e){ /* keep previous */ }
   }
 
@@ -790,10 +868,7 @@
     if(fngPoints) return fngPoints;
     const [fngRes, btcRes] = await Promise.all([
       fetchJson("https://api.alternative.me/fng/?limit=0&format=json"),
-      fetch("/api/btc-history").then(r => {
-        if(!r.ok) throw new Error("BTC 히스토리 API " + r.status);
-        return r.json();
-      }),
+      fetchBtcHistory(),
     ]);
     const btcMap = btcRes.prices || {};
     const points = (fngRes.data || [])
@@ -1470,7 +1545,7 @@
   async function loadBtcGoldPoints(){
     if(btcGoldPointsCache) return btcGoldPointsCache;
     const [btcRes, macroRes] = await Promise.all([
-      fetch("/api/btc-history").then(r => { if(!r.ok) throw new Error("BTC 히스토리 API " + r.status); return r.json(); }),
+      fetchBtcHistory(),
       fetch("/api/macro-correlation").then(r => { if(!r.ok) throw new Error("금 가격 API " + r.status); return r.json(); }),
     ]);
     const btcMap = btcRes.prices || {};
@@ -1481,6 +1556,8 @@
     const lastDate = dates[dates.length - 1];
     latestGoldClose = { date: lastDate, price: goldMap[lastDate] };
     btcGoldPointsCache = points;
+    snapshot.latestGoldClose = latestGoldClose;
+    saveSnapshot();
     return points;
   }
 
@@ -1540,6 +1617,13 @@
       els.halvingCurrent.textContent = fmtInt(height);
       els.halvingRemaining.textContent = fmtInt(remaining);
       els.halvingDate.textContent = eta.getFullYear() + "." + String(eta.getMonth()+1).padStart(2,"0") + "." + String(eta.getDate()).padStart(2,"0");
+      snapshot.halving = {
+        pct: progress.toFixed(2),
+        current: els.halvingCurrent.textContent,
+        remaining: els.halvingRemaining.textContent,
+        date: els.halvingDate.textContent,
+      };
+      saveSnapshot();
     }catch(e){ /* keep previous */ }
   }
 
@@ -1575,14 +1659,7 @@
   // interval since they barely move within a day.
   async function updateLongTermMAs(){
     try{
-      const res = await fetch("/api/btc-history");
-      if(!res.ok) throw new Error("BTC 히스토리 API " + res.status);
-      const data = await res.json();
-      if(!data.prices) throw new Error("데이터 없음");
-      const dailyPoints = Object.entries(data.prices)
-        .map(([d, v]) => ({ t: Date.parse(d), v }))
-        .filter(p => !Number.isNaN(p.t) && p.v > 0)
-        .sort((a, b) => a.t - b.t);
+      const dailyPoints = btcHistoryToPoints(await fetchBtcHistory());
       const weeklyPoints = resampleWeekly(dailyPoints);
 
       const buildSeries = (points) => {
@@ -1658,14 +1735,7 @@
         // merges Yahoo Finance with blockchain.info's public price
         // archive for exactly this. Pre-market $0 entries (no real price
         // yet) are dropped rather than plotted.
-        const res = await fetch("/api/btc-history");
-        if(!res.ok) throw new Error("BTC 히스토리 API " + res.status);
-        const data = await res.json();
-        if(!data.prices) throw new Error("데이터 없음");
-        allPoints = Object.entries(data.prices)
-          .map(([d, v]) => ({ t: Date.parse(d), v }))
-          .filter(p => !Number.isNaN(p.t) && p.v > 0)
-          .sort((a, b) => a.t - b.t);
+        allPoints = btcHistoryToPoints(await fetchBtcHistory());
       } else {
         // Fetch a little extra history so RSI(14) is already "warmed up"
         // for the very first point shown in the visible range.
@@ -1682,6 +1752,7 @@
       drawChart();
       drawRsi();
       updateChartRangeLabel();
+      saveChartSnapshot();
     }catch(e){
       setStatus("차트 로드 실패: " + e.message);
     }
@@ -2186,6 +2257,158 @@
     if(document.getElementById("btcGoldModal").classList.contains("open")) btcGoldChart.redraw();
   });
 
+  // ---- Last-visit snapshot ----
+  // Without this the page opens completely blank — every number shows
+  // "-" and the chart is an empty canvas — until ~20 separate upstream
+  // fetches resolve, which on mobile data is a visibly slow, staggered
+  // fill-in. The last known values are persisted and painted
+  // synchronously on load instead, then replaced as live data arrives.
+  // Everything restored is dimmed via .stale until the first live price
+  // lands, so a cached number is never mistaken for a current one.
+  const SNAPSHOT_KEY = "bitdash-index-snapshot-v1";
+  // The chart series is orders of magnitude larger than the scalar
+  // readouts (the "ALL" range is thousands of points), so it lives under
+  // its own key. Otherwise every 5-second price tick would re-serialize
+  // the entire price history just to persist a changed dollar figure.
+  const CHART_SNAPSHOT_KEY = "bitdash-index-chart-v1";
+  // A day-old chart shape is still worth showing while the fresh one
+  // loads; a week-old price is not, and would just be misleading.
+  const SNAPSHOT_MAX_AGE_MS = 3 * 24 * 3600 * 1000;
+
+  const snapshot = {};
+  let snapshotSaveTimer = null;
+
+  // updatePrice fires every 5s, so writes are debounced — localStorage
+  // is synchronous and would otherwise block the main thread on every
+  // tick for data that only needs to survive a page close.
+  function saveSnapshot(){
+    if(snapshotSaveTimer) return;
+    snapshotSaveTimer = setTimeout(() => {
+      snapshotSaveTimer = null;
+      try{
+        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ ...snapshot, savedAt: Date.now() }));
+      }catch(e){ /* private mode or quota — the app works fine without it */ }
+    }, 2000);
+  }
+
+  function saveChartSnapshot(){
+    try{
+      localStorage.setItem(CHART_SNAPSHOT_KEY, JSON.stringify({
+        savedAt: Date.now(),
+        range: state.range,
+        points: state.chartPoints,
+        rsi: state.rsiPoints,
+      }));
+    }catch(e){ /* quota — chart just won't pre-render next time */ }
+  }
+
+  function markFresh(){
+    document.querySelector(".app").classList.remove("stale");
+  }
+
+  // The chart is the largest blank area on the page, so its points are
+  // cached too — along with which range tab they belong to, so the page
+  // reopens on the range that was last being looked at rather than
+  // resetting to 1Y every time.
+  function restoreChartSnapshot(){
+    let saved;
+    try{
+      saved = JSON.parse(localStorage.getItem(CHART_SNAPSHOT_KEY) || "null");
+    }catch(e){ return; }
+    if(!saved || !saved.savedAt || Date.now() - saved.savedAt > SNAPSHOT_MAX_AGE_MS) return;
+    if(!Array.isArray(saved.points) || !saved.points.length || !RANGE_CONFIG[saved.range]) return;
+
+    state.range = saved.range;
+    state.chartPoints = saved.points;
+    state.rsiPoints = Array.isArray(saved.rsi) ? saved.rsi : [];
+    document.querySelectorAll("#rangeTabs button").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === saved.range);
+    });
+    drawChart();
+    drawRsi();
+    updateChartRangeLabel();
+  }
+
+  function restoreSnapshot(){
+    let saved;
+    try{
+      saved = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "null");
+    }catch(e){ return; }
+    if(!saved || !saved.savedAt || Date.now() - saved.savedAt > SNAPSHOT_MAX_AGE_MS) return;
+
+    Object.assign(snapshot, saved);
+    document.querySelector(".app").classList.add("stale");
+
+    if(saved.krwPrice != null){
+      state.krwPrice = saved.krwPrice;
+      els.priceKrw.textContent = fmtInt(saved.krwPrice);
+      if(saved.krwChangePct != null) applyChangeRow(els.changeKrwRow, els.changeKrw, saved.krwChangePct);
+    }
+    if(saved.usdPrice != null){
+      state.usdPrice = saved.usdPrice;
+      els.priceUsd.textContent = fmtUsd(saved.usdPrice);
+      if(saved.usdChangePct != null) applyChangeRow(els.changeUsdRow, els.changeUsd, saved.usdChangePct);
+    }
+    if(saved.fxRate != null){
+      state.fxRate = saved.fxRate;
+      els.statFx.textContent = fmtInt(saved.fxRate);
+    }
+    if(saved.dominance) els.statDominance.textContent = saved.dominance;
+    if(saved.fng) renderFngStat(saved.fng);
+    if(saved.latestGoldClose){
+      latestGoldClose = saved.latestGoldClose;
+      updateBtcGoldStat();
+    }
+    updatePremium();
+
+    if(saved.halving){
+      els.halvingFill.style.width = saved.halving.pct + "%";
+      els.halvingPct.textContent = saved.halving.pct + "%";
+      els.halvingCurrent.textContent = saved.halving.current;
+      els.halvingRemaining.textContent = saved.halving.remaining;
+      els.halvingDate.textContent = saved.halving.date;
+    }
+
+    if(Array.isArray(saved.sparkCandles) && saved.sparkCandles.length) drawSparkline(saved.sparkCandles);
+
+    restoreChartSnapshot();
+
+    const ageMin = Math.round((Date.now() - saved.savedAt) / 60000);
+    const ageText = ageMin < 1 ? "방금 전" : ageMin < 60 ? ageMin + "분 전" : Math.round(ageMin/60) + "시간 전";
+    setStatus("마지막 기록 (" + ageText + ") 표시 중 · 최신 데이터 불러오는 중…");
+  }
+
+  // Polling is suspended while the page is hidden (backgrounded tab,
+  // phone screen off, app switched away): the old unconditional
+  // setIntervals kept hitting every upstream API forever, draining
+  // battery and burning rate-limited quota on data nobody was looking
+  // at. On becoming visible again, any task whose interval elapsed
+  // while hidden runs once immediately, so the page is never showing
+  // stale numbers while it waits out the rest of a long interval.
+  const pollTasks = [];
+
+  function schedulePoll(fn, intervalMs){
+    const task = { fn, intervalMs, lastRun: Date.now() };
+    pollTasks.push(task);
+    setInterval(() => {
+      if(document.visibilityState !== "visible") return;
+      task.lastRun = Date.now();
+      fn();
+    }, intervalMs);
+  }
+
+  function attachVisibilityCatchUp(){
+    document.addEventListener("visibilitychange", () => {
+      if(document.visibilityState !== "visible") return;
+      const now = Date.now();
+      pollTasks.forEach(task => {
+        if(now - task.lastRun < task.intervalMs) return;
+        task.lastRun = now;
+        task.fn();
+      });
+    });
+  }
+
   function init(){
     attachChartInteraction();
     attachRangeTabs();
@@ -2207,6 +2430,10 @@
     document.getElementById("btcGoldModalClose").addEventListener("click", closeBtcGoldModal);
     document.getElementById("btcGoldModal").addEventListener("click", e => { if(e.target.id === "btcGoldModal") closeBtcGoldModal(); });
 
+    // Paint last-known values before any network call goes out, so the
+    // page has content immediately instead of a screen full of "-".
+    restoreSnapshot();
+
     updatePrice();
     updateSparkline();
     updateDominance();
@@ -2219,17 +2446,18 @@
     fetchM2Global();
     updateChart(state.range);
 
-    setInterval(updatePrice, 5000);
-    setInterval(updateSparkline, 60000);
-    setInterval(updateDominance, 120000);
-    setInterval(updateFx, 600000);
-    setInterval(updateFng, 600000);
-    setInterval(updateHalving, 60000);
-    setInterval(updateLongTermMAs, 30 * 60000);
-    setInterval(updateBtcGoldLatestGold, 600000);
-    setInterval(fetchEtfFlow, 30 * 60000);
-    setInterval(fetchM2Global, 60 * 60000);
-    setInterval(() => updateChart(state.range), 60000);
+    schedulePoll(updatePrice, 5000);
+    schedulePoll(updateSparkline, 60000);
+    schedulePoll(updateDominance, 120000);
+    schedulePoll(updateFx, 600000);
+    schedulePoll(updateFng, 600000);
+    schedulePoll(updateHalving, 60000);
+    schedulePoll(updateLongTermMAs, 30 * 60000);
+    schedulePoll(updateBtcGoldLatestGold, 600000);
+    schedulePoll(fetchEtfFlow, 30 * 60000);
+    schedulePoll(fetchM2Global, 60 * 60000);
+    schedulePoll(() => updateChart(state.range), 60000);
+    attachVisibilityCatchUp();
   }
 
   init();
