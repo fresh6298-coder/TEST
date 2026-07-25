@@ -495,16 +495,23 @@
   }
 
   // Long BTC history comes from our own server endpoint (Yahoo Finance
-  // BTC-USD, back to ~2014) instead of Binance directly: Binance geo-blocks
-  // the serverless function's US-hosted IP with HTTP 451, and even from the
-  // browser it only has data since Aug 2017 anyway, too short to cover the
-  // 2016 halving.
+  // BTC-USD back to ~2014, extended with blockchain.info back to 2009)
+  // instead of Binance directly: Binance geo-blocks the serverless
+  // function's US-hosted IP with HTTP 451, and even from the browser it
+  // only has data since Aug 2017 anyway, too short to cover the 2016
+  // halving.
   async function fetchBtcHistory(){
     const res = await fetch("/api/btc-history");
     if(!res.ok) throw new Error("API " + res.status);
     const data = await res.json();
     if(!data.prices || !Object.keys(data.prices).length) throw new Error("데이터 없음");
-    return data.prices;
+    // Before real trading existed (~2010-08-18), blockchain.info's series
+    // is padded with $0 placeholders rather than actual prices. Left in,
+    // these corrupt anything that treats the first entry as "the first
+    // real price" — the power law model's log10(days since genesis) goes
+    // to -Infinity/NaN for a $0 entry sitting at or before genesis itself,
+    // which silently blanks that whole chart with no thrown error.
+    return Object.fromEntries(Object.entries(data.prices).filter(([, v]) => v > 0));
   }
 
   function pearsonCorrelation(a, b){
