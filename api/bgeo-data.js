@@ -303,14 +303,14 @@ const ONCHAIN_METRICS = {
   // basis" line for CryptoQuant's "LTH Realized Profit and Loss" chart.
   lthRealizedPrice: { path: "lth-realized-price", hint: /realized|price/i },
   // Also confirmed working (5850 rows, current ~1.03) — the aggregate,
-  // network-wide version of the chart's profit/loss line. Kept as a
-  // fallback in case the LTH-scoped variant below doesn't exist.
+  // network-wide version of that chart's profit/loss line. An
+  // "lth-realized-profit-loss-ratio" guess for the LTH-scoped version
+  // hit the auth tier's rate limit before it could be confirmed either
+  // way, so this stays as the working stand-in rather than burning more
+  // quota chasing an unconfirmed path (see the auth-retry-storm history
+  // above — every extra metric key here is one more auth attempt per
+  // fetch cycle).
   realizedProfitLossRatio: { path: "realized-profit-loss-ratio", hint: /profit|loss|ratio|margin/i },
-  // "lth-realized-profit-loss" and "lth-net-realized-profit-loss" both
-  // 404'd; trying an "lth-" prefix directly on the path that DID work
-  // above, since bgeometrics' lth-mvrv/lth-sopr both mirror their
-  // aggregate counterpart's exact path with that prefix.
-  lthRealizedProfitLossRatio: { path: "lth-realized-profit-loss-ratio", hint: /profit|loss|ratio|margin/i },
 };
 
 async function handleOnchainMetrics(req, res) {
