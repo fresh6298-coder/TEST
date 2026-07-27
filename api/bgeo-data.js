@@ -298,6 +298,16 @@ const ONCHAIN_METRICS = {
   // value field isn't actually price, this just fails and gets dropped
   // like any other failed metric — nothing downstream assumes it exists.
   btcCrypto: { path: "btc-crypto", hint: /price|close|usd|btc/i },
+  // Unverified best-effort guesses for CryptoQuant's "LTH Realized
+  // Profit and Loss" chart: an LTH-scoped NUPL (the swing from -20% to
+  // 600%+ in that chart looks like Net Unrealized P/L measured against
+  // realized cap rather than market cap, which isn't bounded to 100%)
+  // and an LTH-scoped realized price as its "cost basis" line. Follows
+  // the same lth-mvrv/lth-sopr naming convention bgeometrics already
+  // uses elsewhere. If either path is wrong, it just fails and drops
+  // like any other failed metric here.
+  lthNupl: { path: "lth-nupl", hint: /nupl|unrealized|profit|loss/i },
+  lthRealizedPrice: { path: "lth-realized-price", hint: /realized|price/i },
 };
 
 async function handleOnchainMetrics(req, res) {
