@@ -322,6 +322,30 @@
   </div>
 
   <div class="metric-card">
+    <div class="metric-head"><span class="metric-name-row"><span class="metric-name">LTH 실현 손익</span><button type="button" class="info-btn" data-metric="lthPnl">i</button></span><span class="metric-value" id="lthPnlValue">-</span></div>
+    <div class="metric-zone" id="lthPnlZone">-</div>
+    <div class="metric-desc">장기 보유자(LTH)의 평균 매입가(코스트 베이시스)를 BTC 가격에 겹쳐서 보여주고, 네트워크 전체의 실현 손익 비율(1 기준)도 함께 표시해. 가격이 코스트 베이시스보다 한참 위/아래에 있을수록 평가이익/손실이 크다는 뜻이야.</div>
+    <div class="chart-canvas-wrap">
+      <canvas class="metric-chart" id="lthPnlChart" style="height:160px;"></canvas>
+      <div class="chart-tooltip" id="lthPnlTooltip"></div>
+    </div>
+    <div class="hodl-legend toggle-legend" id="lthPnlLegend"></div>
+    <div class="preset-zoom-bar" id="lthPnlPresetZoom">
+      <button type="button" data-range="1m">1개월</button>
+      <button type="button" data-range="3m">3개월</button>
+      <button type="button" data-range="6m">6개월</button>
+      <button type="button" data-range="ytd">YTD</button>
+      <button type="button" data-range="1y">1년</button>
+      <button type="button" data-range="all" class="active">전체</button>
+    </div>
+    <div class="zoom-bar">
+      <span id="lthPnlRangeLabel"></span>
+      <button id="lthPnlResetZoom" type="button" style="display:none;">전체 기간 보기</button>
+    </div>
+    <div class="metric-range" id="lthPnlRange"></div>
+  </div>
+
+  <div class="metric-card">
     <div class="metric-head"><span class="metric-name-row"><span class="metric-name">Reserve Risk</span><button type="button" class="info-btn" data-metric="reserveRisk">i</button></span><span class="metric-value" id="reserveRiskValue">-</span></div>
     <div class="metric-zone" id="reserveRiskZone">-</div>
     <div class="metric-desc">가격 대비 장기 보유자들의 "확신"을 나타내는 지표. 값이 낮으면 확신은 높은데 가격은 저평가된 축적 구간, 값이 높으면 그 반대인 분배 구간으로 해석돼.</div>
@@ -1070,7 +1094,7 @@
   const DUAL_AXIS_CHART_START_MS = Date.UTC(2011, 11, 26);
   const DUAL_AXIS_PAD_LEFT = 30, DUAL_AXIS_PAD_RIGHT = 34;
 
-  function drawDualAxisChart(canvas, btc, lines, range, highlightX, axisCfg){
+  function drawDualAxisChart(canvas, btc, lines, range, highlightX, axisCfg, leftLines){
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 160;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = w * dpr; canvas.height = hTotal * dpr;
@@ -1120,6 +1144,12 @@
 
     const visibleBtc = btc.visible ? btc.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0) : [];
     const visLines = lines.filter(l => l.visible).map(l => ({ ...l, pts: l.points.filter(p => p.x >= range.min && p.x <= range.max) }));
+    // Additional left-axis (same $ log scale as BTC price) series —
+    // e.g. LTH cost basis overlaid directly against price, rather than
+    // a ratio on the right axis. Plain colored lines (no halo trick)
+    // so they read as clearly distinct from the primary BTC price line.
+    const visLeftLines = (leftLines || []).filter(l => l.visible !== false)
+      .map(l => ({ ...l, pts: l.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0) }));
 
     if(visibleBtc.length >= 2){
       // Dark halo + white core (same trick HODL Waves' price overlay uses)
@@ -1134,6 +1164,17 @@
         ctx.stroke();
       });
     }
+
+    visLeftLines.forEach(l => {
+      if(l.pts.length < 2) return;
+      ctx.beginPath();
+      l.pts.forEach((p,i) => i === 0 ? ctx.moveTo(xAt(p.x), leftYAt(p.y)) : ctx.lineTo(xAt(p.x), leftYAt(p.y)));
+      ctx.strokeStyle = l.color;
+      ctx.lineWidth = l.dashed ? 1 : 1.5;
+      if(l.dashed) ctx.setLineDash([2,3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
 
     (axisCfg.referenceLines || []).forEach(rl => {
       const y = rightYAt(rl.at);
@@ -1215,6 +1256,7 @@
 
     let btc = { points: [], visible: true, label: "BTC 가격", color: "#888888" };
     let lines = [];
+    let leftExtra = []; // additional left-axis ($ log scale) series, e.g. LTH cost basis
     let fullRange = null, viewRange = null, highlightX = null;
 
     // Charts with dynamicRightAxis (MVRV, SOPR) re-scale the right axis
@@ -1240,8 +1282,11 @@
       }
       if(cfg.dynamicLeftAxis && btc.visible){
         const visBtc = btc.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0).map(p => p.y);
-        if(visBtc.length){
-          const rawMin = Math.min(...visBtc), rawMax = Math.max(...visBtc);
+        const visExtra = leftExtra.filter(l => l.visible !== false)
+          .flatMap(l => l.points.filter(p => p.x >= range.min && p.x <= range.max && p.y > 0).map(p => p.y));
+        const visAll = visBtc.concat(visExtra);
+        if(visAll.length){
+          const rawMin = Math.min(...visAll), rawMax = Math.max(...visAll);
           const { min, max, ticks } = niceAxisRange(rawMin, rawMax, 6);
           const leftMin = Math.max(min, 1);
           result = { ...result, leftMin, leftMax: Math.max(max, leftMin * 1.01), leftTicks: ticks.filter(t => t > 0) };
@@ -1254,7 +1299,7 @@
       if(!fullRange) return;
       const range = viewRange || fullRange;
       const axisCfg = currentAxisCfg(range);
-      drawDualAxisChart(canvas, btc, lines, range, highlightX, axisCfg);
+      drawDualAxisChart(canvas, btc, lines, range, highlightX, axisCfg, leftExtra);
       rangeLabel.textContent = new Date(range.min).toISOString().slice(0,10) + " ~ " + new Date(range.max).toISOString().slice(0,10);
       resetBtn.style.display = viewRange ? "inline-block" : "none";
     }
@@ -1266,6 +1311,12 @@
       if(ms != null && btc.visible && btc.points.length){
         const at = nearestPointInRange(btc.points, ms);
         if(at) parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${btc.color};margin-right:4px;"></i>${btc.label}: $${Math.round(at.y).toLocaleString("en-US")}</div>`);
+      }
+      if(ms != null){
+        leftExtra.filter(l => l.visible !== false && l.points.length).forEach(l => {
+          const at = nearestPointInRange(l.points, ms);
+          if(at) parts.push(`<div><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${l.color};margin-right:4px;"></i>${l.label}: $${Math.round(at.y).toLocaleString("en-US")}</div>`);
+        });
       }
       if(ms != null){
         lines.filter(l => l.visible && l.points.length).forEach(l => {
@@ -1418,7 +1469,8 @@
         btc.visible = !btc.visible;
         span.classList.toggle("off", !btc.visible);
       } else {
-        const line = lines.find(l => l.key === key);
+        const extra = leftExtra.find(l => l.key === key);
+        const line = extra || lines.find(l => l.key === key);
         if(!line) return;
         line.visible = !line.visible;
         span.classList.toggle("off", !line.visible);
@@ -1427,16 +1479,18 @@
     });
 
     return {
-      setData(btcPoints, lineList){
+      setData(btcPoints, lineList, leftExtraList){
         btc = { points: btcPoints, visible: true, label: "BTC 가격", color: "#888888" };
         lines = lineList.map(l => ({ ...l, visible: l.visible !== false }));
-        const allPts = btcPoints.concat(...lines.map(l => l.points));
+        leftExtra = (leftExtraList || []).map(l => ({ ...l, visible: l.visible !== false }));
+        const allPts = btcPoints.concat(...lines.map(l => l.points), ...leftExtra.map(l => l.points));
         if(!allPts.length) return;
         const rawMax = Math.max(...allPts.map(p => p.x));
         fullRange = { min: Math.min(DUAL_AXIS_CHART_START_MS, rawMax), max: rawMax };
         viewRange = null; highlightX = null;
         render();
         legendEl.innerHTML = `<span data-key="btc"><i style="background:${btc.color}"></i>${btc.label}</span>` +
+          leftExtra.map(l => `<span data-key="${l.key}"${l.visible ? "" : " class=\"off\""}><i style="background:${l.color}"></i>${l.label}</span>`).join("") +
           lines.map(l => `<span data-key="${l.key}"${l.visible ? "" : " class=\"off\""}><i style="background:${l.color}"></i>${l.label}</span>`).join("");
         setActivePreset("all");
       },
@@ -1504,6 +1558,21 @@
   });
   window.addEventListener("resize", () => mvrvChart.redraw());
 
+  // LTH cost basis overlaid directly on BTC price (both left axis, log
+  // scale, so their gap reads the same way it does in the reference
+  // chart), plus the network-wide realized profit/loss ratio on the
+  // right axis as a stand-in for the LTH-scoped version this dashboard
+  // couldn't confirm exists (see api/bgeo-data.js).
+  const lthPnlChart = createDualAxisChart({
+    canvasId: "lthPnlChart", tooltipId: "lthPnlTooltip", rangeLabelId: "lthPnlRangeLabel", resetBtnId: "lthPnlResetZoom", legendId: "lthPnlLegend", presetId: "lthPnlPresetZoom",
+    dynamicRightAxis: true,
+    dynamicLeftAxis: true,
+    rightMin: 0.92, rightMax: 1.12, rightTicks: [0.92, 0.96, 1.00, 1.04, 1.08, 1.12],
+    referenceLines: [{ at: 1 }],
+    valueFormat: v => v.toFixed(3),
+  });
+  window.addEventListener("resize", () => lthPnlChart.redraw());
+
   const nuplChart = createMetricChart({ canvasId: "nuplChart", tooltipId: "nuplTooltip", rangeLabelId: "nuplRangeLabel", resetBtnId: "nuplResetZoom", formatValue: v => v.toFixed(2) });
   const puellChart = createMetricChart({ canvasId: "puellChart", tooltipId: "puellTooltip", rangeLabelId: "puellRangeLabel", resetBtnId: "puellResetZoom", formatValue: v => v.toFixed(2) });
   const reserveRiskChart = createMetricChart({ canvasId: "reserveRiskChart", tooltipId: "reserveRiskTooltip", rangeLabelId: "reserveRiskRangeLabel", resetBtnId: "reserveRiskResetZoom", formatValue: v => v.toFixed(4) });
@@ -1539,6 +1608,11 @@
   function soprZone(v){
     if(v >= 1.05) return ["차익실현 활발 (과열 근접)", "var(--red)"];
     if(v <= 0.98) return ["손실 실현 (항복 국면)", "var(--green)"];
+    return ["중립 (1.0 근방)", "var(--sub)"];
+  }
+  function lthPnlZone(v){
+    if(v >= 1.05) return ["순이익 실현 활발", "var(--red)"];
+    if(v <= 0.98) return ["순손실 실현 활발", "var(--green)"];
     return ["중립 (1.0 근방)", "var(--sub)"];
   }
   function reserveRiskZone(v){
@@ -1662,6 +1736,27 @@
         STH-SOPR만 출렁이고 LTH-SOPR은 잠잠하면 단기 트레이더들 사이의 노이즈일 가능성이 크고, 반대로 LTH-SOPR까지 크게 움직이면 시장 전체의 분배(고점권) 또는 항복(바닥권) 국면일 가능성이 높아져. 차트 아래 범례를 눌러서 원하는 선만 켜고 끌 수 있어.</p>
 
         <p><b>한 줄 요약:</b> "지금 팔리는 코인들이 대체로 이익 실현인지 손절인지"를 보여주는 지표야. 전체 SOPR과 STH/LTH SOPR을 나눠서 보면, 어떤 보유기간 그룹이 지금 시장을 움직이고 있는지까지 알 수 있어.</p>
+      `,
+    },
+    lthPnl: {
+      title: "LTH 실현 손익",
+      body: `
+        <p><b>이게 뭘 재는 지표야?</b><br>
+        LTH 코스트 베이시스는 155일 이상 코인을 들고 있는 장기 보유자(LTH)들이 평균적으로 얼마에 그 코인을 매입했는지를 보여줘 (LTH-Realized Price). BTC 가격 선과 함께 겹쳐서 보면, 지금 가격이 장기 보유자들의 평균 매입가 대비 얼마나 위/아래에 있는지 한눈에 보여.
+        점선으로 표시되는 실현 손익 비율(오른쪽 축)은 네트워크 전체 기준으로, 실제로 이동(판매)된 코인들이 평균적으로 이익권인지 손실권인지를 1을 기준으로 나타내.</p>
+
+        <p><b>왜 가격만 보지 않고 코스트 베이시스랑 비교해?</b><br>
+        가격 자체는 "비싼지 싼지"를 알려주지 않아 — 작년 대비 비싸 보여도 장기 보유자들 평균 매입가보다 여전히 낮을 수도 있거든. 코스트 베이시스와 겹쳐보면 "지금 이 가격에서 장기 보유자들이 평균적으로 얼마나 벌고/잃고 있는지"를 직접 확인할 수 있어.</p>
+
+        <p><b>참고:</b> 실현 손익 비율은 LTH 전용이 아니라 네트워크 전체 기준 지표야 (LTH 전용 버전은 아직 이 대시보드에 연결하지 못했어). 그래도 LTH 코스트 베이시스 선만으로도 "가격이 장기 보유자 평균가 위/아래 어디에 있는지"는 충분히 확인할 수 있어.</p>
+
+        <div class="info-zone">
+          <div><b style="color:var(--red)">비율 1.05 이상</b> — 순이익 실현이 활발함. 단기 과열 가능성.</div>
+          <div><b style="color:var(--sub)">0.98~1.05</b> — 중립 (본전 근방 공방).</div>
+          <div><b style="color:var(--green)">0.98 이하</b> — 순손실 실현이 활발함. 항복성 매도, 바닥 신호 가능성.</div>
+        </div>
+
+        <p><b>한 줄 요약:</b> "장기 보유자들의 평균 매입가 대비 지금 가격이 어디에 있는지, 그리고 시장 전체가 이익 실현 중인지 손실 실현 중인지"를 함께 보여주는 지표야.</p>
       `,
     },
     reserveRisk: {
@@ -1831,6 +1926,26 @@
 
         const soprBtcSeries = await getBtcSeriesCached(btcCryptoSeries);
         soprChart.setData(soprBtcSeries, soprLines);
+      }
+      if(m.realizedProfitLossRatio || m.lthRealizedPrice){
+        const ratioSeries = m.realizedProfitLossRatio
+          ? m.realizedProfitLossRatio.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value }))
+          : [];
+        if(m.realizedProfitLossRatio){
+          document.getElementById("lthPnlValue").textContent = m.realizedProfitLossRatio.current.value.toFixed(3);
+          const [label, color] = lthPnlZone(m.realizedProfitLossRatio.current.value);
+          setZone(document.getElementById("lthPnlZone"), label, color);
+          setRange(document.getElementById("lthPnlRange"), m.realizedProfitLossRatio);
+        }
+        const lthPnlLines = ratioSeries.length
+          ? [{ key: "ratio", label: "실현 손익 비율", color: "#f7931a", points: ratioSeries }]
+          : [];
+        const lthPnlLeftExtra = m.lthRealizedPrice
+          ? [{ key: "lthRealizedPrice", label: "LTH 코스트 베이시스", color: "#8b5cf6", dashed: true, points: m.lthRealizedPrice.history.map(p => ({ x: new Date(p.date).getTime(), y: p.value })) }]
+          : [];
+
+        const lthPnlBtcSeries = await getBtcSeriesCached(btcCryptoSeries);
+        lthPnlChart.setData(lthPnlBtcSeries, lthPnlLines, lthPnlLeftExtra);
       }
       if(m.reserveRisk){
         document.getElementById("reserveRiskValue").textContent = m.reserveRisk.current.value.toFixed(4);
