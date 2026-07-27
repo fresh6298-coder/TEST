@@ -303,14 +303,15 @@ const ONCHAIN_METRICS = {
   // basis" line for CryptoQuant's "LTH Realized Profit and Loss" chart.
   lthRealizedPrice: { path: "lth-realized-price", hint: /realized|price/i },
   // Also confirmed working (5850 rows, current ~1.03) — the aggregate,
-  // network-wide version of that chart's profit/loss line. An
-  // "lth-realized-profit-loss-ratio" guess for the LTH-scoped version
-  // hit the auth tier's rate limit before it could be confirmed either
-  // way, so this stays as the working stand-in rather than burning more
-  // quota chasing an unconfirmed path (see the auth-retry-storm history
-  // above — every extra metric key here is one more auth attempt per
-  // fetch cycle).
+  // network-wide version of that chart's profit/loss line. Kept as the
+  // fallback the LTH-scoped guess below falls back to if it fails.
   realizedProfitLossRatio: { path: "realized-profit-loss-ratio", hint: /profit|loss|ratio|margin/i },
+  // Re-trying the "lth-" prefixed version of the path above — the first
+  // attempt hit the auth tier's rate limit before it could be confirmed
+  // either way. If this 404s again for real (not just rate-limited),
+  // drop it back out rather than paying for an unconfirmed extra auth
+  // attempt every fetch cycle.
+  lthRealizedProfitLossRatio: { path: "lth-realized-profit-loss-ratio", hint: /profit|loss|ratio|margin/i },
 };
 
 async function handleOnchainMetrics(req, res) {
