@@ -302,15 +302,15 @@ const ONCHAIN_METRICS = {
   // matched the user's reference chart almost exactly). The LTH "cost
   // basis" line for CryptoQuant's "LTH Realized Profit and Loss" chart.
   lthRealizedPrice: { path: "lth-realized-price", hint: /realized|price/i },
-  // Second round of best-effort guesses for that same chart's other
-  // series (the -20%..600%+ swinging line/bands): "lth-nupl" 404'd, so
-  // trying names closer to the chart's actual title ("Realized Profit
-  // and Loss", not "NUPL" which is Santiment/Glassnode's *unrealized*
-  // terminology) and bgeometrics' own realized-price/reserve-risk
-  // naming style. Same as ever — wrong guesses just fail and drop.
-  lthRealizedProfitLoss: { path: "lth-realized-profit-loss", hint: /profit|loss|margin/i },
-  lthNetRealizedProfitLoss: { path: "lth-net-realized-profit-loss", hint: /profit|loss|margin/i },
+  // Also confirmed working (5850 rows, current ~1.03) — the aggregate,
+  // network-wide version of the chart's profit/loss line. Kept as a
+  // fallback in case the LTH-scoped variant below doesn't exist.
   realizedProfitLossRatio: { path: "realized-profit-loss-ratio", hint: /profit|loss|ratio|margin/i },
+  // "lth-realized-profit-loss" and "lth-net-realized-profit-loss" both
+  // 404'd; trying an "lth-" prefix directly on the path that DID work
+  // above, since bgeometrics' lth-mvrv/lth-sopr both mirror their
+  // aggregate counterpart's exact path with that prefix.
+  lthRealizedProfitLossRatio: { path: "lth-realized-profit-loss-ratio", hint: /profit|loss|ratio|margin/i },
 };
 
 async function handleOnchainMetrics(req, res) {
