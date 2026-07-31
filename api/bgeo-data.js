@@ -444,9 +444,130 @@ async function handleM2Global(req, res) {
   });
 }
 
+// ---- US national debt (usdebtclock.org-style stats, from official
+// sources instead of scraping that site's live-ticker page) ----
+// Treasury's own open-data API, not BGeometrics — daily since 1993-04-01,
+// no key required.
+const TREASURY_DEBT_URL =
+  "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny";
+// FRED's keyless CSV export (the same URL its own embeddable chart
+// widgets use) — avoids needing a registered FRED API key just for one
+// quarterly series. "Federal Debt: Total Public Debt as Percent of GDP".
+const FRED_DEBT_TO_GDP_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=GFDEGDQ188S";
+
+// Neither the Census Bureau nor the IRS publishes a live daily headcount
+// — usdebtclock.org's own "per citizen"/"per taxpayer" figures are the
+// same kind of periodically-updated estimate, not a real-time feed.
+// Update these occasionally as new Census/IRS figures are published; a
+// few months of staleness only shifts the per-person figures by a
+// fraction of a percent.
+const US_POPULATION_ESTIMATE = 347_000_000; // Census Bureau, ~2026
+const US_TAXPAYER_ESTIMATE = 161_000_000; // IRS SOI, individual returns filed
+
+async function fetchTreasuryDebtHistory() {
+  const url = `${TREASURY_DEBT_URL}?fields=record_date,tot_pub_debt_out_amt&sort=-record_date&page[size]=10000`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`treasury debt_to_penny -> ${res.status}`);
+  const json = await res.json();
+  const rows = Array.isArray(json?.data) ? json.data : [];
+  return rows
+    .map((r) => ({ date: r.record_date, dateMs: Date.parse(r.record_date), value: parseFloat(r.tot_pub_debt_out_amt) }))
+    .filter((r) => !Number.isNaN(r.dateMs) && !Number.isNaN(r.value))
+    .sort((a, b) => a.dateMs - b.dateMs);
+}
+
+async function fetchDebtToGdpHistory() {
+  const res = await fetch(FRED_DEBT_TO_GDP_CSV, { headers: { Accept: "text/csv" } });
+  if (!res.ok) throw new Error(`fred GFDEGDQ188S -> ${res.status}`);
+  const text = await res.text();
+  const lines = text.trim().split("\n").slice(1); // drop the "DATE,GFDEGDQ188S" header
+  return lines
+    .map((line) => {
+      const [date, value] = line.split(",");
+      return { date, dateMs: Date.parse(date), value: parseFloat(value) };
+    })
+    .filter((r) => !Number.isNaN(r.dateMs) && !Number.isNaN(r.value))
+    .sort((a, b) => a.dateMs - b.dateMs);
+}
+
+async function handleUsDebt(req, res) {
+  const archiveKey = "us-debt-archive";
+  let debtHistory = [], gdpHistory = [], cachedAtMs = 0;
+
+  if (redisConfigured()) {
+    try {
+      const { rows } = await redisGetArchive(archiveKey);
+      if (rows && Array.isArray(rows.debt)) {
+        debtHistory = rows.debt;
+        gdpHistory = Array.isArray(rows.gdp) ? rows.gdp : [];
+        cachedAtMs = rows.fetchedAtMs || 0;
+      }
+    } catch {
+      /* fall through to a fresh fetch */
+    }
+  }
+
+  const debug = [];
+  const stale = Date.now() - cachedAtMs > DAY_MS;
+  if (stale || !debtHistory.length) {
+    const [debtResult, gdpResult] = await Promise.allSettled([fetchTreasuryDebtHistory(), fetchDebtToGdpHistory()]);
+    if (debtResult.status === "fulfilled" && debtResult.value.length) {
+      debtHistory = debtResult.value;
+      debug.push(`treasury debt_to_penny -> ${debtHistory.length} rows`);
+    } else {
+      debug.push(`treasury debt_to_penny -> ERROR ${debtResult.reason?.message || debtResult.reason}`);
+    }
+    if (gdpResult.status === "fulfilled" && gdpResult.value.length) {
+      gdpHistory = gdpResult.value;
+      debug.push(`fred GFDEGDQ188S -> ${gdpHistory.length} rows`);
+    } else {
+      debug.push(`fred GFDEGDQ188S -> ERROR ${gdpResult.reason?.message || gdpResult.reason}`);
+    }
+    if (redisConfigured() && (debtHistory.length || gdpHistory.length)) {
+      await redisSetArchive(archiveKey, { debt: debtHistory, gdp: gdpHistory, fetchedAtMs: Date.now() }, false, null).catch(() => {});
+    }
+  } else {
+    debug.push(`cache -> debt ${debtHistory.length} rows, gdp ${gdpHistory.length} rows`);
+  }
+
+  if (!debtHistory.length) {
+    res.status(502).json({ error: "US debt data unavailable", debug });
+    return;
+  }
+
+  const latestDebt = debtHistory[debtHistory.length - 1];
+
+  res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=1800");
+  res.status(200).json({
+    fetchedAt: new Date().toISOString(),
+    debt: {
+      current: latestDebt,
+      history: debtHistory,
+      count: debtHistory.length,
+      earliest: debtHistory[0].date,
+      latest: latestDebt.date,
+    },
+    debtToGdp: gdpHistory.length
+      ? {
+          current: gdpHistory[gdpHistory.length - 1],
+          history: gdpHistory,
+          count: gdpHistory.length,
+          earliest: gdpHistory[0].date,
+          latest: gdpHistory[gdpHistory.length - 1].date,
+        }
+      : null,
+    perCitizen: latestDebt.value / US_POPULATION_ESTIMATE,
+    perTaxpayer: latestDebt.value / US_TAXPAYER_ESTIMATE,
+    populationEstimate: US_POPULATION_ESTIMATE,
+    taxpayerEstimate: US_TAXPAYER_ESTIMATE,
+    debug,
+  });
+}
+
 export default async function handler(req, res) {
   const type = req.query && req.query.type;
   if (type === "hodl-waves") return handleHodlWaves(req, res);
   if (type === "m2-global") return handleM2Global(req, res);
+  if (type === "us-debt") return handleUsDebt(req, res);
   return handleOnchainMetrics(req, res);
 }

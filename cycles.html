@@ -88,6 +88,16 @@
   .stats-row .stat-box{border:1px solid var(--track);border-radius:8px;padding:6px 4px;text-align:center;}
   .stats-row .stat-box .label{font-size:9px;color:var(--sub);}
   .stats-row .stat-box .value{font-size:13px;font-weight:700;margin-top:2px;}
+  .debt-headline{
+    text-align:center;
+    border:1px solid var(--red);
+    border-radius:10px;
+    padding:10px;
+    margin-bottom:10px;
+  }
+  .debt-headline .label{font-size:11px;color:var(--sub);letter-spacing:0.5px;}
+  .debt-headline .value{font-size:24px;font-weight:800;color:var(--red);margin-top:2px;}
+  .debt-headline .asof{font-size:10px;color:var(--sub);margin-top:2px;}
   .pricelaw-tooltip{
     position:absolute;top:4px;
     padding:6px 10px;border:1px solid var(--track);border-radius:8px;
@@ -295,6 +305,23 @@
     <div class="macro-zoom-bar">
       <span id="returnsRangeLabel"></span>
     </div>
+  </section>
+
+  <section class="panel">
+    <h2>미국 국가부채</h2>
+    <div class="desc">미국 재무부(Treasury)와 세인트루이스 연준(FRED)의 공식 데이터 기준. usdebtclock.org에 있는 "Treasury Reserve"·"Restitution" 같은 항목은 공식 출처가 불분명해서 뺐어. 1인당/납세자 1인당 수치는 최신 인구·납세자 추정치로 나눈 근사값이라, 실시간 집계가 아니야.</div>
+    <div class="debt-headline">
+      <div class="label">US NATIONAL DEBT</div>
+      <div class="value" id="usDebtHeadline">-</div>
+      <div class="asof" id="usDebtAsOf"></div>
+    </div>
+    <div class="stats-row" id="usDebtStats"></div>
+    <div class="stats-row" id="usDebtGdpHistory"></div>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="usDebtChart"></canvas>
+      <div class="pricelaw-tooltip" id="usDebtTooltip"></div>
+    </div>
+    <div class="metric-range" id="usDebtRange" style="font-size:10px;color:var(--sub);text-align:right;margin-top:2px;"></div>
   </section>
 
   <section class="panel">
@@ -1754,6 +1781,148 @@
     }
   }
 
+  // ---- US National Debt (Treasury "Debt to the Penny" + FRED's keyless
+  // debt-to-GDP CSV — see api/bgeo-data.js?type=us-debt). Same simple
+  // single-series/tap-tooltip pattern as Stock-to-Flow above — a linear
+  // (not log) scale reads better here since the debt trend's whole point
+  // is the visible upward curve, and it only spans about 10x over its
+  // full 1993+ history rather than the many orders of magnitude BTC's
+  // own price charts need log scale for.
+  let usDebtPoints = null;
+  let usDebtFullRange = null;
+  let usDebtHighlightX = null;
+
+  function fmtUsdCompact(n){
+    if(n >= 1e12) return "$" + (n/1e12).toFixed(1) + "T";
+    if(n >= 1e9) return "$" + (n/1e9).toFixed(1) + "B";
+    if(n >= 1e6) return "$" + (n/1e6).toFixed(1) + "M";
+    return "$" + Math.round(n).toLocaleString("en-US");
+  }
+  function fmtUsdFull(n){
+    return "$" + Math.round(n).toLocaleString("en-US");
+  }
+
+  function renderUsDebtChart(){
+    if(!usDebtPoints || !usDebtFullRange) return;
+    const allYs = usDebtPoints.map(p => p.y);
+    const minY = Math.min(...allYs), maxY = Math.max(...allYs);
+    const yTicks = [1e12,5e12,10e12,15e12,20e12,25e12,30e12,35e12,40e12,45e12,50e12]
+      .filter(v => v >= minY * 0.5 && v <= maxY * 1.1)
+      .map(v => ({ value: v, label: fmtUsdCompact(v) }));
+    drawLineChart(document.getElementById("usDebtChart"), [
+      { points: usDebtPoints, color: "#ef4444", lineWidth: 1.5, fill: true, fillColor: "rgba(239,68,68,0.1)" }
+    ], {
+      yTicks, xTicks: yearlyXTicks(usDebtFullRange.min, usDebtFullRange.max),
+      highlightX: usDebtHighlightX,
+    });
+  }
+
+  function usDebtNearest(ms){
+    const points = usDebtPoints;
+    if(ms <= points[0].x) return points[0];
+    if(ms >= points[points.length-1].x) return points[points.length-1];
+    let lo = 0, hi = points.length - 1;
+    while(lo < hi){
+      const mid = (lo+hi) >> 1;
+      if(points[mid].x < ms) lo = mid + 1; else hi = mid;
+    }
+    const a = points[lo-1], b = points[lo];
+    if(!a) return b;
+    return (ms - a.x) <= (b.x - ms) ? a : b;
+  }
+
+  function updateUsDebtTooltip(ms, clientY){
+    usDebtHighlightX = ms;
+    renderUsDebtChart();
+    const tooltip = document.getElementById("usDebtTooltip");
+    if(ms == null || !usDebtPoints || !usDebtPoints.length){ tooltip.style.display = "none"; return; }
+    const p = usDebtNearest(ms);
+    tooltip.innerHTML = `<div><b>${new Date(p.x).toISOString().slice(0,10)}</b></div><div>${fmtUsdFull(p.y)}</div>`;
+    tooltip.style.display = "block";
+    const canvas = document.getElementById("usDebtChart");
+    const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
+    const frac = (ms - usDebtFullRange.min) / (usDebtFullRange.max - usDebtFullRange.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function usDebtXToMs(clientX){
+    const canvas = document.getElementById("usDebtChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = usDebtFullRange;
+    return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+  }
+
+  (function initUsDebtInteraction(){
+    const canvas = document.getElementById("usDebtChart");
+    canvas.addEventListener("mousemove", e => { if(usDebtFullRange) updateUsDebtTooltip(usDebtXToMs(e.clientX), e.clientY); });
+    canvas.addEventListener("mouseleave", () => updateUsDebtTooltip(null));
+    canvas.addEventListener("touchstart", e => {
+      if(usDebtFullRange && e.touches.length === 1) updateUsDebtTooltip(usDebtXToMs(e.touches[0].clientX), e.touches[0].clientY);
+    }, { passive: true });
+    canvas.addEventListener("touchmove", e => {
+      if(!usDebtFullRange || e.touches.length !== 1) return;
+      updateUsDebtTooltip(usDebtXToMs(e.touches[0].clientX), e.touches[0].clientY);
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateUsDebtTooltip(null); });
+  })();
+
+  async function loadUsDebt(){
+    try{
+      const res = await fetch("/api/us-debt");
+      if(!res.ok) throw new Error("API " + res.status);
+      const data = await res.json();
+      if(!data.debt || !data.debt.history || !data.debt.history.length) throw new Error("데이터 없음");
+
+      const points = data.debt.history.map(p => ({ x: p.dateMs, y: p.value })).filter(p => p.y > 0);
+      if(!points.length) throw new Error("유효한 값 없음");
+
+      usDebtPoints = points;
+      usDebtFullRange = { min: points[0].x, max: points[points.length-1].x };
+      renderUsDebtChart();
+
+      document.getElementById("usDebtHeadline").textContent = fmtUsdFull(data.debt.current.value);
+      document.getElementById("usDebtAsOf").textContent = data.debt.current.date + " 기준";
+
+      document.getElementById("usDebtStats").innerHTML = `
+        <div class="stat-box"><div class="label">1인당 부채</div><div class="value">${fmtUsdFull(data.perCitizen)}</div></div>
+        <div class="stat-box"><div class="label">납세자 1인당</div><div class="value">${fmtUsdFull(data.perTaxpayer)}</div></div>
+        ${data.debtToGdp ? `<div class="stat-box"><div class="label">GDP 대비 부채비율</div><div class="value">${data.debtToGdp.current.value.toFixed(1)}%</div></div>` : ""}
+      `;
+
+      if(data.debtToGdp && data.debtToGdp.history.length){
+        const gdpHist = data.debtToGdp.history;
+        // Nearest available point to each target year, but only if it's
+        // within ~2 years of that target — otherwise a series that
+        // doesn't actually reach back that far would silently show its
+        // earliest point mislabeled as if it were from 1960.
+        const findNear = (year) => {
+          const target = Date.UTC(year, 0, 1);
+          let best = null, bestDiff = Infinity;
+          gdpHist.forEach(p => { const diff = Math.abs(p.dateMs - target); if(diff < bestDiff){ bestDiff = diff; best = p; } });
+          return bestDiff <= 2 * 365 * 86400000 ? best : null;
+        };
+        const snapshots = [
+          { label: "1960", point: findNear(1960) },
+          { label: "1980", point: findNear(1980) },
+          { label: "2000", point: findNear(2000) },
+          { label: "현재", point: gdpHist[gdpHist.length-1] },
+        ].filter(s => s.point);
+        document.getElementById("usDebtGdpHistory").innerHTML = snapshots.map(s =>
+          `<div class="stat-box"><div class="label">${s.label}</div><div class="value">${s.point.value.toFixed(1)}%</div></div>`
+        ).join("");
+      }
+
+      document.getElementById("usDebtRange").textContent =
+        data.debt.earliest + " ~ " + data.debt.latest + " (" + data.debt.count.toLocaleString("en-US") + "pts, 일별)";
+    }catch(e){
+      document.getElementById("usDebtRange").textContent = "국가부채 데이터 로드 실패: " + e.message;
+    }
+  }
+
   // ---- Asset-class annual returns comparison ----
   const RETURNS_START_YEAR = 2011;
 
@@ -1857,7 +2026,7 @@
 
   async function load(){
     document.getElementById("updatedLine").textContent = "갱신 중...";
-    await Promise.all([loadCycles(), loadPriceLaw(), loadGoldRatio(), loadMacro(), loadStockToFlow()]);
+    await Promise.all([loadCycles(), loadPriceLaw(), loadGoldRatio(), loadMacro(), loadStockToFlow(), loadUsDebt()]);
     document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date().toLocaleString("ko-KR");
   }
 

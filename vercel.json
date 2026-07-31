@@ -2,6 +2,7 @@
   "rewrites": [
     { "source": "/api/onchain-metrics", "destination": "/api/bgeo-data?type=onchain" },
     { "source": "/api/hodl-waves", "destination": "/api/bgeo-data?type=hodl-waves" },
-    { "source": "/api/m2-global", "destination": "/api/bgeo-data?type=m2-global" }
+    { "source": "/api/m2-global", "destination": "/api/bgeo-data?type=m2-global" },
+    { "source": "/api/us-debt", "destination": "/api/bgeo-data?type=us-debt" }
   ]
 }
