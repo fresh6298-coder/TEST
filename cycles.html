@@ -317,9 +317,14 @@
     </div>
     <div class="stats-row" id="usDebtStats"></div>
     <div class="stats-row" id="usDebtGdpHistory"></div>
+    <div class="chart-legend" id="usDebtLegend"></div>
     <div class="chart-canvas-wrap">
       <canvas class="panel-chart" id="usDebtChart"></canvas>
       <div class="pricelaw-tooltip" id="usDebtTooltip"></div>
+    </div>
+    <div class="macro-zoom-bar">
+      <span id="usDebtRangeLabel"></span>
+      <button id="usDebtResetZoom" type="button" style="display:none;">전체 기간 보기</button>
     </div>
     <div class="metric-range" id="usDebtRange" style="font-size:10px;color:var(--sub);text-align:right;margin-top:2px;"></div>
   </section>
@@ -393,6 +398,13 @@
     }
   }
 
+  // A series with `axis:"right"` plots against a second, independently
+  // scaled axis drawn in the right margin instead of the primary one —
+  // used for overlaying series on very different scales (e.g. US debt
+  // in trillions vs. BTC price). Only kicks in when a caller actually
+  // passes opts.padLeft and a right-axis series; every existing caller
+  // passes neither, so padLeft stays 0 and every calculation below
+  // reduces to exactly what it was before this was added.
   function drawLineChart(canvas, seriesList, opts){
     opts = opts || {};
     const w = canvas.clientWidth, hTotal = canvas.clientHeight || 180;
@@ -402,21 +414,37 @@
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,w,hTotal);
 
+    const padLeft = opts.padLeft || 0;
     const padRight = opts.padRight || 34, padBottom = 16;
-    const plotW = w - padRight;
+    const plotW = w - padLeft - padRight;
     const h = hTotal - padBottom;
 
-    const allYs = seriesList.flatMap(s => s.points.map(p => opts.logScale ? Math.log10(p.y) : p.y));
-    const maxX = Math.max(...seriesList.flatMap(s => s.points.map(p => p.x)));
-    const minX = Math.min(...seriesList.flatMap(s => s.points.map(p => p.x)));
-    const maxY = Math.max(...allYs), minY = Math.min(...allYs);
-    const rangeY = (maxY - minY) || 1;
-    const rangeX = (maxX - minX) || 1;
+    const rightSeries = seriesList.filter(s => s.axis === "right");
+    const primarySeries = seriesList.filter(s => s.axis !== "right");
 
-    const xAt = x => ((x - minX) / rangeX) * plotW;
+    const allX = seriesList.flatMap(s => s.points.map(p => p.x));
+    const maxX = Math.max(...allX);
+    const minX = Math.min(...allX);
+    const rangeX = (maxX - minX) || 1;
+    const xAt = x => padLeft + ((x - minX) / rangeX) * plotW;
+
+    const primYs = primarySeries.flatMap(s => s.points.map(p => opts.logScale ? Math.log10(p.y) : p.y));
+    const maxY = primYs.length ? Math.max(...primYs) : 1;
+    const minY = primYs.length ? Math.min(...primYs) : 0;
+    const rangeY = (maxY - minY) || 1;
     const yAt = y => h - (((opts.logScale ? Math.log10(y) : y) - minY) / rangeY) * h;
 
-    // reference gridlines
+    let rightYAt = null, rMinY = 0, rMaxY = 1;
+    if(rightSeries.length){
+      const rightYs = rightSeries.flatMap(s => s.points.map(p => opts.rightLogScale ? Math.log10(p.y) : p.y));
+      rMaxY = Math.max(...rightYs); rMinY = Math.min(...rightYs);
+      const rRangeY = (rMaxY - rMinY) || 1;
+      rightYAt = y => h - (((opts.rightLogScale ? Math.log10(y) : y) - rMinY) / rRangeY) * h;
+    }
+
+    // reference gridlines + primary-axis tick labels — on the left when
+    // the chart reserves padLeft space, otherwise in their original spot
+    // just past the right edge of the plot (unchanged from before).
     ctx.strokeStyle = "rgba(150,150,150,0.25)";
     ctx.setLineDash([3,3]);
     ctx.lineWidth = 1;
@@ -426,40 +454,55 @@
       if(opts.logScale && (tick.value < Math.pow(10,minY) || tick.value > Math.pow(10,maxY))) return;
       const y = yAt(tick.value);
       if(y < -5 || y > h+5) return;
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
-      ctx.textAlign = "left";
+      ctx.beginPath(); ctx.moveTo(padLeft,y); ctx.lineTo(padLeft+plotW,y); ctx.stroke();
+      const labelX = padLeft ? padLeft - 4 : padLeft + plotW + 4;
+      ctx.textAlign = padLeft ? "right" : "left";
       // A "\n" in the label draws a smaller second line underneath (e.g.
       // a KRW-equivalent amount under a USD tick) — single-line labels
       // render exactly as before.
       const lines = String(tick.label).split("\n");
       if(lines.length > 1){
-        ctx.fillText(lines[0], plotW + 4, y);
+        ctx.fillText(lines[0], labelX, y);
         ctx.font = "8px ui-monospace, monospace";
         ctx.fillStyle = "rgba(140,140,140,0.7)";
-        ctx.fillText(lines[1], plotW + 4, y + 9);
+        ctx.fillText(lines[1], labelX, y + 9);
         ctx.font = "9px ui-monospace, monospace";
         ctx.fillStyle = "rgba(140,140,140,0.9)";
       } else {
-        ctx.fillText(tick.label, plotW + 4, y + 3);
+        ctx.fillText(tick.label, labelX, y + 3);
       }
     });
     ctx.setLineDash([]);
 
+    if(rightYAt){
+      ctx.font = "9px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      (opts.rightYTicks || []).forEach(tick => {
+        if(opts.rightLogScale && (tick.value < Math.pow(10,rMinY) || tick.value > Math.pow(10,rMaxY))) return;
+        const y = rightYAt(tick.value);
+        if(y < -5 || y > h+5) return;
+        ctx.fillStyle = "rgba(140,140,140,0.9)";
+        ctx.fillText(tick.label, padLeft + plotW + 4, y + 3);
+      });
+    }
+
     seriesList.forEach(s => {
-      if(s.fill && s.points.length){
-        ctx.beginPath();
-        ctx.moveTo(xAt(s.points[0].x), h);
-        s.points.forEach(p => ctx.lineTo(xAt(p.x), yAt(p.y)));
-        ctx.lineTo(xAt(s.points[s.points.length-1].x), h);
-        ctx.closePath();
-        ctx.fillStyle = s.fillColor || s.color;
-        ctx.fill();
-      }
+      const yFn = s.axis === "right" ? rightYAt : yAt;
+      if(!yFn || !s.fill || !s.points.length) return;
+      ctx.beginPath();
+      ctx.moveTo(xAt(s.points[0].x), h);
+      s.points.forEach(p => ctx.lineTo(xAt(p.x), yFn(p.y)));
+      ctx.lineTo(xAt(s.points[s.points.length-1].x), h);
+      ctx.closePath();
+      ctx.fillStyle = s.fillColor || s.color;
+      ctx.fill();
     });
 
     seriesList.forEach(s => {
+      const yFn = s.axis === "right" ? rightYAt : yAt;
+      if(!yFn) return;
       ctx.beginPath();
-      s.points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(p.x), yAt(p.y)) : ctx.lineTo(xAt(p.x), yAt(p.y)));
+      s.points.forEach((p,i) => i===0 ? ctx.moveTo(xAt(p.x), yFn(p.y)) : ctx.lineTo(xAt(p.x), yFn(p.y)));
       ctx.strokeStyle = s.color;
       ctx.lineWidth = s.lineWidth || 1.5;
       ctx.stroke();
@@ -467,7 +510,7 @@
 
     if(opts.highlightX != null){
       const hx = xAt(opts.highlightX);
-      if(hx >= -1 && hx <= plotW + 1){
+      if(hx >= padLeft - 1 && hx <= padLeft + plotW + 1){
         ctx.beginPath();
         ctx.moveTo(hx, 0); ctx.lineTo(hx, h);
         ctx.strokeStyle = "rgba(100,100,100,0.5)";
@@ -482,7 +525,7 @@
       opts.xTicks.forEach((tick, idx) => {
         const x = xAt(tick.value);
         ctx.textAlign = idx === 0 ? "left" : idx === opts.xTicks.length-1 ? "right" : "center";
-        const cx = idx === 0 ? Math.max(2,x) : idx === opts.xTicks.length-1 ? Math.min(plotW-2,x) : x;
+        const cx = idx === 0 ? Math.max(padLeft+2,x) : idx === opts.xTicks.length-1 ? Math.min(padLeft+plotW-2,x) : x;
         ctx.fillText(tick.label, cx, hTotal - 3);
       });
     }
@@ -1782,14 +1825,19 @@
   }
 
   // ---- US National Debt (Treasury "Debt to the Penny" + FRED's keyless
-  // debt-to-GDP CSV — see api/bgeo-data.js?type=us-debt). Same simple
-  // single-series/tap-tooltip pattern as Stock-to-Flow above — a linear
-  // (not log) scale reads better here since the debt trend's whole point
-  // is the visible upward curve, and it only spans about 10x over its
-  // full 1993+ history rather than the many orders of magnitude BTC's
-  // own price charts need log scale for.
-  let usDebtPoints = null;
+  // debt-to-GDP CSV — see api/bgeo-data.js?type=us-debt), overlaid with
+  // BTC price. Debt uses the primary (left) axis on a linear scale — its
+  // whole 1993+ history only spans about 10x, and the visible upward
+  // curve is the point. BTC needs its own log-scale right axis since it
+  // spans many more orders of magnitude and would otherwise be
+  // flattened to an invisible line against debt's trillion-dollar scale.
+  // Same pinch-zoom/pan/legend-toggle interaction as the macro chart
+  // above (attachMacroZoomPan) — mirrored rather than shared since each
+  // chart owns its own module-level state.
+  let usDebtSeriesList = null; // [{key,label,color,points,axis?}]
   let usDebtFullRange = null;
+  let usDebtViewRange = null;
+  let usDebtHidden = new Set();
   let usDebtHighlightX = null;
 
   function fmtUsdCompact(n){
@@ -1802,99 +1850,217 @@
     return "$" + Math.round(n).toLocaleString("en-US");
   }
 
-  function renderUsDebtChart(){
-    if(!usDebtPoints || !usDebtFullRange) return;
-    const allYs = usDebtPoints.map(p => p.y);
-    const minY = Math.min(...allYs), maxY = Math.max(...allYs);
-    const yTicks = [1e12,5e12,10e12,15e12,20e12,25e12,30e12,35e12,40e12,45e12,50e12]
-      .filter(v => v >= minY * 0.5 && v <= maxY * 1.1)
-      .map(v => ({ value: v, label: fmtUsdCompact(v) }));
-    drawLineChart(document.getElementById("usDebtChart"), [
-      { points: usDebtPoints, color: "#ef4444", lineWidth: 1.5, fill: true, fillColor: "rgba(239,68,68,0.1)" }
-    ], {
-      yTicks, xTicks: yearlyXTicks(usDebtFullRange.min, usDebtFullRange.max),
-      highlightX: usDebtHighlightX,
-    });
+  function toggleUsDebtSeries(label){
+    if(usDebtHidden.has(label)) usDebtHidden.delete(label);
+    else usDebtHidden.add(label);
+    renderLegend(document.getElementById("usDebtLegend"),
+      usDebtSeriesList.map(s => ({ color: s.color, label: s.label })),
+      { hiddenSet: usDebtHidden, onToggle: toggleUsDebtSeries });
+    renderUsDebtChart();
   }
 
-  function usDebtNearest(ms){
-    const points = usDebtPoints;
-    if(ms <= points[0].x) return points[0];
-    if(ms >= points[points.length-1].x) return points[points.length-1];
-    let lo = 0, hi = points.length - 1;
-    while(lo < hi){
-      const mid = (lo+hi) >> 1;
-      if(points[mid].x < ms) lo = mid + 1; else hi = mid;
+  function renderUsDebtChart(){
+    if(!usDebtSeriesList || !usDebtFullRange) return;
+    const range = usDebtViewRange || usDebtFullRange;
+    const visible = usDebtSeriesList
+      .filter(s => !usDebtHidden.has(s.label))
+      .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
+      .filter(s => s.points.length >= 2);
+
+    const debtVisible = visible.filter(s => s.axis !== "right");
+    const btcVisible = visible.filter(s => s.axis === "right");
+
+    const debtYs = debtVisible.flatMap(s => s.points.map(p => p.y));
+    const yTicks = debtYs.length
+      ? [1e12,5e12,10e12,15e12,20e12,25e12,30e12,35e12,40e12,45e12,50e12,60e12,80e12,100e12]
+          .filter(v => v >= Math.min(...debtYs) * 0.5 && v <= Math.max(...debtYs) * 1.1)
+          .map(v => ({ value: v, label: fmtUsdCompact(v) }))
+      : [];
+
+    let rightYTicks = [];
+    if(btcVisible.length){
+      const btcYs = btcVisible.flatMap(s => s.points.map(p => p.y));
+      const minB = Math.min(...btcYs), maxB = Math.max(...btcYs);
+      rightYTicks = [0.1,1,10,100,1000,10000,100000,1000000]
+        .filter(v => v >= minB * 0.5 && v <= maxB * 2)
+        .map(v => ({ value: v, label: fmtUsdCompact(v) }));
     }
-    const a = points[lo-1], b = points[lo];
-    if(!a) return b;
-    return (ms - a.x) <= (b.x - ms) ? a : b;
+
+    drawLineChart(document.getElementById("usDebtChart"), visible, {
+      padLeft: 44, padRight: 40,
+      yTicks, xTicks: yearlyXTicks(range.min, range.max),
+      rightLogScale: true, rightYTicks,
+      highlightX: usDebtHighlightX,
+    });
+
+    document.getElementById("usDebtRangeLabel").textContent = fmtRangeLabel(range);
+    document.getElementById("usDebtResetZoom").style.display = usDebtViewRange ? "inline-block" : "none";
   }
 
   function updateUsDebtTooltip(ms, clientY){
     usDebtHighlightX = ms;
     renderUsDebtChart();
     const tooltip = document.getElementById("usDebtTooltip");
-    if(ms == null || !usDebtPoints || !usDebtPoints.length){ tooltip.style.display = "none"; return; }
-    const p = usDebtNearest(ms);
-    tooltip.innerHTML = `<div><b>${new Date(p.x).toISOString().slice(0,10)}</b></div><div>${fmtUsdFull(p.y)}</div>`;
+    const visible = usDebtSeriesList ? usDebtSeriesList.filter(s => !usDebtHidden.has(s.label)) : [];
+    if(ms == null || !visible.length){ tooltip.style.display = "none"; return; }
+
+    let html = `<div><b>${new Date(ms).toISOString().slice(0,10)}</b></div>`;
+    visible.forEach(s => {
+      const p = nearestSeriesPoint(s.points, ms);
+      if(p) html += `<div><span style="color:${s.color}">●</span> ${s.label}: <b>${fmtUsdPrecise(p.y)}</b></div>`;
+    });
+    tooltip.innerHTML = html;
     tooltip.style.display = "block";
+
     const canvas = document.getElementById("usDebtChart");
     const rect = canvas.getBoundingClientRect();
     if(clientY != null) positionTooltipY(tooltip, clientY, rect);
-    const frac = (ms - usDebtFullRange.min) / (usDebtFullRange.max - usDebtFullRange.min);
-    let left = frac * rect.width - tooltip.offsetWidth / 2;
-    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
-    tooltip.style.left = left + "px";
+    const range = usDebtViewRange || usDebtFullRange;
+    const frac = (ms - range.min) / (range.max - range.min);
+    positionTooltipX(tooltip, frac, rect);
   }
 
-  function usDebtXToMs(clientX){
-    const canvas = document.getElementById("usDebtChart");
-    const rect = canvas.getBoundingClientRect();
-    const range = usDebtFullRange;
-    return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+  function zoomUsDebt(factor, centerTs){
+    if(!usDebtFullRange) return;
+    const cur = usDebtViewRange || usDebtFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = usDebtFullRange.max - usDebtFullRange.min;
+    const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+    const ratio = (centerTs - cur.min) / width;
+    const min = centerTs - newWidth * ratio;
+    const next = clampRange({ min, max: min + newWidth }, usDebtFullRange);
+    usDebtViewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+    renderUsDebtChart();
   }
 
-  (function initUsDebtInteraction(){
+  function panUsDebt(deltaMs){
+    if(!usDebtFullRange) return;
+    const cur = usDebtViewRange || usDebtFullRange;
+    const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, usDebtFullRange);
+    usDebtViewRange = (next.max - next.min) >= (usDebtFullRange.max - usDebtFullRange.min) - 1000 ? null : next;
+    renderUsDebtChart();
+  }
+
+  function attachUsDebtZoomPan(){
     const canvas = document.getElementById("usDebtChart");
-    canvas.addEventListener("mousemove", e => { if(usDebtFullRange) updateUsDebtTooltip(usDebtXToMs(e.clientX), e.clientY); });
-    canvas.addEventListener("mouseleave", () => updateUsDebtTooltip(null));
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+
+    const xToMs = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = usDebtViewRange || usDebtFullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
     canvas.addEventListener("touchstart", e => {
-      if(usDebtFullRange && e.touches.length === 1) updateUsDebtTooltip(usDebtXToMs(e.touches[0].clientX), e.touches[0].clientY);
+      if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+        updateUsDebtTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+      }
     }, { passive: true });
+
     canvas.addEventListener("touchmove", e => {
-      if(!usDebtFullRange || e.touches.length !== 1) return;
-      updateUsDebtTooltip(usDebtXToMs(e.touches[0].clientX), e.touches[0].clientY);
+      if(!touchState || !usDebtFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateUsDebtTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const range = usDebtViewRange || usDebtFullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panUsDebt(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomUsDebt(touchState.lastDist / dist, xToMs(midX));
+        touchState.lastDist = dist;
+        touchState.lastMidX = midX;
+      }
       e.preventDefault();
     }, { passive: false });
-    canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateUsDebtTooltip(null); });
-  })();
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0){
+        touchState = null;
+        updateUsDebtTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!usDebtFullRange) return;
+      e.preventDefault();
+      zoomUsDebt(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateUsDebtTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !usDebtFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = usDebtViewRange || usDebtFullRange;
+      const msPerPx = (range.max - range.min) / rect.width;
+      panUsDebt(-dxPx * msPerPx);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !usDebtFullRange) return;
+      updateUsDebtTooltip(xToMs(e.clientX), e.clientY);
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateUsDebtTooltip(null); });
+
+    document.getElementById("usDebtResetZoom").addEventListener("click", () => {
+      usDebtViewRange = null;
+      renderUsDebtChart();
+    });
+  }
 
   async function loadUsDebt(){
     try{
-      const res = await fetch("/api/us-debt");
-      if(!res.ok) throw new Error("API " + res.status);
-      const data = await res.json();
-      if(!data.debt || !data.debt.history || !data.debt.history.length) throw new Error("데이터 없음");
+      const [res, btcMap] = await Promise.all([
+        fetch("/api/us-debt").then(r => { if(!r.ok) throw new Error("API " + r.status); return r.json(); }),
+        fetchBtcHistory().catch(() => null),
+      ]);
+      if(!res.debt || !res.debt.history || !res.debt.history.length) throw new Error("데이터 없음");
 
-      const points = data.debt.history.map(p => ({ x: p.dateMs, y: p.value })).filter(p => p.y > 0);
-      if(!points.length) throw new Error("유효한 값 없음");
+      const debtPoints = res.debt.history.map(p => ({ x: p.dateMs, y: p.value })).filter(p => p.y > 0);
+      if(!debtPoints.length) throw new Error("유효한 값 없음");
 
-      usDebtPoints = points;
-      usDebtFullRange = { min: points[0].x, max: points[points.length-1].x };
+      usDebtSeriesList = [
+        { key: "debt", label: "미국 국가부채", color: "#ef4444", points: debtPoints, fill: true, fillColor: "rgba(239,68,68,0.1)" },
+      ];
+      if(btcMap){
+        const btcPoints = Object.entries(btcMap).map(([d,v]) => ({ x: new Date(d).getTime(), y: v })).filter(p => p.y > 0).sort((a,b) => a.x - b.x);
+        if(btcPoints.length) usDebtSeriesList.push({ key: "btc", label: "BTC 가격", color: "#f7931a", points: btcPoints, axis: "right", lineWidth: 1.3 });
+      }
+
+      const allX = usDebtSeriesList.flatMap(s => s.points.map(p => p.x));
+      usDebtFullRange = { min: Math.min(...allX), max: Math.max(...allX) };
+      usDebtViewRange = null;
       renderUsDebtChart();
+      renderLegend(document.getElementById("usDebtLegend"),
+        usDebtSeriesList.map(s => ({ color: s.color, label: s.label })),
+        { hiddenSet: usDebtHidden, onToggle: toggleUsDebtSeries });
 
-      document.getElementById("usDebtHeadline").textContent = fmtUsdFull(data.debt.current.value);
-      document.getElementById("usDebtAsOf").textContent = data.debt.current.date + " 기준";
+      document.getElementById("usDebtHeadline").textContent = fmtUsdFull(res.debt.current.value);
+      document.getElementById("usDebtAsOf").textContent = res.debt.current.date + " 기준";
 
       document.getElementById("usDebtStats").innerHTML = `
-        <div class="stat-box"><div class="label">1인당 부채</div><div class="value">${fmtUsdFull(data.perCitizen)}</div></div>
-        <div class="stat-box"><div class="label">납세자 1인당</div><div class="value">${fmtUsdFull(data.perTaxpayer)}</div></div>
-        ${data.debtToGdp ? `<div class="stat-box"><div class="label">GDP 대비 부채비율</div><div class="value">${data.debtToGdp.current.value.toFixed(1)}%</div></div>` : ""}
+        <div class="stat-box"><div class="label">1인당 부채</div><div class="value">${fmtUsdFull(res.perCitizen)}</div></div>
+        <div class="stat-box"><div class="label">납세자 1인당</div><div class="value">${fmtUsdFull(res.perTaxpayer)}</div></div>
+        ${res.debtToGdp ? `<div class="stat-box"><div class="label">GDP 대비 부채비율</div><div class="value">${res.debtToGdp.current.value.toFixed(1)}%</div></div>` : ""}
       `;
 
-      if(data.debtToGdp && data.debtToGdp.history.length){
-        const gdpHist = data.debtToGdp.history;
+      if(res.debtToGdp && res.debtToGdp.history.length){
+        const gdpHist = res.debtToGdp.history;
         // Nearest available point to each target year, but only if it's
         // within ~2 years of that target — otherwise a series that
         // doesn't actually reach back that far would silently show its
@@ -1917,7 +2083,7 @@
       }
 
       document.getElementById("usDebtRange").textContent =
-        data.debt.earliest + " ~ " + data.debt.latest + " (" + data.debt.count.toLocaleString("en-US") + "pts, 일별)";
+        res.debt.earliest + " ~ " + res.debt.latest + " (" + res.debt.count.toLocaleString("en-US") + "pts, 일별)";
     }catch(e){
       document.getElementById("usDebtRange").textContent = "국가부채 데이터 로드 실패: " + e.message;
     }
@@ -2301,12 +2467,13 @@
       `즉 다른 기술들처럼 조만간 성장이 꺾일 것이라는 근거는 아직 나타나지 않았어.`;
   }
 
-  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); renderStockToFlow(); });
+  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); renderStockToFlow(); renderUsDebtChart(); });
   attachMacroZoomPan();
   attachPriceLawZoomPan();
   attachGoldRatioZoomPan();
   attachCycleZoomPan();
   attachAdoptionZoomPan();
+  attachUsDebtZoomPan();
   load();
   initAdoption();
   loadAssetReturns();
