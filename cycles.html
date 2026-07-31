@@ -309,7 +309,7 @@
 
   <section class="panel">
     <h2>미국 국가부채</h2>
-    <div class="desc">미국 재무부(Treasury)와 세인트루이스 연준(FRED)의 공식 데이터 기준. usdebtclock.org에 있는 "Treasury Reserve"·"Restitution" 같은 항목은 공식 출처가 불분명해서 뺐어. 1인당/납세자 1인당 수치는 최신 인구·납세자 추정치로 나눈 근사값이라, 실시간 집계가 아니야.</div>
+    <div class="desc">미국 재무부(Treasury)와 세인트루이스 연준(FRED)의 공식 데이터 기준. usdebtclock.org에 있는 "Treasury Reserve"·"Restitution" 같은 항목은 공식 출처가 불분명해서 뺐어. 1인당/납세자 1인당 수치는 최신 인구·납세자 추정치로 나눈 근사값이라, 실시간 집계가 아니야. 아래 그래프는 세 값을 그대로 겹치지 않고, BTC 데이터가 시작되는 시점(2010년 8월)을 100으로 맞춰서 그 이후 각각 몇 배로 늘었는지 비교해 — 국가부채가 늘어나는 동안 금·비트코인 가격이 상대적으로 어떻게 움직였는지 보려는 목적이야.</div>
     <div class="debt-headline">
       <div class="label">US NATIONAL DEBT</div>
       <div class="value" id="usDebtHeadline">-</div>
@@ -1859,6 +1859,15 @@
     renderUsDebtChart();
   }
 
+  // Compact index-value formatter for the rebased y-axis (e.g. "234", "12K",
+  // "1.5M") — these are unitless growth multiples ×100, not dollar amounts,
+  // so fmtUsdCompact's "$" prefix would be misleading here.
+  function fmtIndexTick(n){
+    if(n >= 1e6) return (n/1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+    if(n >= 1e3) return (n/1e3).toFixed(n >= 1e4 ? 0 : 1) + "K";
+    return String(Math.round(n));
+  }
+
   function renderUsDebtChart(){
     if(!usDebtSeriesList || !usDebtFullRange) return;
     const range = usDebtViewRange || usDebtFullRange;
@@ -1867,32 +1876,20 @@
       .map(s => ({ ...s, points: s.points.filter(p => p.x >= range.min && p.x <= range.max) }))
       .filter(s => s.points.length >= 2);
 
-    const debtVisible = visible.filter(s => s.axis !== "right");
-    // BTC and gold share this right-hand log axis (see loadUsDebt) — both
-    // plot as actual $ prices, just on a very different scale from
-    // debt's linear trillion-dollar left axis.
-    const rightAxisVisible = visible.filter(s => s.axis === "right");
-
-    const debtYs = debtVisible.flatMap(s => s.points.map(p => p.y));
-    const yTicks = debtYs.length
-      ? [1e12,5e12,10e12,15e12,20e12,25e12,30e12,35e12,40e12,45e12,50e12,60e12,80e12,100e12]
-          .filter(v => v >= Math.min(...debtYs) * 0.5 && v <= Math.max(...debtYs) * 1.1)
-          .map(v => ({ value: v, label: fmtUsdCompact(v) }))
+    // All series are rebased to 100 at their shared start date (see
+    // loadUsDebt), so they share ONE log-scale axis — a log scale is
+    // still needed since BTC's growth multiple dwarfs debt's or gold's
+    // by many orders of magnitude even after rebasing.
+    const allYs = visible.flatMap(s => s.points.map(p => p.y));
+    const yTicks = allYs.length
+      ? [10,25,50,100,250,500,1000,2500,5000,1e4,2.5e4,5e4,1e5,2.5e5,5e5,1e6,2.5e6,5e6,1e7]
+          .filter(v => v >= Math.min(...allYs) * 0.5 && v <= Math.max(...allYs) * 2)
+          .map(v => ({ value: v, label: fmtIndexTick(v) }))
       : [];
 
-    let rightYTicks = [];
-    if(rightAxisVisible.length){
-      const rightYs = rightAxisVisible.flatMap(s => s.points.map(p => p.y));
-      const minR = Math.min(...rightYs), maxR = Math.max(...rightYs);
-      rightYTicks = [0.1,1,10,100,1000,10000,100000,1000000]
-        .filter(v => v >= minR * 0.5 && v <= maxR * 2)
-        .map(v => ({ value: v, label: fmtUsdCompact(v) }));
-    }
-
     drawLineChart(document.getElementById("usDebtChart"), visible, {
-      padLeft: 44, padRight: 40,
+      logScale: true, padRight: 36,
       yTicks, xTicks: yearlyXTicks(range.min, range.max),
-      rightLogScale: true, rightYTicks,
       highlightX: usDebtHighlightX,
     });
 
@@ -1907,10 +1904,13 @@
     const visible = usDebtSeriesList ? usDebtSeriesList.filter(s => !usDebtHidden.has(s.label)) : [];
     if(ms == null || !visible.length){ tooltip.style.display = "none"; return; }
 
+    // p.y is the rebased index (start = 100), so p.y/100 is directly the
+    // growth multiple since the shared start date — that's what actually
+    // answers "how did this change relative to the others."
     let html = `<div><b>${new Date(ms).toISOString().slice(0,10)}</b></div>`;
     visible.forEach(s => {
       const p = nearestSeriesPoint(s.points, ms);
-      if(p) html += `<div><span style="color:${s.color}">●</span> ${s.label}: <b>${fmtUsdPrecise(p.y)}</b></div>`;
+      if(p) html += `<div><span style="color:${s.color}">●</span> ${s.label}: <b>×${(p.y/100).toLocaleString("en-US", { maximumFractionDigits: p.y/100 < 10 ? 2 : 0 })}</b></div>`;
     });
     tooltip.innerHTML = html;
     tooltip.style.display = "block";
@@ -2038,21 +2038,33 @@
       const debtPoints = res.debt.history.map(p => ({ x: p.dateMs, y: p.value })).filter(p => p.y > 0);
       if(!debtPoints.length) throw new Error("유효한 값 없음");
 
-      usDebtSeriesList = [
-        { key: "debt", label: "미국 국가부채", color: "#ef4444", points: debtPoints, fill: true, fillColor: "rgba(239,68,68,0.1)" },
-      ];
-      if(btcMap){
-        const btcPoints = Object.entries(btcMap).map(([d,v]) => ({ x: new Date(d).getTime(), y: v })).filter(p => p.y > 0).sort((a,b) => a.x - b.x);
-        if(btcPoints.length) usDebtSeriesList.push({ key: "btc", label: "BTC 가격", color: "#f7931a", points: btcPoints, axis: "right", lineWidth: 1.3 });
-      }
-      // Gold shares BTC's log-scale right axis — its own $300~$4000ish
-      // range fits comfortably on the same log axis as BTC's much wider
-      // $0.06~$100k+ span, unlike debt's linear trillion-dollar scale.
+      const btcPoints = btcMap
+        ? Object.entries(btcMap).map(([d,v]) => ({ x: new Date(d).getTime(), y: v })).filter(p => p.y > 0).sort((a,b) => a.x - b.x)
+        : [];
       const goldMap = macroRes && macroRes.assets && macroRes.assets["Gold (Futures)"];
-      if(goldMap){
-        const goldPoints = Object.entries(goldMap).map(([d,v]) => ({ x: new Date(d).getTime(), y: v })).filter(p => p.y > 0).sort((a,b) => a.x - b.x);
-        if(goldPoints.length) usDebtSeriesList.push({ key: "gold", label: "금 가격", color: "#eab308", points: goldPoints, axis: "right", lineWidth: 1.3 });
-      }
+      const goldPoints = goldMap
+        ? Object.entries(goldMap).map(([d,v]) => ({ x: new Date(d).getTime(), y: v })).filter(p => p.y > 0).sort((a,b) => a.x - b.x)
+        : [];
+
+      // The point isn't the raw dollar figures (debt's trillions vs BTC's
+      // tens of thousands make those incomparable on one chart) — it's
+      // how much each grew relative to the others. So every series is
+      // rebased to 100 at the latest of their individual start dates
+      // (usually BTC's ~2010-08-18, since debt and gold both go back
+      // further), and only compared from that shared point forward.
+      const candidates = [
+        { key: "debt", label: "미국 국가부채", color: "#ef4444", points: debtPoints },
+        { key: "btc", label: "BTC 가격", color: "#f7931a", points: btcPoints, lineWidth: 1.3 },
+        { key: "gold", label: "금 가격", color: "#eab308", points: goldPoints, lineWidth: 1.3 },
+      ].filter(s => s.points.length);
+
+      const commonStartMs = Math.max(...candidates.map(s => s.points[0].x));
+      usDebtSeriesList = candidates.map(s => {
+        const fromStart = s.points.filter(p => p.x >= commonStartMs);
+        const base = fromStart.length ? fromStart[0].y : null;
+        return { ...s, points: base ? fromStart.map(p => ({ x: p.x, y: (p.y / base) * 100 })) : [] };
+      }).filter(s => s.points.length >= 2);
+      if(!usDebtSeriesList.length) throw new Error("비교할 공통 기간 데이터 없음");
 
       const allX = usDebtSeriesList.flatMap(s => s.points.map(p => p.x));
       usDebtFullRange = { min: Math.min(...allX), max: Math.max(...allX) };
