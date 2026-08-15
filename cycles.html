@@ -268,6 +268,17 @@
   </section>
 
   <section class="panel">
+    <h2>비트코인 발행량 (Circulating Supply)</h2>
+    <div class="desc">210,000블록(~4년)마다 채굴 보상이 절반으로 줄어드는 반감기 구조 때문에 최대 발행량이 2,100만 개로 수렴해. 실제 블록 데이터가 아니라 평균 10분/블록 기준의 이론적 발행 스케줄이라, 실제 발행량과 며칠 정도 오차가 있을 수 있어. 그래프를 탭/클릭하면 그 시점의 값을 보여줘.</div>
+    <div id="supplyStats" class="stats-row"></div>
+    <div class="chart-canvas-wrap">
+      <canvas class="panel-chart" id="supplyChart"></canvas>
+      <div class="pricelaw-tooltip" id="supplyTooltip"></div>
+    </div>
+    <div class="metric-range" id="supplyRange" style="font-size:10px;color:var(--sub);text-align:right;margin-top:2px;"></div>
+  </section>
+
+  <section class="panel">
     <h2>비트코인 4년 이동평균 (금 기준)</h2>
     <div class="desc">비트코인 가격을 금 온스로 환산한 뒤(BTC/XAU), 1460일(4년) 추세 이동평균을 그려. 반감기 사이클의 등락을 평활화해서 장기 추세만 보여줘. (Yahoo Finance의 비트코인 일봉이 2014년 9월부터 시작이라, 이동평균이 꽉 채워지는 시점부터만 표시돼 — 원본 참고 차트의 2016년보다 늦게 시작해.)</div>
     <div id="goldRatioStats" class="stats-row"></div>
@@ -1824,6 +1835,162 @@
     }
   }
 
+  // ---- BTC circulating supply ----
+  // Fully deterministic from Bitcoin's known issuance schedule — no API
+  // call needed. Reward halves every 210,000 blocks starting at 50 BTC;
+  // completed halvings use their real historical dates, future ones are
+  // projected forward at the same 10 min/block average genesis.html's own
+  // halving countdown assumes. Block height (and therefore the exact
+  // date within an epoch) is linearly interpolated between each epoch's
+  // start and the next, which is accurate enough for a smooth supply
+  // curve even though real block times vary day to day.
+  const SUPPLY_MAX = 21000000;
+  const SUPPLY_BLOCKS_PER_EPOCH = 210000;
+  const SUPPLY_MINUTES_PER_BLOCK = 10;
+  const SUPPLY_KNOWN_EPOCHS = [
+    { startBlock: 0, reward: 50, startDate: Date.UTC(2009,0,3) },
+    { startBlock: 210000, reward: 25, startDate: Date.UTC(2012,10,28) },
+    { startBlock: 420000, reward: 12.5, startDate: Date.UTC(2016,6,9) },
+    { startBlock: 630000, reward: 6.25, startDate: Date.UTC(2020,4,11) },
+    { startBlock: 840000, reward: 3.125, startDate: Date.UTC(2024,3,20) },
+  ];
+
+  function buildSupplyPoints(){
+    const epochs = [...SUPPLY_KNOWN_EPOCHS];
+    // A handful of future epochs (~24 more years) is plenty to show the
+    // curve flattening out well past "now" without computing all the way
+    // to the final satoshi around 2140.
+    for(let i = 0; i < 6; i++){
+      const prev = epochs[epochs.length - 1];
+      epochs.push({
+        startBlock: prev.startBlock + SUPPLY_BLOCKS_PER_EPOCH,
+        reward: prev.reward / 2,
+        startDate: prev.startDate + SUPPLY_BLOCKS_PER_EPOCH * SUPPLY_MINUTES_PER_BLOCK * 60000,
+      });
+    }
+
+    const points = [];
+    let supply = 0;
+    const STEPS_PER_EPOCH = 24;
+    epochs.forEach((e, i) => {
+      const epochEndDate = i < epochs.length - 1
+        ? epochs[i+1].startDate
+        : e.startDate + SUPPLY_BLOCKS_PER_EPOCH * SUPPLY_MINUTES_PER_BLOCK * 60000;
+      const epochDurationMs = epochEndDate - e.startDate;
+      points.push({ x: e.startDate, y: supply });
+      for(let s = 1; s <= STEPS_PER_EPOCH; s++){
+        const blocksElapsed = SUPPLY_BLOCKS_PER_EPOCH * (s / STEPS_PER_EPOCH);
+        points.push({ x: e.startDate + epochDurationMs * (s / STEPS_PER_EPOCH), y: supply + e.reward * blocksElapsed });
+      }
+      supply += e.reward * SUPPLY_BLOCKS_PER_EPOCH;
+    });
+    return points;
+  }
+
+  function fmtBtcCompact(n){
+    return (n/1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+  }
+
+  let supplyPoints = null;
+  let supplyFullRange = null;
+  let supplyHighlightX = null;
+
+  function renderSupplyChart(){
+    if(!supplyPoints || !supplyFullRange) return;
+    const yTicks = [0,5e6,10e6,15e6,18e6,19e6,20e6,21e6].map(v => ({ value: v, label: fmtBtcCompact(v) }));
+    drawLineChart(document.getElementById("supplyChart"), [
+      { points: [{ x: supplyFullRange.min, y: SUPPLY_MAX }, { x: supplyFullRange.max, y: SUPPLY_MAX }], color: "rgba(140,140,140,0.4)", lineWidth: 1 },
+      { points: supplyPoints, color: "#f7931a", lineWidth: 1.5 },
+    ], {
+      yTicks, xTicks: yearlyXTicks(supplyFullRange.min, supplyFullRange.max),
+      highlightX: supplyHighlightX,
+    });
+  }
+
+  function supplyNearest(ms){
+    const points = supplyPoints;
+    if(ms <= points[0].x) return points[0];
+    if(ms >= points[points.length-1].x) return points[points.length-1];
+    let lo = 0, hi = points.length - 1;
+    while(lo < hi){
+      const mid = (lo+hi) >> 1;
+      if(points[mid].x < ms) lo = mid + 1; else hi = mid;
+    }
+    const a = points[lo-1], b = points[lo];
+    if(!a) return b;
+    return (ms - a.x) <= (b.x - ms) ? a : b;
+  }
+
+  function updateSupplyTooltip(ms, clientY){
+    supplyHighlightX = ms;
+    renderSupplyChart();
+    const tooltip = document.getElementById("supplyTooltip");
+    if(ms == null || !supplyPoints || !supplyPoints.length){ tooltip.style.display = "none"; return; }
+    const p = supplyNearest(ms);
+    const pct = (p.y / SUPPLY_MAX) * 100;
+    tooltip.innerHTML = `<div><b>${new Date(p.x).toISOString().slice(0,10)}</b></div><div>${Math.round(p.y).toLocaleString("en-US")} BTC (${pct.toFixed(1)}%)</div>`;
+    tooltip.style.display = "block";
+    const canvas = document.getElementById("supplyChart");
+    const rect = canvas.getBoundingClientRect();
+    if(clientY != null) positionTooltipY(tooltip, clientY, rect);
+    const frac = (ms - supplyFullRange.min) / (supplyFullRange.max - supplyFullRange.min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+  }
+
+  function supplyXToMs(clientX){
+    const canvas = document.getElementById("supplyChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = supplyFullRange;
+    return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+  }
+
+  (function initSupplyInteraction(){
+    const canvas = document.getElementById("supplyChart");
+    canvas.addEventListener("mousemove", e => { if(supplyFullRange) updateSupplyTooltip(supplyXToMs(e.clientX), e.clientY); });
+    canvas.addEventListener("mouseleave", () => updateSupplyTooltip(null));
+    canvas.addEventListener("touchstart", e => {
+      if(supplyFullRange && e.touches.length === 1) updateSupplyTooltip(supplyXToMs(e.touches[0].clientX), e.touches[0].clientY);
+    }, { passive: true });
+    canvas.addEventListener("touchmove", e => {
+      if(!supplyFullRange || e.touches.length !== 1) return;
+      updateSupplyTooltip(supplyXToMs(e.touches[0].clientX), e.touches[0].clientY);
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateSupplyTooltip(null); });
+  })();
+
+  function loadSupply(){
+    try{
+      const points = buildSupplyPoints();
+      supplyPoints = points;
+      // Chart out to "now + 4 years" — showing the full projected epochs
+      // all the way to ~2048 would squash the already-mined, currently
+      // interesting part of the curve into a sliver on the left.
+      const viewEndMs = Math.min(points[points.length-1].x, Date.now() + 4 * 365.25 * 86400000);
+      supplyFullRange = { min: points[0].x, max: viewEndMs };
+      renderSupplyChart();
+
+      const nowMs = Date.now();
+      const current = supplyNearest(nowMs);
+      const pct = (current.y / SUPPLY_MAX) * 100;
+      const remaining = SUPPLY_MAX - current.y;
+      const currentEpoch = SUPPLY_KNOWN_EPOCHS.slice().reverse().find(e => e.startDate <= nowMs) || SUPPLY_KNOWN_EPOCHS[0];
+
+      document.getElementById("supplyStats").innerHTML = `
+        <div class="stat-box"><div class="label">현재 발행량</div><div class="value">${fmtBtcCompact(current.y)}</div></div>
+        <div class="stat-box"><div class="label">채굴 완료율</div><div class="value">${pct.toFixed(1)}%</div></div>
+        <div class="stat-box"><div class="label">남은 발행량</div><div class="value">${fmtBtcCompact(remaining)}</div></div>
+        <div class="stat-box"><div class="label">현재 블록 보상</div><div class="value">${currentEpoch.reward} BTC</div></div>
+      `;
+      document.getElementById("supplyRange").textContent =
+        "이론적 발행 스케줄 (평균 10분/블록 가정) · 2009-01-03 ~ " + new Date(supplyFullRange.max).toISOString().slice(0,10);
+    }catch(e){
+      document.getElementById("supplyRange").textContent = "발행량 계산 실패: " + e.message;
+    }
+  }
+
   // ---- US National Debt (Treasury "Debt to the Penny" + FRED's keyless
   // debt-to-GDP CSV — see api/bgeo-data.js?type=us-debt), overlaid with
   // BTC price. Debt uses the primary (left) axis on a linear scale — its
@@ -2192,6 +2359,7 @@
 
   async function load(){
     document.getElementById("updatedLine").textContent = "갱신 중...";
+    loadSupply();
     await Promise.all([loadCycles(), loadPriceLaw(), loadGoldRatio(), loadMacro(), loadStockToFlow(), loadUsDebt()]);
     document.getElementById("updatedLine").textContent = "서버 갱신: " + new Date().toLocaleString("ko-KR");
   }
@@ -2467,7 +2635,7 @@
       `즉 다른 기술들처럼 조만간 성장이 꺾일 것이라는 근거는 아직 나타나지 않았어.`;
   }
 
-  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); renderStockToFlow(); renderUsDebtChart(); });
+  window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); renderStockToFlow(); renderSupplyChart(); renderUsDebtChart(); });
   attachMacroZoomPan();
   attachPriceLawZoomPan();
   attachGoldRatioZoomPan();
