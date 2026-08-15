@@ -83,6 +83,10 @@
   #priceLawChart:active{cursor:grabbing;}
   #goldRatioChart{touch-action:none;cursor:grab;}
   #goldRatioChart:active{cursor:grabbing;}
+  #supplyChart{touch-action:none;cursor:grab;}
+  #supplyChart:active{cursor:grabbing;}
+  #usDebtChart{touch-action:none;cursor:grab;}
+  #usDebtChart:active{cursor:grabbing;}
   .chart-canvas-wrap{position:relative;}
   .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;}
   .stats-row .stat-box{border:1px solid var(--track);border-radius:8px;padding:6px 4px;text-align:center;}
@@ -269,11 +273,15 @@
 
   <section class="panel">
     <h2>비트코인 발행량 (Circulating Supply)</h2>
-    <div class="desc">210,000블록(~4년)마다 채굴 보상이 절반으로 줄어드는 반감기 구조 때문에 최대 발행량이 2,100만 개로 수렴해. 실제 블록 데이터가 아니라 평균 10분/블록 기준의 이론적 발행 스케줄이라, 실제 발행량과 며칠 정도 오차가 있을 수 있어. 그래프를 탭/클릭하면 그 시점의 값을 보여줘.</div>
+    <div class="desc">210,000블록(~4년)마다 채굴 보상이 절반으로 줄어드는 반감기 구조 때문에 최대 발행량이 2,100만 개로 수렴해. 실제 블록 데이터가 아니라 평균 10분/블록 기준의 이론적 발행 스케줄이라, 실제 발행량과 며칠 정도 오차가 있을 수 있어. 핀치/휠로 확대·축소, 드래그로 이동, 탭하면 그 시점의 값을 보여줘.</div>
     <div id="supplyStats" class="stats-row"></div>
     <div class="chart-canvas-wrap">
       <canvas class="panel-chart" id="supplyChart"></canvas>
       <div class="pricelaw-tooltip" id="supplyTooltip"></div>
+    </div>
+    <div class="macro-zoom-bar">
+      <span id="supplyRangeLabel"></span>
+      <button id="supplyResetZoom" type="button" style="display:none;">전체 기간 보기</button>
     </div>
     <div class="metric-range" id="supplyRange" style="font-size:10px;color:var(--sub);text-align:right;margin-top:2px;"></div>
   </section>
@@ -1893,18 +1901,23 @@
 
   let supplyPoints = null;
   let supplyFullRange = null;
+  let supplyViewRange = null;
   let supplyHighlightX = null;
 
   function renderSupplyChart(){
     if(!supplyPoints || !supplyFullRange) return;
+    const range = supplyViewRange || supplyFullRange;
+    const visiblePoints = supplyPoints.filter(p => p.x >= range.min && p.x <= range.max);
     const yTicks = [0,5e6,10e6,15e6,18e6,19e6,20e6,21e6].map(v => ({ value: v, label: fmtBtcCompact(v) }));
     drawLineChart(document.getElementById("supplyChart"), [
-      { points: [{ x: supplyFullRange.min, y: SUPPLY_MAX }, { x: supplyFullRange.max, y: SUPPLY_MAX }], color: "rgba(140,140,140,0.4)", lineWidth: 1 },
-      { points: supplyPoints, color: "#f7931a", lineWidth: 1.5 },
+      { points: [{ x: range.min, y: SUPPLY_MAX }, { x: range.max, y: SUPPLY_MAX }], color: "rgba(140,140,140,0.4)", lineWidth: 1 },
+      { points: visiblePoints.length >= 2 ? visiblePoints : supplyPoints, color: "#f7931a", lineWidth: 1.5 },
     ], {
-      yTicks, xTicks: yearlyXTicks(supplyFullRange.min, supplyFullRange.max),
+      yTicks, xTicks: yearlyXTicks(range.min, range.max),
       highlightX: supplyHighlightX,
     });
+    document.getElementById("supplyRangeLabel").textContent = fmtRangeLabel(range);
+    document.getElementById("supplyResetZoom").style.display = supplyViewRange ? "inline-block" : "none";
   }
 
   function supplyNearest(ms){
@@ -1933,33 +1946,115 @@
     const canvas = document.getElementById("supplyChart");
     const rect = canvas.getBoundingClientRect();
     if(clientY != null) positionTooltipY(tooltip, clientY, rect);
-    const frac = (ms - supplyFullRange.min) / (supplyFullRange.max - supplyFullRange.min);
+    const range = supplyViewRange || supplyFullRange;
+    const frac = (ms - range.min) / (range.max - range.min);
     let left = frac * rect.width - tooltip.offsetWidth / 2;
     left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
     tooltip.style.left = left + "px";
   }
 
-  function supplyXToMs(clientX){
-    const canvas = document.getElementById("supplyChart");
-    const rect = canvas.getBoundingClientRect();
-    const range = supplyFullRange;
-    return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+  function zoomSupply(factor, centerTs){
+    if(!supplyFullRange) return;
+    const cur = supplyViewRange || supplyFullRange;
+    const width = cur.max - cur.min;
+    const fullWidth = supplyFullRange.max - supplyFullRange.min;
+    const newWidth = Math.max(MIN_ZOOM_MS, Math.min(fullWidth, width * factor));
+    const ratio = (centerTs - cur.min) / width;
+    const min = centerTs - newWidth * ratio;
+    const next = clampRange({ min, max: min + newWidth }, supplyFullRange);
+    supplyViewRange = (next.max - next.min) >= fullWidth - 1000 ? null : next;
+    renderSupplyChart();
   }
 
-  (function initSupplyInteraction(){
+  function panSupply(deltaMs){
+    if(!supplyFullRange) return;
+    const cur = supplyViewRange || supplyFullRange;
+    const next = clampRange({ min: cur.min + deltaMs, max: cur.max + deltaMs }, supplyFullRange);
+    supplyViewRange = (next.max - next.min) >= (supplyFullRange.max - supplyFullRange.min) - 1000 ? null : next;
+    renderSupplyChart();
+  }
+
+  function attachSupplyZoomPan(){
     const canvas = document.getElementById("supplyChart");
-    canvas.addEventListener("mousemove", e => { if(supplyFullRange) updateSupplyTooltip(supplyXToMs(e.clientX), e.clientY); });
-    canvas.addEventListener("mouseleave", () => updateSupplyTooltip(null));
+    let touchState = null;
+    let mouseDragging = false, lastMouseX = 0;
+
+    const xToMs = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const range = supplyViewRange || supplyFullRange;
+      return range.min + ((clientX - rect.left) / rect.width) * (range.max - range.min);
+    };
+
     canvas.addEventListener("touchstart", e => {
-      if(supplyFullRange && e.touches.length === 1) updateSupplyTooltip(supplyXToMs(e.touches[0].clientX), e.touches[0].clientY);
+      if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+        updateSupplyTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
+      } else if(e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchState = { mode: "pinch", lastDist: Math.hypot(dx, dy), lastMidX: midX };
+      }
     }, { passive: true });
+
     canvas.addEventListener("touchmove", e => {
-      if(!supplyFullRange || e.touches.length !== 1) return;
-      updateSupplyTooltip(supplyXToMs(e.touches[0].clientX), e.touches[0].clientY);
+      if(!touchState || !supplyFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      if(touchState.mode === "scrub" && e.touches.length === 1){
+        updateSupplyTooltip(xToMs(e.touches[0].clientX), e.touches[0].clientY);
+      } else if(touchState.mode === "pinch" && e.touches.length === 2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const range = supplyViewRange || supplyFullRange;
+        const dxPx = midX - touchState.lastMidX;
+        if(dxPx !== 0) panSupply(-dxPx * (range.max - range.min) / rect.width);
+        if(dist !== touchState.lastDist) zoomSupply(touchState.lastDist / dist, xToMs(midX));
+        touchState.lastDist = dist;
+        touchState.lastMidX = midX;
+      }
       e.preventDefault();
     }, { passive: false });
-    canvas.addEventListener("touchend", e => { if(e.touches.length === 0) updateSupplyTooltip(null); });
-  })();
+
+    canvas.addEventListener("touchend", e => {
+      if(e.touches.length === 0){
+        touchState = null;
+        updateSupplyTooltip(null);
+      } else if(e.touches.length === 1){
+        touchState = { mode: "scrub" };
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      if(!supplyFullRange) return;
+      e.preventDefault();
+      zoomSupply(e.deltaY > 0 ? 1.2 : 1/1.2, xToMs(e.clientX));
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", e => { mouseDragging = true; lastMouseX = e.clientX; updateSupplyTooltip(null); });
+    window.addEventListener("mousemove", e => {
+      if(!mouseDragging || !supplyFullRange) return;
+      const rect = canvas.getBoundingClientRect();
+      const dxPx = e.clientX - lastMouseX;
+      lastMouseX = e.clientX;
+      const range = supplyViewRange || supplyFullRange;
+      const msPerPx = (range.max - range.min) / rect.width;
+      panSupply(-dxPx * msPerPx);
+    });
+    window.addEventListener("mouseup", () => { mouseDragging = false; });
+
+    canvas.addEventListener("mousemove", e => {
+      if(mouseDragging || !supplyFullRange) return;
+      updateSupplyTooltip(xToMs(e.clientX), e.clientY);
+    });
+    canvas.addEventListener("mouseleave", () => { if(!mouseDragging) updateSupplyTooltip(null); });
+
+    document.getElementById("supplyResetZoom").addEventListener("click", () => {
+      supplyViewRange = null;
+      renderSupplyChart();
+    });
+  }
 
   function loadSupply(){
     try{
@@ -1970,6 +2065,7 @@
       // interesting part of the curve into a sliver on the left.
       const viewEndMs = Math.min(points[points.length-1].x, Date.now() + 4 * 365.25 * 86400000);
       supplyFullRange = { min: points[0].x, max: viewEndMs };
+      supplyViewRange = null;
       renderSupplyChart();
 
       const nowMs = Date.now();
@@ -2641,6 +2737,7 @@
   attachGoldRatioZoomPan();
   attachCycleZoomPan();
   attachAdoptionZoomPan();
+  attachSupplyZoomPan();
   attachUsDebtZoomPan();
   load();
   initAdoption();
