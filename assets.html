@@ -146,6 +146,11 @@
   }
   :root[data-theme="dark"] .bar-fill{background:#ddd;}
   :root[data-theme="light"] .bar-fill{background:#333;}
+  /* Higher specificity than the two rules above (an extra .btc class),
+     so Bitcoin's bar stays orange in both explicit themes instead of
+     being overridden back to the generic gray. */
+  :root[data-theme="dark"] .bar-fill.btc,
+  :root[data-theme="light"] .bar-fill.btc{background:var(--orange);}
 </style>
 <script>
 (function(){
