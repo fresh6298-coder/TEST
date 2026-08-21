@@ -492,39 +492,63 @@ async function fetchDebtToGdpHistory() {
 
 // Treasury's buyback operations — where they repurchase previously-issued
 // securities to improve market liquidity (unrelated to the debt ceiling or
-// to the government buying BTC). Path/field names here are an unverified
-// best-effort guess at fiscaldata.treasury.gov's naming convention (same
-// as debt_to_penny's own /v2/accounting/od/ shape) — this sandbox can't
-// reach the real API to confirm the schema, so the parser stays generic
-// (regex-matched date/amount fields, like normalizeRecord above) and the
-// debug output includes the first raw row's actual keys so the real shape
-// can be read back from a live deployment and the field guesses corrected.
-const TREASURY_BUYBACK_URL =
-  "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/buyback_operations";
+// to the government buying BTC). The "Treasury Securities Buybacks" dataset
+// is confirmed real (fiscaldata.treasury.gov/datasets/treasury-securities-buybacks/,
+// live since 2024, "2 Data Tables") but this sandbox can't reach
+// fiscaldata.treasury.gov directly to read its exact table/endpoint names, so
+// this tries a short list of best-effort candidate paths (our first guess,
+// buyback_operations, already confirmed 404) and uses whichever responds
+// first. The parser stays generic (regex-matched date/amount fields, like
+// normalizeRecord above) and debug records every candidate's outcome so the
+// real path can be read back from a live deployment and corrected if all of
+// these also miss.
+const TREASURY_BUYBACK_CANDIDATES = [
+  "v1/accounting/od/buybacks_operations",
+  "v1/accounting/od/buybacks_security_details",
+  "v1/accounting/od/buyback_operations",
+  "v1/accounting/od/securities_buybacks",
+];
 
 async function fetchTreasuryBuybacks() {
-  const url = `${TREASURY_BUYBACK_URL}?sort=-operation_date&page[size]=10000`;
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`treasury buyback_operations -> ${res.status}`);
-  const json = await res.json();
-  const rows = Array.isArray(json?.data) ? json.data : [];
-  if (!rows.length) throw new Error("treasury buyback_operations -> empty data array");
+  const attempts = [];
+  for (const path of TREASURY_BUYBACK_CANDIDATES) {
+    const url = `https://api.fiscaldata.treasury.gov/services/api/fiscal_service/${path}?sort=-operation_date&page[size]=10000`;
+    try {
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!res.ok) {
+        attempts.push(`${path} -> ${res.status}`);
+        continue;
+      }
+      const json = await res.json();
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      if (!rows.length) {
+        attempts.push(`${path} -> empty data array`);
+        continue;
+      }
 
-  const sampleKeys = Object.keys(rows[0]);
-  const dateKey = sampleKeys.find((k) => /^(operation_date|record_date|date)$/i.test(k)) || sampleKeys.find((k) => /date/i.test(k));
-  const amountKey = sampleKeys.find((k) => /accepted.*amt|purchase.*amt|total.*amt|par.*amt/i.test(k)) || sampleKeys.find((k) => /amt|amount/i.test(k));
-  if (!dateKey) throw new Error(`treasury buyback_operations -> no date-like field among [${sampleKeys.join(", ")}]`);
+      const sampleKeys = Object.keys(rows[0]);
+      const dateKey = sampleKeys.find((k) => /^(operation_date|record_date|date)$/i.test(k)) || sampleKeys.find((k) => /date/i.test(k));
+      const amountKey = sampleKeys.find((k) => /accepted.*amt|purchase.*amt|total.*amt|par.*amt/i.test(k)) || sampleKeys.find((k) => /amt|amount/i.test(k));
+      if (!dateKey) {
+        attempts.push(`${path} -> no date-like field among [${sampleKeys.join(", ")}]`);
+        continue;
+      }
 
-  const history = rows
-    .map((r) => ({
-      date: r[dateKey],
-      dateMs: Date.parse(r[dateKey]),
-      value: amountKey ? parseFloat(r[amountKey]) : null,
-    }))
-    .filter((r) => !Number.isNaN(r.dateMs))
-    .sort((a, b) => a.dateMs - b.dateMs);
+      const history = rows
+        .map((r) => ({
+          date: r[dateKey],
+          dateMs: Date.parse(r[dateKey]),
+          value: amountKey ? parseFloat(r[amountKey]) : null,
+        }))
+        .filter((r) => !Number.isNaN(r.dateMs))
+        .sort((a, b) => a.dateMs - b.dateMs);
 
-  return { history, sampleKeys, dateKey, amountKey };
+      return { history, sampleKeys, dateKey, amountKey, path, attempts };
+    } catch (e) {
+      attempts.push(`${path} -> ${e?.message || e}`);
+    }
+  }
+  throw new Error(`treasury buybacks -> all candidates failed: ${attempts.join(" | ")}`);
 }
 
 async function handleUsDebt(req, res) {
@@ -567,12 +591,12 @@ async function handleUsDebt(req, res) {
     }
     if (buybackResult.status === "fulfilled" && buybackResult.value.history.length) {
       buybackHistory = buybackResult.value.history;
-      const { sampleKeys, dateKey, amountKey } = buybackResult.value;
+      const { sampleKeys, dateKey, amountKey, path } = buybackResult.value;
       debug.push(
-        `treasury buyback_operations -> ${buybackHistory.length} rows (dateKey=${dateKey}, amountKey=${amountKey || "none"}, allKeys=[${sampleKeys.join(",")}])`
+        `treasury buybacks -> path=${path}, ${buybackHistory.length} rows (dateKey=${dateKey}, amountKey=${amountKey || "none"}, allKeys=[${sampleKeys.join(",")}])`
       );
     } else {
-      debug.push(`treasury buyback_operations -> ERROR ${buybackResult.reason?.message || buybackResult.reason}`);
+      debug.push(`treasury buybacks -> ERROR ${buybackResult.reason?.message || buybackResult.reason}`);
     }
     if (redisConfigured() && (debtHistory.length || gdpHistory.length || buybackHistory.length)) {
       await redisSetArchive(archiveKey, { debt: debtHistory, gdp: gdpHistory, buybacks: buybackHistory, fetchedAtMs: Date.now() }, false, null).catch(() => {});
