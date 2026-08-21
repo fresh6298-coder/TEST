@@ -490,9 +490,46 @@ async function fetchDebtToGdpHistory() {
     .sort((a, b) => a.dateMs - b.dateMs);
 }
 
+// Treasury's buyback operations — where they repurchase previously-issued
+// securities to improve market liquidity (unrelated to the debt ceiling or
+// to the government buying BTC). Path/field names here are an unverified
+// best-effort guess at fiscaldata.treasury.gov's naming convention (same
+// as debt_to_penny's own /v2/accounting/od/ shape) — this sandbox can't
+// reach the real API to confirm the schema, so the parser stays generic
+// (regex-matched date/amount fields, like normalizeRecord above) and the
+// debug output includes the first raw row's actual keys so the real shape
+// can be read back from a live deployment and the field guesses corrected.
+const TREASURY_BUYBACK_URL =
+  "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/buyback_operations";
+
+async function fetchTreasuryBuybacks() {
+  const url = `${TREASURY_BUYBACK_URL}?sort=-operation_date&page[size]=10000`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`treasury buyback_operations -> ${res.status}`);
+  const json = await res.json();
+  const rows = Array.isArray(json?.data) ? json.data : [];
+  if (!rows.length) throw new Error("treasury buyback_operations -> empty data array");
+
+  const sampleKeys = Object.keys(rows[0]);
+  const dateKey = sampleKeys.find((k) => /^(operation_date|record_date|date)$/i.test(k)) || sampleKeys.find((k) => /date/i.test(k));
+  const amountKey = sampleKeys.find((k) => /accepted.*amt|purchase.*amt|total.*amt|par.*amt/i.test(k)) || sampleKeys.find((k) => /amt|amount/i.test(k));
+  if (!dateKey) throw new Error(`treasury buyback_operations -> no date-like field among [${sampleKeys.join(", ")}]`);
+
+  const history = rows
+    .map((r) => ({
+      date: r[dateKey],
+      dateMs: Date.parse(r[dateKey]),
+      value: amountKey ? parseFloat(r[amountKey]) : null,
+    }))
+    .filter((r) => !Number.isNaN(r.dateMs))
+    .sort((a, b) => a.dateMs - b.dateMs);
+
+  return { history, sampleKeys, dateKey, amountKey };
+}
+
 async function handleUsDebt(req, res) {
   const archiveKey = "us-debt-archive";
-  let debtHistory = [], gdpHistory = [], cachedAtMs = 0;
+  let debtHistory = [], gdpHistory = [], buybackHistory = [], cachedAtMs = 0;
 
   if (redisConfigured()) {
     try {
@@ -500,6 +537,7 @@ async function handleUsDebt(req, res) {
       if (rows && Array.isArray(rows.debt)) {
         debtHistory = rows.debt;
         gdpHistory = Array.isArray(rows.gdp) ? rows.gdp : [];
+        buybackHistory = Array.isArray(rows.buybacks) ? rows.buybacks : [];
         cachedAtMs = rows.fetchedAtMs || 0;
       }
     } catch {
@@ -510,7 +548,11 @@ async function handleUsDebt(req, res) {
   const debug = [];
   const stale = Date.now() - cachedAtMs > DAY_MS;
   if (stale || !debtHistory.length) {
-    const [debtResult, gdpResult] = await Promise.allSettled([fetchTreasuryDebtHistory(), fetchDebtToGdpHistory()]);
+    const [debtResult, gdpResult, buybackResult] = await Promise.allSettled([
+      fetchTreasuryDebtHistory(),
+      fetchDebtToGdpHistory(),
+      fetchTreasuryBuybacks(),
+    ]);
     if (debtResult.status === "fulfilled" && debtResult.value.length) {
       debtHistory = debtResult.value;
       debug.push(`treasury debt_to_penny -> ${debtHistory.length} rows`);
@@ -523,11 +565,20 @@ async function handleUsDebt(req, res) {
     } else {
       debug.push(`fred GFDEGDQ188S -> ERROR ${gdpResult.reason?.message || gdpResult.reason}`);
     }
-    if (redisConfigured() && (debtHistory.length || gdpHistory.length)) {
-      await redisSetArchive(archiveKey, { debt: debtHistory, gdp: gdpHistory, fetchedAtMs: Date.now() }, false, null).catch(() => {});
+    if (buybackResult.status === "fulfilled" && buybackResult.value.history.length) {
+      buybackHistory = buybackResult.value.history;
+      const { sampleKeys, dateKey, amountKey } = buybackResult.value;
+      debug.push(
+        `treasury buyback_operations -> ${buybackHistory.length} rows (dateKey=${dateKey}, amountKey=${amountKey || "none"}, allKeys=[${sampleKeys.join(",")}])`
+      );
+    } else {
+      debug.push(`treasury buyback_operations -> ERROR ${buybackResult.reason?.message || buybackResult.reason}`);
+    }
+    if (redisConfigured() && (debtHistory.length || gdpHistory.length || buybackHistory.length)) {
+      await redisSetArchive(archiveKey, { debt: debtHistory, gdp: gdpHistory, buybacks: buybackHistory, fetchedAtMs: Date.now() }, false, null).catch(() => {});
     }
   } else {
-    debug.push(`cache -> debt ${debtHistory.length} rows, gdp ${gdpHistory.length} rows`);
+    debug.push(`cache -> debt ${debtHistory.length} rows, gdp ${gdpHistory.length} rows, buybacks ${buybackHistory.length} rows`);
   }
 
   if (!debtHistory.length) {
@@ -554,6 +605,15 @@ async function handleUsDebt(req, res) {
           count: gdpHistory.length,
           earliest: gdpHistory[0].date,
           latest: gdpHistory[gdpHistory.length - 1].date,
+        }
+      : null,
+    buybacks: buybackHistory.length
+      ? {
+          current: buybackHistory[buybackHistory.length - 1],
+          history: buybackHistory,
+          count: buybackHistory.length,
+          earliest: buybackHistory[0].date,
+          latest: buybackHistory[buybackHistory.length - 1].date,
         }
       : null,
     perCitizen: latestDebt.value / US_POPULATION_ESTIMATE,
