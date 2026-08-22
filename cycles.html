@@ -328,7 +328,7 @@
 
   <section class="panel">
     <h2>미국 국가부채</h2>
-    <div class="desc">미국 재무부(Treasury)와 세인트루이스 연준(FRED)의 공식 데이터 기준. usdebtclock.org에 있는 "Treasury Reserve"·"Restitution" 같은 항목은 공식 출처가 불분명해서 뺐어. 1인당/납세자 1인당 수치는 최신 인구·납세자 추정치로 나눈 근사값이라, 실시간 집계가 아니야.</div>
+    <div class="desc">미국 재무부(Treasury)와 세인트루이스 연준(FRED)의 공식 데이터 기준. usdebtclock.org에 있는 "Treasury Reserve"·"Restitution" 같은 항목은 공식 출처가 불분명해서 뺐어. 1인당/납세자 1인당 수치는 최신 인구·납세자 추정치로 나눈 근사값이라, 실시간 집계가 아니야. <span style="color:#a855f7">●</span> 보라색 점은 재무부 국채 바이백(buyback) 오퍼레이션 날짜야 — 탭/클릭하면 매입 규모를 볼 수 있어.</div>
     <div class="debt-headline">
       <div class="label">US NATIONAL DEBT</div>
       <div class="value" id="usDebtHeadline">-</div>
@@ -526,6 +526,18 @@
       ctx.lineWidth = s.lineWidth || 1.5;
       ctx.stroke();
     });
+
+    if(opts.markers && opts.markers.length){
+      const markerYFn = rightYAt || yAt;
+      ctx.fillStyle = opts.markerColor || "#a855f7";
+      opts.markers.forEach(m => {
+        const mx = xAt(m.x);
+        if(mx < padLeft - 2 || mx > padLeft + plotW + 2) return;
+        ctx.beginPath();
+        ctx.arc(mx, markerYFn(m.y), 2.5, 0, Math.PI*2);
+        ctx.fill();
+      });
+    }
 
     if(opts.highlightX != null){
       const hx = xAt(opts.highlightX);
@@ -2102,6 +2114,25 @@
   let usDebtViewRange = null;
   let usDebtHidden = new Set();
   let usDebtHighlightX = null;
+  let usDebtBuybackMarkers = null; // [{x,y,amount,date}] — BTC price at each Treasury buyback operation date
+
+  // Binary-search nearest marker to ms (markers are x-sorted), mirroring
+  // nearestSeriesPoint's approach but keeping the whole marker object
+  // (amount/date) rather than just {x,y}.
+  function nearestBuybackMarker(ms){
+    const markers = usDebtBuybackMarkers;
+    if(!markers || !markers.length) return null;
+    if(ms <= markers[0].x) return markers[0];
+    if(ms >= markers[markers.length-1].x) return markers[markers.length-1];
+    let lo = 0, hi = markers.length - 1;
+    while(lo < hi){
+      const mid = (lo + hi) >> 1;
+      if(markers[mid].x < ms) lo = mid + 1; else hi = mid;
+    }
+    const a = markers[lo-1], b = markers[lo];
+    if(!a) return b;
+    return (ms - a.x) <= (b.x - ms) ? a : b;
+  }
 
   function fmtUsdCompact(n){
     if(n >= 1e12) return "$" + (n/1e12).toFixed(1) + "T";
@@ -2149,11 +2180,16 @@
         .map(v => ({ value: v, label: fmtUsdCompact(v) }));
     }
 
+    const markersVisible = btcVisible.length && usDebtBuybackMarkers
+      ? usDebtBuybackMarkers.filter(m => m.x >= range.min && m.x <= range.max)
+      : [];
+
     drawLineChart(document.getElementById("usDebtChart"), visible, {
       padLeft: 44, padRight: 40,
       yTicks, xTicks: yearlyXTicks(range.min, range.max),
       rightLogScale: true, rightYTicks,
       highlightX: usDebtHighlightX,
+      markers: markersVisible, markerColor: "#a855f7",
     });
 
     document.getElementById("usDebtRangeLabel").textContent = fmtRangeLabel(range);
@@ -2172,13 +2208,28 @@
       const p = nearestSeriesPoint(s.points, ms);
       if(p) html += `<div><span style="color:${s.color}">●</span> ${s.label}: <b>${fmtUsdPrecise(p.y)}</b></div>`;
     });
+
+    // Only surface a buyback marker when the cursor lands genuinely close
+    // to one on-screen (within ~6px) — ms is a continuous pixel-to-date
+    // interpolation, not snapped to actual data points, so without this
+    // every hover would silently attach whatever the nearest of ~217
+    // sparse operations happens to be, even far away in time.
+    const canvas = document.getElementById("usDebtChart");
+    const rect = canvas.getBoundingClientRect();
+    const range = usDebtViewRange || usDebtFullRange;
+    const marker = !usDebtHidden.has("BTC 가격") ? nearestBuybackMarker(ms) : null;
+    if(marker){
+      const tolMs = (range.max - range.min) / rect.width * 6;
+      if(Math.abs(marker.x - ms) <= tolMs){
+        html += `<div style="margin-top:4px;padding-top:4px;border-top:1px dashed rgba(150,150,150,0.3);">`
+          + `<span style="color:#a855f7">◆</span> 국채 바이백 매입 (${marker.date}): <b>${fmtUsdFull(marker.amount)}</b></div>`;
+      }
+    }
+
     tooltip.innerHTML = html;
     tooltip.style.display = "block";
 
-    const canvas = document.getElementById("usDebtChart");
-    const rect = canvas.getBoundingClientRect();
     if(clientY != null) positionTooltipY(tooltip, clientY, rect);
-    const range = usDebtViewRange || usDebtFullRange;
     const frac = (ms - range.min) / (range.max - range.min);
     positionTooltipX(tooltip, frac, rect);
   }
@@ -2300,9 +2351,20 @@
       usDebtSeriesList = [
         { key: "debt", label: "미국 국가부채", color: "#ef4444", points: debtPoints, fill: true, fillColor: "rgba(239,68,68,0.1)" },
       ];
+      usDebtBuybackMarkers = null;
       if(btcMap){
         const btcPoints = Object.entries(btcMap).map(([d,v]) => ({ x: new Date(d).getTime(), y: v })).filter(p => p.y > 0).sort((a,b) => a.x - b.x);
         if(btcPoints.length) usDebtSeriesList.push({ key: "btc", label: "BTC 가격", color: "#f7931a", points: btcPoints, axis: "right", lineWidth: 1.3 });
+
+        if(res.buybacks && res.buybacks.history && res.buybacks.history.length){
+          usDebtBuybackMarkers = res.buybacks.history
+            .map(b => {
+              const btcAt = nearestSeriesPoint(btcPoints, b.dateMs);
+              return btcAt ? { x: b.dateMs, y: btcAt.y, amount: b.value, date: b.date } : null;
+            })
+            .filter(Boolean)
+            .sort((a,b) => a.x - b.x);
+        }
       }
 
       const allX = usDebtSeriesList.flatMap(s => s.points.map(p => p.x));
