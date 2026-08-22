@@ -528,7 +528,10 @@ async function fetchTreasuryBuybacks() {
 
       const sampleKeys = Object.keys(rows[0]);
       const dateKey = sampleKeys.find((k) => /^(operation_date|record_date|date)$/i.test(k)) || sampleKeys.find((k) => /date/i.test(k));
-      const amountKey = sampleKeys.find((k) => /accepted.*amt|purchase.*amt|total.*amt|par.*amt/i.test(k)) || sampleKeys.find((k) => /amt|amount/i.test(k));
+      const amountKey =
+        sampleKeys.find((k) => /amt.*accepted|accepted.*amt/i.test(k)) ||
+        sampleKeys.find((k) => /purchase.*amt|total.*amt|par.*amt/i.test(k)) ||
+        sampleKeys.find((k) => /amt|amount/i.test(k));
       if (!dateKey) {
         attempts.push(`${path} -> no date-like field among [${sampleKeys.join(", ")}]`);
         continue;
