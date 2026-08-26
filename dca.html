@@ -469,25 +469,46 @@
       const sortedDates = Object.keys(priceMap).sort();
       if(!sortedDates.length) throw new Error("가격 데이터 없음");
 
+      // If the data source has less history than the selected period (e.g.
+      // a fallback source that only returns a recent window), a month
+      // requested before sortedDates[0] would otherwise still match via
+      // `d >= dateStr` — every such month silently re-buys at the SAME
+      // earliest available date, collapsing them all onto one chart point
+      // and making the simulation look "stuck" near whatever recent range
+      // the source actually covers. Clamp the simulation's start to the
+      // data's real earliest date instead, and say so in the status line.
+      const requestedStartStr = start.toISOString().slice(0,10);
+      const earliestAvailable = sortedDates[0];
+      const effectiveStartStr = requestedStartStr < earliestAvailable ? earliestAvailable : requestedStartStr;
+
       function priceOnOrAfter(dateStr){
         const idx = sortedDates.findIndex(d => d >= dateStr);
         return idx === -1 ? null : { date: sortedDates[idx], price: priceMap[sortedDates[idx]] };
       }
 
+      function addMonthsIso(ymd, months){
+        const [y, m] = ymd.split("-").map(Number);
+        const total = (y * 12 + (m - 1)) + months;
+        const ny = Math.floor(total / 12), nm = (total % 12) + 1;
+        return `${ny}-${String(nm).padStart(2,"0")}-01`;
+      }
+
       let totalInvested = 0, totalBtc = 0;
       const chartDates = [], chartInvested = [], chartValue = [];
-      const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
-      while(cursor <= now){
-        const dateStr = cursor.toISOString().slice(0,10);
-        const hit = priceOnOrAfter(dateStr);
-        if(hit){
+      const nowStr = now.toISOString().slice(0,10);
+      let cursorStr = effectiveStartStr.slice(0,7) + "-01";
+      while(cursorStr <= nowStr){
+        const hit = priceOnOrAfter(cursorStr);
+        // Also guard against duplicate consecutive points (same trading
+        // day matched for two different requested months near a data gap).
+        if(hit && chartDates[chartDates.length-1] !== hit.date){
           totalInvested += monthlyAmount;
           totalBtc += monthlyAmount / hit.price;
           chartDates.push(hit.date);
           chartInvested.push(totalInvested);
           chartValue.push(totalBtc * hit.price);
         }
-        cursor.setMonth(cursor.getMonth() + 1);
+        cursorStr = addMonthsIso(cursorStr, 1);
       }
 
       if(!totalBtc) throw new Error("매수 시점을 찾지 못했어");
@@ -511,7 +532,13 @@
       dcaChartData = { dates: chartDates, invested: chartInvested, value: chartValue };
       drawDcaChart(document.getElementById("dcaChart"), chartDates, chartInvested, chartValue);
 
-      setStatus(source.includes("근사") ? `참고: ${source} 기준으로 계산됨 (실제 원화 이력과 다를 수 있음)` : `${source} 기준 ${chartDates.length}회 매수 시뮬레이션`);
+      const clampNote = effectiveStartStr > requestedStartStr
+        ? ` (선택한 기간보다 실제 데이터가 짧아 ${effectiveStartStr}부터 계산됨)`
+        : "";
+      setStatus(
+        (source.includes("근사") ? `참고: ${source} 기준으로 계산됨 (실제 원화 이력과 다를 수 있음)` : `${source} 기준 ${chartDates.length}회 매수 시뮬레이션`)
+        + clampNote
+      );
     }catch(e){
       setStatus("계산 실패: " + e.message);
     }finally{
