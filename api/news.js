@@ -66,21 +66,62 @@ function parseRss(xml, sourceName) {
 }
 
 const TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single";
+const MYMEMORY_URL = "https://api.mymemory.translated.net/get";
+
+// translate.googleapis.com/translate_a/single is the unofficial endpoint
+// the Google Translate website itself calls — it has no quota/API key and
+// has started returning 429 "Sorry..." (Google's bot-block page) for
+// server-side/datacenter traffic, which silently degrades every headline
+// back to English (the `if (!res.ok) return text` fallback below hides the
+// failure). MyMemory is tried first as a keyless, more tolerant
+// alternative for this low-volume (title-only, 10-min-cached) use; Google
+// stays as a second attempt in case the block is IP/region-specific rather
+// than blanket, before finally giving up and returning the English title.
+async function translateViaMyMemory(text) {
+  const url = `${MYMEMORY_URL}?q=${encodeURIComponent(text)}&langpair=en|ko`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6000);
+  const res = await fetch(url, { signal: controller.signal });
+  clearTimeout(timeout);
+  if (!res.ok) throw new Error(`mymemory -> ${res.status}`);
+  const data = await res.json();
+  const translated = data && data.responseData && data.responseData.translatedText;
+  if (!translated || /MYMEMORY WARNING/i.test(translated)) {
+    throw new Error(`mymemory -> ${translated ? "quota exhausted" : "no translatedText"}`);
+  }
+  return translated;
+}
+
+async function translateViaGoogle(text) {
+  const url = `${TRANSLATE_URL}?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(text)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6000);
+  const res = await fetch(url, {
+    signal: controller.signal,
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Referer: "https://translate.google.com/",
+    },
+  });
+  clearTimeout(timeout);
+  if (!res.ok) throw new Error(`google -> ${res.status}`);
+  const data = await res.json();
+  const translated = (data[0] || []).map((chunk) => chunk[0]).join("");
+  if (!translated) throw new Error("google -> empty result");
+  return translated;
+}
 
 async function translateToKorean(text) {
-  if (!text) return text;
+  if (!text) return { text, provider: "none" };
   try {
-    const url = `${TRANSLATE_URL}?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(text)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) return text;
-    const data = await res.json();
-    const translated = (data[0] || []).map((chunk) => chunk[0]).join("");
-    return translated || text;
-  } catch {
-    return text;
+    return { text: await translateViaMyMemory(text), provider: "mymemory" };
+  } catch (e1) {
+    try {
+      return { text: await translateViaGoogle(text), provider: "google" };
+    } catch (e2) {
+      return { text, provider: "failed", error: `${e1.message} | ${e2.message}` };
+    }
   }
 }
 
@@ -119,12 +160,23 @@ export default async function handler(req, res) {
   items.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
   items = items.slice(0, 24);
 
+  const translateStats = { mymemory: 0, google: 0, failed: 0 };
+  const translateErrors = [];
   await Promise.all(
     items.map(async (it) => {
-      it.titleKo = await translateToKorean(it.title);
+      const result = await translateToKorean(it.title);
+      it.titleKo = result.text;
+      translateStats[result.provider] = (translateStats[result.provider] || 0) + 1;
+      if (result.provider === "failed") translateErrors.push(result.error);
     })
   );
 
   res.setHeader("Cache-Control", "public, s-maxage=600, stale-while-revalidate=300");
-  res.status(200).json({ fetchedAt: new Date().toISOString(), items, errors });
+  res.status(200).json({
+    fetchedAt: new Date().toISOString(),
+    items,
+    errors,
+    translateStats,
+    translateErrors: translateErrors.slice(0, 3),
+  });
 }
