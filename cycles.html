@@ -120,6 +120,22 @@
     padding:3px 10px;cursor:pointer;
   }
 
+  .rebase-bar{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    font-size:11px;color:var(--sub);margin-top:8px;
+  }
+  .rebase-bar input[type="date"]{
+    font-family:inherit;font-size:11px;color:var(--text);
+    background:var(--bg);border:1px solid var(--track);border-radius:6px;
+    padding:3px 6px;color-scheme:light dark;
+  }
+  .rebase-bar button{
+    font-family:inherit;font-size:11px;color:var(--orange);
+    background:none;border:1px solid var(--orange);border-radius:12px;
+    padding:3px 10px;cursor:pointer;
+  }
+  .rebase-bar .info{color:var(--text);}
+
   .corr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px;}
   .corr-card{border:1px solid var(--track);border-radius:8px;padding:10px;text-align:center;}
   .corr-card .label{font-size:11px;color:var(--sub);margin-bottom:4px;}
@@ -302,7 +318,13 @@
 
   <section class="panel">
     <h2>매크로 상관관계</h2>
-    <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자·서울 아파트 매매가격지수를 각각 시작일=100으로 정규화해 비교해. (서울 지수는 REB 주간 통계 스냅샷으로, 실시간 갱신되지 않아.)</div>
+    <div class="desc">비트코인 데이터가 있는 전체 기간(2017년~현재)에 걸쳐 금·나스닥·달러인덱스(DXY)·코스피·삼성전자·서울 아파트 매매가격지수를 각각 시작일=100으로 정규화해 비교해. (서울 지수는 REB 주간 통계 스냅샷으로, 실시간 갱신되지 않아.) 아래에서 기준일을 직접 골라서 그 시점=100부터의 추이만 볼 수도 있어.</div>
+    <div class="rebase-bar">
+      <label for="macroRebaseInput">기준일(=100)</label>
+      <input type="date" id="macroRebaseInput">
+      <button id="macroRebaseReset" type="button" style="display:none;">전체 기간으로</button>
+      <span class="info" id="macroRebaseInfo"></span>
+    </div>
     <div class="chart-legend" id="macroLegend"></div>
     <div class="chart-canvas-wrap">
       <canvas class="panel-chart" id="macroChart"></canvas>
@@ -1448,6 +1470,15 @@
   let macroViewRange = null; // {min,max} in ms — currently zoomed window, null = full range
   let macroHidden = new Set(); // labels the user has toggled off via the legend
   let macroCorrelations = null; // { label: r } from the last successful load
+
+  // Raw, un-rebased data from the one network fetch — kept around so the
+  // rebase-date picker can re-normalize and re-render entirely client-side
+  // without refetching.
+  let macroRawCommonDates = null; // ISO date strings, sorted, where BTC + every asset has a value
+  let macroRawBtcMap = null; // {date: usdPrice}
+  let macroRawServerData = null; // {assets:{label:{date:val}}, errors}
+  let macroRawSeoulResult = null; // {date: index} or null if unavailable
+  let macroRebaseStartMs = null; // user-picked "=100" date in ms, or null = earliest available date (default)
   let macroHighlightX = null; // ms of the currently tapped/hovered point, or null
 
   // Nearest point by x in a series sorted ascending — series can have
@@ -1636,6 +1667,112 @@
     });
   }
 
+  const MACRO_COLOR_MAP = {
+    "BTC": "#f7931a",
+    "Gold (Futures)": "#eab308",
+    "Nasdaq Composite": "#3b82f6",
+    "US Dollar Index": "#14b8a6",
+    "KOSPI": "#ef4444",
+    "삼성전자": "#8b5cf6",
+    "서울 아파트 매매가격지수": "#22c55e",
+  };
+
+  // Rebuilds macroSeriesList/macroFullRange/macroCorrelations purely from
+  // the already-fetched raw data (macroRaw*), sliced to macroRebaseStartMs
+  // onward and re-normalized to 100 at whatever date becomes the new first
+  // point. Called once after the initial fetch (macroRebaseStartMs=null →
+  // same as the old hardcoded "since 2017" behavior) and again, with no
+  // network round-trip, whenever the user picks a different rebase date.
+  function buildMacroSeries(){
+    if(!macroRawCommonDates || !macroRawCommonDates.length) return;
+    const toTs = d => new Date(d).getTime();
+
+    let dates = macroRawCommonDates;
+    if(macroRebaseStartMs != null){
+      dates = dates.filter(d => toTs(d) >= macroRebaseStartMs);
+    }
+    if(dates.length < 10){
+      setStatus("선택한 기준일 이후 거래일이 너무 적어 (최소 10일 필요) — 더 이른 날짜를 골라줘.");
+      return;
+    }
+
+    const rebase = arr => arr.map(v => (v/arr[0]) * 100);
+    const assetLabels = Object.keys(macroRawServerData.assets);
+    const btcSeries = dates.map(d => macroRawBtcMap[d]);
+    const btcReturns = dailyReturns(btcSeries);
+
+    macroSeriesList = [{
+      points: rebase(btcSeries).map((v,i) => ({ x: toTs(dates[i]), y: v })),
+      color: MACRO_COLOR_MAP.BTC, label: "BTC",
+    }];
+    const correlations = {};
+    assetLabels.forEach(label => {
+      const closes = dates.map(d => macroRawServerData.assets[label][d]);
+      macroSeriesList.push({
+        points: rebase(closes).map((v,i) => ({ x: toTs(dates[i]), y: v })),
+        color: MACRO_COLOR_MAP[label] || "#888", label,
+      });
+      correlations[label] = pearsonCorrelation(btcReturns, dailyReturns(closes));
+    });
+
+    let overallMinX = toTs(dates[0]), overallMaxX = toTs(dates[dates.length-1]);
+
+    // Seoul apartment index is weekly, from a static uploaded snapshot
+    // (not a live feed) — align it against BTC's daily series by nearest
+    // prior day instead of requiring exact date matches like the daily
+    // assets above.
+    if(macroRawSeoulResult){
+      const seoulDates = Object.keys(macroRawSeoulResult).sort();
+      const btcSorted = Object.keys(macroRawBtcMap).sort().map(d => ({ t: toTs(d), v: macroRawBtcMap[d] }));
+      const inRange = seoulDates
+        .map(d => ({ t: toTs(d), v: macroRawSeoulResult[d] }))
+        .filter(p => p.t >= overallMinX && p.t <= overallMaxX);
+
+      if(inRange.length >= 5){
+        const seoulValues = inRange.map(p => p.v);
+        const seoulRebased = rebase(seoulValues);
+        macroSeriesList.push({
+          points: inRange.map((p,i) => ({ x: p.t, y: seoulRebased[i] })),
+          color: MACRO_COLOR_MAP["서울 아파트 매매가격지수"], label: "서울 아파트 매매가격지수",
+        });
+
+        const btcAtSeoulDates = inRange.map(p => valueAtOrBefore(btcSorted, p.t));
+        if(btcAtSeoulDates.every(v => v != null)){
+          correlations["서울 아파트 매매가격지수"] = pearsonCorrelation(
+            dailyReturns(btcAtSeoulDates), dailyReturns(seoulValues)
+          );
+        }
+      }
+    }
+
+    macroFullRange = { min: overallMinX, max: overallMaxX };
+    macroViewRange = null;
+    macroCorrelations = correlations;
+
+    renderLegend(document.getElementById("macroLegend"),
+      macroSeriesList.map(s => ({ color: s.color, label: s.label })),
+      { hiddenSet: macroHidden, onToggle: toggleMacroAsset });
+
+    renderMacro();
+    renderCorrGrid();
+
+    document.getElementById("macroRebaseReset").style.display = macroRebaseStartMs != null ? "inline-block" : "none";
+    document.getElementById("macroRebaseInfo").textContent = macroRebaseStartMs != null ? `${dates[0]} = 100 기준` : "";
+  }
+
+  function attachMacroRebaseControls(){
+    const input = document.getElementById("macroRebaseInput");
+    input.addEventListener("change", () => {
+      macroRebaseStartMs = input.value ? new Date(input.value).getTime() : null;
+      buildMacroSeries();
+    });
+    document.getElementById("macroRebaseReset").addEventListener("click", () => {
+      macroRebaseStartMs = null;
+      input.value = "";
+      buildMacroSeries();
+    });
+  }
+
   async function loadMacro(){
     try{
       const [serverData, btcMap, seoulResult] = await Promise.all([
@@ -1654,74 +1791,16 @@
         .sort();
       if(commonDates.length < 10) throw new Error("겹치는 거래일 부족");
 
-      const rebase = arr => arr.map(v => (v/arr[0]) * 100);
-      const toTs = d => new Date(d).getTime();
-      const btcSeries = commonDates.map(d => btcMap[d]);
-      const btcReturns = dailyReturns(btcSeries);
+      macroRawCommonDates = commonDates;
+      macroRawBtcMap = btcMap;
+      macroRawServerData = serverData;
+      macroRawSeoulResult = (seoulResult && !seoulResult.__error) ? seoulResult : null;
 
-      const colorMap = {
-        "BTC": "#f7931a",
-        "Gold (Futures)": "#eab308",
-        "Nasdaq Composite": "#3b82f6",
-        "US Dollar Index": "#14b8a6",
-        "KOSPI": "#ef4444",
-        "삼성전자": "#8b5cf6",
-        "서울 아파트 매매가격지수": "#22c55e",
-      };
+      const dateInput = document.getElementById("macroRebaseInput");
+      dateInput.min = commonDates[0];
+      dateInput.max = commonDates[commonDates.length-1];
 
-      macroSeriesList = [{
-        points: rebase(btcSeries).map((v,i) => ({ x: toTs(commonDates[i]), y: v })),
-        color: colorMap.BTC, label: "BTC",
-      }];
-      const correlations = {};
-      assetLabels.forEach(label => {
-        const closes = commonDates.map(d => serverData.assets[label][d]);
-        macroSeriesList.push({
-          points: rebase(closes).map((v,i) => ({ x: toTs(commonDates[i]), y: v })),
-          color: colorMap[label] || "#888", label,
-        });
-        correlations[label] = pearsonCorrelation(btcReturns, dailyReturns(closes));
-      });
-
-      let overallMinX = toTs(commonDates[0]), overallMaxX = toTs(commonDates[commonDates.length-1]);
-
-      // Seoul apartment index is weekly, from a static uploaded snapshot
-      // (not a live feed) — align it against BTC's daily series by nearest
-      // prior day instead of requiring exact date matches like the daily
-      // assets above.
-      if(seoulResult && !seoulResult.__error){
-        const seoulDates = Object.keys(seoulResult).sort();
-        const btcSorted = Object.keys(btcMap).sort().map(d => ({ t: toTs(d), v: btcMap[d] }));
-        const inRange = seoulDates
-          .map(d => ({ t: toTs(d), v: seoulResult[d] }))
-          .filter(p => p.t >= overallMinX && p.t <= overallMaxX);
-
-        if(inRange.length >= 5){
-          const seoulValues = inRange.map(p => p.v);
-          const seoulRebased = rebase(seoulValues);
-          macroSeriesList.push({
-            points: inRange.map((p,i) => ({ x: p.t, y: seoulRebased[i] })),
-            color: colorMap["서울 아파트 매매가격지수"], label: "서울 아파트 매매가격지수",
-          });
-
-          const btcAtSeoulDates = inRange.map(p => valueAtOrBefore(btcSorted, p.t));
-          if(btcAtSeoulDates.every(v => v != null)){
-            correlations["서울 아파트 매매가격지수"] = pearsonCorrelation(
-              dailyReturns(btcAtSeoulDates), dailyReturns(seoulValues)
-            );
-          }
-        }
-      }
-
-      macroFullRange = { min: overallMinX, max: overallMaxX };
-      macroCorrelations = correlations;
-
-      renderLegend(document.getElementById("macroLegend"),
-        macroSeriesList.map(s => ({ color: s.color, label: s.label })),
-        { hiddenSet: macroHidden, onToggle: toggleMacroAsset });
-
-      renderMacro();
-      renderCorrGrid();
+      buildMacroSeries();
 
       const errors = [...(serverData.errors || [])];
       if(seoulResult && seoulResult.__error) errors.push("서울 아파트 지수: " + seoulResult.__error);
@@ -2795,6 +2874,7 @@
 
   window.addEventListener("resize", () => { renderCycles(); renderPriceLaw(); renderGoldRatio(); renderMacro(); renderAdoption(); renderStockToFlow(); renderSupplyChart(); renderUsDebtChart(); });
   attachMacroZoomPan();
+  attachMacroRebaseControls();
   attachPriceLawZoomPan();
   attachGoldRatioZoomPan();
   attachCycleZoomPan();
