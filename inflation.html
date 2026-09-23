@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>생활물가 인플레이션</title>
+<style>
+  :root{
+    --orange:#f7931a;
+    --red:#ef4444;
+    --green:#16a34a;
+    --gray:#9ca3af;
+    --track:#e5e7eb;
+    --bg:#ffffff;
+    --text:#111111;
+    --sub:#8b8b8b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{max-width:640px;margin:0 auto;padding:20px 20px 80px;}
+  .topbar{display:flex;align-items:center;gap:10px;margin-bottom:22px;}
+  .back-link{color:var(--sub);text-decoration:none;font-size:20px;padding:4px 8px;}
+  .coin-icon{
+    width:36px;height:36px;border-radius:50%;
+    background:var(--orange);color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;font-weight:700;flex-shrink:0;
+  }
+  .topbar h1{font-size:19px;margin:0;flex:1;font-weight:700;}
+  .panel{border:1px solid var(--track);border-radius:10px;padding:16px;margin-bottom:20px;}
+  .panel h2{font-size:16px;margin:0 0 4px;}
+  .panel .desc{font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.5;}
+
+  .controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin-bottom:10px;}
+  .controls select{
+    font-family:inherit;font-size:12px;color:var(--text);
+    background:var(--bg);border:1px solid var(--track);border-radius:6px;padding:4px 8px;
+  }
+  .mode-toggle{display:inline-flex;border:1px solid var(--track);border-radius:12px;overflow:hidden;}
+  .mode-toggle button{
+    font-family:inherit;font-size:11px;padding:4px 10px;border:none;
+    background:none;color:var(--sub);cursor:pointer;
+  }
+  .mode-toggle button.on{background:var(--orange);color:#fff;}
+
+  .chart-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:11px;color:var(--sub);margin:8px 0 6px;}
+  .chart-legend .item{display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;}
+  .chart-legend .item.off{opacity:0.35;text-decoration:line-through;}
+  .chart-legend .item.dimmed{opacity:0.35;cursor:default;}
+  .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
+  .chart-canvas-wrap{position:relative;}
+  .infl-chart{width:100%;height:260px;display:block;touch-action:pan-y;}
+  .chart-tooltip{
+    position:absolute;top:4px;
+    padding:6px 10px;border:1px solid var(--track);border-radius:8px;
+    background:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,0.15);
+    font-size:11px;line-height:1.6;white-space:nowrap;
+    pointer-events:none;display:none;z-index:5;
+  }
+  .status-line{text-align:center;font-size:11px;color:var(--sub);margin-top:8px;min-height:14px;}
+  .insight{font-size:12px;line-height:1.6;margin:12px 0 0;padding:10px 12px;border:1px dashed var(--track);border-radius:8px;}
+  .insight b{color:var(--orange);}
+
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:10px;border:1px solid var(--track);border-radius:8px;}
+  table.stats{border-collapse:collapse;font-size:11px;white-space:nowrap;width:100%;}
+  table.stats th,table.stats td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--track);}
+  table.stats thead th{color:var(--sub);font-weight:600;background:var(--bg);}
+  table.stats td:first-child,table.stats th:first-child{text-align:left;font-weight:700;position:sticky;left:0;background:var(--bg);}
+  table.stats tr:last-child td{border-bottom:none;}
+  table.stats .cpi td{color:var(--sub);font-style:italic;}
+  table.stats .hot{color:var(--red);}
+  table.stats .cold{color:var(--green);}
+
+  .source-note{text-align:center;font-size:11px;color:var(--sub);margin-top:24px;line-height:1.6;}
+  .source-note a{color:inherit;}
+
+  .bottom-nav{
+    position:fixed;left:0;right:0;bottom:0;display:flex;
+    background:var(--bg);border-top:1px solid var(--track);
+    border-radius:16px 16px 0 0;box-shadow:0 -2px 12px rgba(0,0,0,0.12);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom));z-index:100;
+  }
+  .bottom-nav a{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    color:var(--sub);text-decoration:none;font-size:7px;padding:4px 1px;
+  }
+  .bottom-nav a .icon{font-size:15px;line-height:1;}
+  .bottom-nav a.active{color:var(--orange);}
+
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#0f0f0f;--text:#f2f2f2;--sub:#8f8f8f;--track:#2a2a2a;}
+  }
+  .theme-toggle{background:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:4px;color:var(--text);flex-shrink:0;}
+  :root[data-theme="dark"]{--bg:#0f0f0f;--text:#f2f2f2;--sub:#8f8f8f;--track:#2a2a2a;}
+  :root[data-theme="light"]{--bg:#ffffff;--text:#111111;--sub:#8b8b8b;--track:#e5e7eb;}
+</style>
+<script>
+(function(){
+  var saved = localStorage.getItem("bitdash-theme");
+  if(saved === "light" || saved === "dark") document.documentElement.setAttribute("data-theme", saved);
+})();
+</script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="back-link" href="index.html" title="대시보드로 돌아가기">←</a>
+    <div class="coin-icon">₿</div>
+    <h1>생활물가 인플레이션</h1>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="테마 전환">🌙</button>
+  </header>
+  <script>
+  (function(){
+    var btn = document.getElementById("themeToggle");
+    function current(){
+      var attr = document.documentElement.getAttribute("data-theme");
+      if(attr) return attr;
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    function apply(t){
+      document.documentElement.setAttribute("data-theme", t);
+      localStorage.setItem("bitdash-theme", t);
+      btn.textContent = t === "dark" ? "☀️" : "🌙";
+    }
+    btn.addEventListener("click", function(){ apply(current() === "dark" ? "light" : "dark"); });
+    btn.textContent = current() === "dark" ? "☀️" : "🌙";
+  })();
+  </script>
+
+  <section class="panel">
+    <h2>체감 물가 장기 추이</h2>
+    <div class="desc">짜장면·라면·버스요금·영화표 같은 생활 품목이 기준연도 대비 얼마나 올랐는지 한 화면에서 비교해. 기준연도 가격을 0%(=1배)로 두고, 그 뒤의 누적 상승률을 보여줘. 공식 소비자물가지수(CPI)도 같이 겹쳐서 "통계상 물가"와 "체감 물가"의 차이를 볼 수 있어. 범례를 탭하면 항목을 껐다 켤 수 있고, 차트를 탭하면 그 해 가격을 보여줘.</div>
+
+    <div class="controls">
+      <label for="baseYear">기준연도</label>
+      <select id="baseYear"></select>
+      <span class="mode-toggle">
+        <button type="button" id="modePct" class="on">증가율 %</button>
+        <button type="button" id="modeMult">배수 (log)</button>
+      </span>
+    </div>
+
+    <div class="chart-legend" id="legend"></div>
+    <div class="chart-canvas-wrap">
+      <canvas class="infl-chart" id="chart"></canvas>
+      <div class="chart-tooltip" id="tooltip"></div>
+    </div>
+    <div class="status-line" id="statusLine">&nbsp;</div>
+    <div class="insight" id="insight" style="display:none;"></div>
+  </section>
+
+  <section class="panel">
+    <h2>기준연도 대비 상승 배수</h2>
+    <div class="desc">기준연도 가격과 가장 최근 가격, 몇 배가 됐는지, 그리고 연평균 상승률(CAGR). 공식 CPI보다 많이 오른 항목은 빨간색, 덜 오른 항목은 초록색이야.</div>
+    <div class="table-wrap">
+      <table class="stats" id="statsTable"></table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>최저임금 1시간의 구매력</h2>
+    <div class="desc">최저임금(시급) 한 시간 일해서 살 수 있는 수량. 가격만 보면 다 올랐지만, "한 시간 노동"으로 환산하면 실제로 싸진 것도 많아.</div>
+    <div class="table-wrap">
+      <table class="stats" id="powerTable"></table>
+    </div>
+  </section>
+
+  <p class="source-note">
+    품목 가격: 한국물가정보·통계청·서울시 등 공개 통계에서 널리 인용되는 대표값을 5년 단위로 정리한 근사치 (출처·지역·제품에 따라 다를 수 있음).
+    중간 연도는 선형 보간. CPI: 통계청/OECD (FRED KORCPIALLMINMEI, 연평균).
+    <a href="data/korea-prices.json" target="_blank" rel="noopener">원본 데이터 보기 →</a>
+  </p>
+</div>
+
+<nav class="bottom-nav">
+  <a href="index.html"><span class="icon">₿</span>Home</a>
+  <a href="etf.html"><span class="icon">💰</span>ETF</a>
+  <a href="assets.html"><span class="icon">🌐</span>Assets</a>
+  <a href="onchain.html"><span class="icon">⛓️</span>On-Chain</a>
+  <a href="cycles.html"><span class="icon">🔄</span>Cycles</a>
+  <a href="inflation.html" class="active"><span class="icon">🍜</span>Inflation</a>
+  <a href="news.html"><span class="icon">📰</span>News</a>
+  <a href="university.html"><span class="icon">📚</span>University</a>
+  <a href="dca.html"><span class="icon">🐷</span>DCA</a>
+  <a href="ask.html"><span class="icon">💬</span>Ask</a>
+</nav>
+
+<script>
+(function(){
+  "use strict";
+
+  const CPI_KEY = "cpi";
+  const CPI_COLOR = "#9ca3af";
+  const BASE_YEAR_DEFAULT = 1970;
+
+  let items = []; // [{key,label,color,unit,isWage,firstYear,lastYear,series:{year:price}}]
+  let cpiItem = null;
+  const state = { baseYear: BASE_YEAR_DEFAULT, mode: "pct", hidden: new Set(), highlightYear: null };
+
+  function setStatus(msg){ document.getElementById("statusLine").textContent = msg || " "; }
+  function fmtKrw(n){
+    if(n == null) return "-";
+    if(n < 10) return n.toFixed(1) + "원";
+    return Math.round(n).toLocaleString("ko-KR") + "원";
+  }
+  function fmtMult(r){ return r >= 100 ? "×" + Math.round(r) : "×" + r.toFixed(1); }
+  function fmtPct(r){ const p = (r - 1) * 100; return (p >= 0 ? "+" : "") + Math.round(p).toLocaleString("ko-KR") + "%"; }
+
+  // Sparse yearly table -> dense yearly series by linear interpolation
+  // between known years. No extrapolation past the first/last known year.
+  function densify(prices){
+    const years = Object.keys(prices).map(Number).sort((a,b) => a-b);
+    const out = {};
+    for(let i = 0; i < years.length; i++){
+      const y0 = years[i], v0 = prices[y0];
+      out[y0] = v0;
+      if(i + 1 < years.length){
+        const y1 = years[i+1], v1 = prices[y1];
+        for(let y = y0 + 1; y < y1; y++){
+          out[y] = v0 + (v1 - v0) * ((y - y0) / (y1 - y0));
+        }
+      }
+    }
+    return { series: out, firstYear: years[0], lastYear: years[years.length-1] };
+  }
+
+  function visibleItems(){
+    const all = cpiItem ? items.concat([cpiItem]) : items;
+    return all.filter(it => it.firstYear <= state.baseYear && !state.hidden.has(it.key));
+  }
+
+  function ratioAt(it, year){
+    const base = it.series[state.baseYear], v = it.series[year];
+    if(base == null || v == null) return null;
+    return v / base;
+  }
+
+  function renderLegend(){
+    const el = document.getElementById("legend");
+    const all = cpiItem ? items.concat([cpiItem]) : items;
+    el.innerHTML = all.map(it => {
+      const unavailable = it.firstYear > state.baseYear;
+      const off = state.hidden.has(it.key);
+      const cls = unavailable ? "item dimmed" : off ? "item off" : "item";
+      const suffix = unavailable ? ` (${it.firstYear}년~)` : "";
+      return `<span class="${cls}" data-key="${it.key}" title="${unavailable ? it.firstYear + "년부터 데이터가 있어" : "탭해서 켜기/끄기"}"><span class="swatch" style="background:${it.color};"></span>${it.label}${suffix}</span>`;
+    }).join("");
+    el.querySelectorAll(".item:not(.dimmed)").forEach(node => {
+      node.addEventListener("click", () => {
+        const k = node.dataset.key;
+        if(state.hidden.has(k)) state.hidden.delete(k); else state.hidden.add(k);
+        renderAll();
+      });
+    });
+  }
+
+  function yearRange(){
+    const vis = visibleItems();
+    const maxYear = vis.length ? Math.max(...vis.map(it => it.lastYear)) : state.baseYear + 1;
+    return { min: state.baseYear, max: Math.max(maxYear, state.baseYear + 1) };
+  }
+
+  function drawChart(){
+    const canvas = document.getElementById("chart");
+    const w = canvas.clientWidth, hTotal = canvas.clientHeight || 260;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = hTotal * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,hTotal);
+
+    const vis = visibleItems();
+    if(!vis.length) return;
+    const { min: yMin, max: yMax } = yearRange();
+    const padLeft = 44, padRight = 8, padTop = 8, padBottom = 18;
+    const plotW = w - padLeft - padRight, plotH = hTotal - padTop - padBottom;
+
+    const toY = r => state.mode === "mult" ? Math.log10(r) : (r - 1) * 100;
+    const allY = [];
+    vis.forEach(it => { for(let y = yMin; y <= it.lastYear; y++){ const r = ratioAt(it, y); if(r != null) allY.push(toY(r)); } });
+    let lo = Math.min(0, ...allY), hi = Math.max(...allY);
+    if(hi <= lo) hi = lo + 1;
+    const xAt = year => padLeft + ((year - yMin) / (yMax - yMin)) * plotW;
+    const yAt = v => padTop + plotH - ((v - lo) / (hi - lo)) * plotH;
+
+    // gridlines + axis labels
+    ctx.font = "9px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(140,140,140,0.9)";
+    ctx.strokeStyle = "rgba(150,150,150,0.25)";
+    ctx.setLineDash([3,3]);
+    ctx.lineWidth = 1;
+    let ticks = [];
+    if(state.mode === "mult"){
+      [1,2,5,10,20,50,100,200,500,1000].forEach(m => { const v = Math.log10(m); if(v >= lo && v <= hi) ticks.push({ v, label: "×" + m }); });
+    } else {
+      const range = hi - lo;
+      const rawStep = range / 5;
+      const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const norm = rawStep / mag;
+      const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+      for(let v = Math.ceil(lo / step) * step; v <= hi; v += step) ticks.push({ v, label: (v >= 0 ? "+" : "") + Math.round(v).toLocaleString("en-US") + "%" });
+    }
+    ticks.forEach(t => {
+      const y = yAt(t.v);
+      ctx.beginPath(); ctx.moveTo(padLeft, y); ctx.lineTo(padLeft + plotW, y); ctx.stroke();
+      ctx.textAlign = "right";
+      ctx.fillText(t.label, padLeft - 4, y + 3);
+    });
+    ctx.setLineDash([]);
+
+    const span = yMax - yMin;
+    const xStep = span > 40 ? 10 : span > 15 ? 5 : span > 6 ? 2 : 1;
+    for(let y = Math.ceil(yMin / xStep) * xStep; y <= yMax; y += xStep){
+      const x = xAt(y);
+      ctx.textAlign = y === yMin ? "left" : y === yMax ? "right" : "center";
+      ctx.fillText(String(y), x, hTotal - 4);
+    }
+
+    // lines
+    vis.forEach(it => {
+      ctx.beginPath();
+      let started = false;
+      for(let y = yMin; y <= it.lastYear; y++){
+        const r = ratioAt(it, y);
+        if(r == null){ started = false; continue; }
+        const px = xAt(y), py = yAt(toY(r));
+        if(!started){ ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = it.color;
+      ctx.lineWidth = it.key === CPI_KEY ? 2.5 : 1.5;
+      if(it.key === CPI_KEY) ctx.setLineDash([6,4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    if(state.highlightYear != null){
+      const hx = xAt(state.highlightYear);
+      ctx.beginPath(); ctx.moveTo(hx, padTop); ctx.lineTo(hx, padTop + plotH);
+      ctx.strokeStyle = "rgba(100,100,100,0.5)"; ctx.lineWidth = 1; ctx.stroke();
+      vis.forEach(it => {
+        const r = ratioAt(it, state.highlightYear);
+        if(r == null) return;
+        ctx.beginPath(); ctx.arc(hx, yAt(toY(r)), 3, 0, Math.PI * 2);
+        ctx.fillStyle = it.color; ctx.fill();
+      });
+    }
+  }
+
+  function updateTooltip(year, clientX, clientY){
+    state.highlightYear = year;
+    drawChart();
+    const tooltip = document.getElementById("tooltip");
+    const canvas = document.getElementById("chart");
+    if(year == null){ tooltip.style.display = "none"; return; }
+    const vis = visibleItems();
+    let html = `<div><b>${year}년</b> <span style="color:var(--sub)">(${state.baseYear}년 대비)</span></div>`;
+    vis.forEach(it => {
+      const r = ratioAt(it, year);
+      if(r == null) return;
+      const v = it.series[year];
+      const valueStr = it.key === CPI_KEY ? "" : fmtKrw(v) + " · ";
+      html += `<div><span style="color:${it.color}">●</span> ${it.label}: ${valueStr}<b>${fmtMult(r)}</b> (${fmtPct(r)})</div>`;
+    });
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+    const rect = canvas.getBoundingClientRect();
+    const { min, max } = yearRange();
+    const frac = (year - min) / (max - min);
+    let left = frac * rect.width - tooltip.offsetWidth / 2;
+    left = Math.max(0, Math.min(rect.width - tooltip.offsetWidth, left));
+    tooltip.style.left = left + "px";
+    if(clientY != null){
+      const fracY = (clientY - rect.top) / rect.height;
+      if(fracY < 0.5){ tooltip.style.top = "auto"; tooltip.style.bottom = "22px"; }
+      else { tooltip.style.bottom = "auto"; tooltip.style.top = "4px"; }
+    }
+  }
+
+  function attachInteraction(){
+    const canvas = document.getElementById("chart");
+    const toYear = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const { min, max } = yearRange();
+      const padLeft = 44, padRight = 8;
+      const frac = (clientX - rect.left - padLeft) / (rect.width - padLeft - padRight);
+      return Math.round(min + Math.max(0, Math.min(1, frac)) * (max - min));
+    };
+    canvas.addEventListener("mousemove", e => updateTooltip(toYear(e.clientX), e.clientX, e.clientY));
+    canvas.addEventListener("mouseleave", () => updateTooltip(null));
+    canvas.addEventListener("touchstart", e => { const t = e.touches[0]; updateTooltip(toYear(t.clientX), t.clientX, t.clientY); }, { passive: true });
+    canvas.addEventListener("touchmove", e => { const t = e.touches[0]; updateTooltip(toYear(t.clientX), t.clientX, t.clientY); }, { passive: true });
+    canvas.addEventListener("touchend", () => updateTooltip(null));
+  }
+
+  function cagr(ratio, years){ return years > 0 ? (Math.pow(ratio, 1 / years) - 1) * 100 : 0; }
+
+  function renderStats(){
+    const table = document.getElementById("statsTable");
+    const all = (cpiItem ? items.concat([cpiItem]) : items).filter(it => it.firstYear <= state.baseYear);
+    const cpiRatio = cpiItem && cpiItem.firstYear <= state.baseYear ? ratioAt(cpiItem, cpiItem.lastYear) : null;
+    const rows = all.map(it => {
+      const r = ratioAt(it, it.lastYear);
+      return { it, r, years: it.lastYear - state.baseYear };
+    }).filter(x => x.r != null);
+    rows.sort((a, b) => (a.it.key === CPI_KEY ? 1 : b.it.key === CPI_KEY ? -1 : b.r - a.r));
+    table.innerHTML = `<thead><tr><th>항목</th><th>${state.baseYear}년</th><th>최근</th><th>배수</th><th>연평균</th></tr></thead><tbody>` +
+      rows.map(({ it, r, years }) => {
+        const isCpi = it.key === CPI_KEY;
+        const cls = isCpi ? "cpi" : cpiRatio == null ? "" : r > cpiRatio * 1.05 ? "hot" : r < cpiRatio * 0.95 ? "cold" : "";
+        const baseStr = isCpi ? "100" : fmtKrw(it.series[state.baseYear]);
+        const nowStr = isCpi ? Math.round(r * 100) : fmtKrw(it.series[it.lastYear]);
+        return `<tr class="${cls}"><td>${it.label}${isCpi ? "" : ""}</td><td>${baseStr}</td><td>${nowStr} <span style="color:var(--sub)">(${it.lastYear})</span></td><td class="${cls}"><b>${fmtMult(r)}</b></td><td>${cagr(r, years).toFixed(1)}%/년</td></tr>`;
+      }).join("") + "</tbody>";
+
+    // one-line insight
+    const priced = rows.filter(x => x.it.key !== CPI_KEY && !x.it.isWage);
+    const insight = document.getElementById("insight");
+    if(priced.length >= 2){
+      const top = priced[0], bottom = priced[priced.length - 1];
+      let text = `${state.baseYear}년 이후 가장 많이 오른 건 <b>${top.it.label} ${fmtMult(top.r)}</b>, 가장 덜 오른 건 <b>${bottom.it.label} ${fmtMult(bottom.r)}</b>.`;
+      if(cpiRatio != null) text += ` 같은 기간 공식 소비자물가지수는 <b>${fmtMult(cpiRatio)}</b> — 실제 생활 품목 대부분이 통계상 물가보다 더 올랐어.`;
+      const wage = rows.find(x => x.it.isWage);
+      if(wage) text += ` 최저임금은 <b>${fmtMult(wage.r)}</b>로, 물건값보다 빠르게 오른 편이야.`;
+      insight.innerHTML = text;
+      insight.style.display = "block";
+    } else {
+      insight.style.display = "none";
+    }
+  }
+
+  function renderPower(){
+    const table = document.getElementById("powerTable");
+    const wage = items.find(it => it.isWage);
+    if(!wage){ table.innerHTML = ""; return; }
+    const goods = items.filter(it => !it.isWage && ["jajang","ramen","bus","movie","cigarette","rice"].includes(it.key));
+    const candidates = [1990, 2000, 2010, 2020];
+    const latest = Math.min(wage.lastYear, ...goods.map(g => g.lastYear));
+    const years = candidates.filter(y => y >= wage.firstYear && y < latest).concat([latest]);
+    table.innerHTML = `<thead><tr><th>1시간 = </th>${years.map(y => `<th>${y}년</th>`).join("")}</tr></thead><tbody>` +
+      goods.map(g => {
+        const cells = years.map(y => {
+          const w = wage.series[y], p = g.series[y];
+          if(w == null || p == null) return "<td>-</td>";
+          const n = w / p;
+          return `<td>${n >= 10 ? n.toFixed(0) : n.toFixed(1)}${g.unit}</td>`;
+        }).join("");
+        return `<tr><td>${g.label}</td>${cells}</tr>`;
+      }).join("") + "</tbody>";
+  }
+
+  function renderAll(){
+    renderLegend();
+    drawChart();
+    renderStats();
+    renderPower();
+  }
+
+  function populateBaseYears(){
+    const sel = document.getElementById("baseYear");
+    const minYear = Math.min(...items.map(it => it.firstYear));
+    const maxYear = Math.max(...items.map(it => it.lastYear)) - 1;
+    const opts = [];
+    for(let y = minYear; y <= maxYear; y++) opts.push(y);
+    sel.innerHTML = opts.map(y => `<option value="${y}"${y === state.baseYear ? " selected" : ""}>${y}년</option>`).join("");
+    sel.addEventListener("change", () => { state.baseYear = Number(sel.value); state.highlightYear = null; renderAll(); });
+  }
+
+  async function load(){
+    try{
+      const res = await fetch("data/korea-prices.json");
+      if(!res.ok) throw new Error("데이터 " + res.status);
+      const data = await res.json();
+      items = data.items.map(it => ({ ...it, ...densify(it.prices) }));
+      populateBaseYears();
+      renderAll();
+      setStatus(`${items.length}개 품목 · 기준연도를 바꿔가며 비교해봐`);
+    }catch(e){
+      setStatus("물가 데이터 로드 실패: " + e.message);
+      return;
+    }
+
+    try{
+      const res = await fetch("/api/korea-cpi");
+      if(!res.ok) throw new Error("API " + res.status);
+      const data = await res.json();
+      const prices = {};
+      (data.yearly || []).forEach(p => { prices[p.year] = p.value; });
+      if(Object.keys(prices).length < 2) throw new Error("CPI 데이터 없음");
+      cpiItem = { key: CPI_KEY, label: "소비자물가지수 (공식 CPI)", color: CPI_COLOR, unit: "", ...densify(prices) };
+      renderAll();
+    }catch(e){
+      setStatus(`공식 CPI는 못 불러왔어 (${e.message}) — 품목 가격만 표시 중`);
+    }
+  }
+
+  document.getElementById("modePct").addEventListener("click", () => { state.mode = "pct"; document.getElementById("modePct").classList.add("on"); document.getElementById("modeMult").classList.remove("on"); drawChart(); });
+  document.getElementById("modeMult").addEventListener("click", () => { state.mode = "mult"; document.getElementById("modeMult").classList.add("on"); document.getElementById("modePct").classList.remove("on"); drawChart(); });
+  window.addEventListener("resize", drawChart);
+  attachInteraction();
+  load();
+})();
+</script>
+</body>
+</html>

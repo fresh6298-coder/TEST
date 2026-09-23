@@ -651,10 +651,41 @@ async function handleUsDebt(req, res) {
   });
 }
 
+// Korea CPI (all items, OECD MEI series, 2015=100, monthly since 1970)
+// via FRED's keyless CSV export — same mechanism as the debt-to-GDP
+// series above. Reduced to a calendar-year average so it lines up with
+// the yearly price table in data/korea-prices.json.
+const FRED_KOREA_CPI_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=KORCPIALLMINMEI";
+
+async function handleKoreaCpi(req, res) {
+  try {
+    const r = await fetch(FRED_KOREA_CPI_CSV, { headers: { Accept: "text/csv" } });
+    if (!r.ok) throw new Error(`fred KORCPIALLMINMEI -> ${r.status}`);
+    const text = await r.text();
+    const sums = {};
+    text.trim().split("\n").slice(1).forEach((line) => {
+      const [date, value] = line.split(",");
+      const year = date.slice(0, 4);
+      const v = parseFloat(value);
+      if (!/^\d{4}$/.test(year) || Number.isNaN(v)) return;
+      if (!sums[year]) sums[year] = { total: 0, n: 0 };
+      sums[year].total += v;
+      sums[year].n += 1;
+    });
+    const yearly = Object.keys(sums).sort().map((year) => ({ year: Number(year), value: sums[year].total / sums[year].n }));
+    if (!yearly.length) throw new Error("fred KORCPIALLMINMEI -> no rows");
+    res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=43200");
+    res.status(200).json({ fetchedAt: new Date().toISOString(), series: "KORCPIALLMINMEI", baseIndex: "2015=100", yearly });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+}
+
 export default async function handler(req, res) {
   const type = req.query && req.query.type;
   if (type === "hodl-waves") return handleHodlWaves(req, res);
   if (type === "m2-global") return handleM2Global(req, res);
   if (type === "us-debt") return handleUsDebt(req, res);
+  if (type === "korea-cpi") return handleKoreaCpi(req, res);
   return handleOnchainMetrics(req, res);
 }
