@@ -165,7 +165,7 @@
 
   <section class="panel">
     <h2>최저임금 1시간의 구매력</h2>
-    <div class="desc">최저임금(시급) 한 시간 일해서 살 수 있는 수량. 가격만 보면 다 올랐지만, "한 시간 노동"으로 환산하면 실제로 싸진 것도 많아.</div>
+    <div class="desc">최저임금(시급) 한 시간 일해서 살 수 있는 수량. 가격만 보면 다 올랐지만, "한 시간 노동"으로 환산하면 실제로 싸진 것도 많아. 서울 아파트는 반대로 "1평 사려면 몇 시간 일해야 하는지"로 표시했어.</div>
     <div class="table-wrap">
       <table class="stats" id="powerTable"></table>
     </div>
@@ -438,7 +438,7 @@
     const table = document.getElementById("powerTable");
     const wage = items.find(it => it.isWage);
     if(!wage){ table.innerHTML = ""; return; }
-    const goods = items.filter(it => !it.isWage && ["jajang","ramen","bus","movie","cigarette","rice"].includes(it.key));
+    const goods = items.filter(it => !it.isWage && ["jajang","ramen","coffee","soju","bus","movie","cigarette","rice","seoulapt"].includes(it.key));
     const candidates = [1990, 2000, 2010, 2020];
     const latest = Math.min(wage.lastYear, ...goods.map(g => g.lastYear));
     const years = candidates.filter(y => y >= wage.firstYear && y < latest).concat([latest]);
@@ -447,10 +447,17 @@
         const cells = years.map(y => {
           const w = wage.series[y], p = g.series[y];
           if(w == null || p == null) return "<td>-</td>";
+          if(g.invertPower){
+            // Too expensive to express as "units per hour" — flip it to
+            // "hours of work per unit" instead (e.g. hours per 평).
+            const hours = p / w;
+            return `<td>${Math.round(hours).toLocaleString("ko-KR")}시간</td>`;
+          }
           const n = w / p;
           return `<td>${n >= 10 ? n.toFixed(0) : n.toFixed(1)}${g.unit}</td>`;
         }).join("");
-        return `<tr><td>${g.label}</td>${cells}</tr>`;
+        const label = g.invertPower ? `${g.label} 1${g.unit} =` : g.label;
+        return `<tr${g.invertPower ? ' style="color:var(--red)"' : ""}><td>${label}</td>${cells}</tr>`;
       }).join("") + "</tbody>";
   }
 
