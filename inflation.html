@@ -52,7 +52,7 @@
   .chart-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:11px;color:var(--sub);margin:8px 0 6px;}
   .chart-legend .item{display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;}
   .chart-legend .item.off{opacity:0.35;text-decoration:line-through;}
-  .chart-legend .item.dimmed{opacity:0.35;cursor:default;}
+  .chart-legend .item.dimmed{opacity:0.45;border-bottom:1px dotted var(--sub);}
   .chart-legend .swatch{width:10px;height:2px;display:inline-block;}
   .chart-canvas-wrap{position:relative;}
   .infl-chart{width:100%;height:260px;display:block;touch-action:pan-y;}
@@ -249,11 +249,24 @@
       const off = state.hidden.has(it.key);
       const cls = unavailable ? "item dimmed" : off ? "item off" : "item";
       const suffix = unavailable ? ` (${it.firstYear}년~)` : "";
-      return `<span class="${cls}" data-key="${it.key}" title="${unavailable ? it.firstYear + "년부터 데이터가 있어" : "탭해서 켜기/끄기"}"><span class="swatch" style="background:${it.color};"></span>${it.label}${suffix}</span>`;
+      return `<span class="${cls}" data-key="${it.key}" title="${unavailable ? "탭하면 기준연도를 " + it.firstYear + "년으로 바꿔서 보여줘" : "탭해서 켜기/끄기"}"><span class="swatch" style="background:${it.color};"></span>${it.label}${suffix}</span>`;
     }).join("");
-    el.querySelectorAll(".item:not(.dimmed)").forEach(node => {
+    el.querySelectorAll(".item").forEach(node => {
       node.addEventListener("click", () => {
         const k = node.dataset.key;
+        const it = all.find(x => x.key === k);
+        if(it && it.firstYear > state.baseYear){
+          // No price at the current base year to normalize against, so
+          // instead of a dead tap, move the base year to where this
+          // item's data starts — every line gets rebased there together.
+          state.baseYear = it.firstYear;
+          state.hidden.delete(k);
+          state.highlightYear = null;
+          document.getElementById("baseYear").value = String(it.firstYear);
+          renderAll();
+          setStatus(`${it.label}은(는) ${it.firstYear}년부터 데이터가 있어서 기준연도를 ${it.firstYear}년으로 바꿨어`);
+          return;
+        }
         if(state.hidden.has(k)) state.hidden.delete(k); else state.hidden.add(k);
         renderAll();
       });
